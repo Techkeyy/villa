@@ -1,0 +1,18 @@
+{
+  "name": "villa",
+  "version": "0.0.1",
+  "private": true,
+  "description": "VILLA — autonomous liquidity manager for DreamDEX Event Contracts",
+  "type": "module",
+  "scripts": {
+    "doctor": "node scripts/doctor.mjs",
+    "discover": "node scripts/discover.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@somnia-chain/markets-sdk": "^0.28.1",
+    "viem": "^2.55.19"
+  }
+}

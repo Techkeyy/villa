@@ -1,0 +1,43 @@
+# secrets
+.env
+.env.local
+.env.*
+!.env.example
+*.key
+*.pem
+keystore/
+mnemonic.txt
+private-key.txt
+
+# node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.pnpm-store/
+
+# build
+dist/
+build/
+coverage/
+.cache/
+.next/
+out/
+*.tsbuildinfo
+
+# foundry
+cache/
+out/
+broadcast/
+
+# local clones / scratch (not part of the product)
+.scratch/
+
+# os / editor
+.DS_Store
+Thumbs.db
+Desktop.ini
+.vscode/
+.idea/
+*.swp
