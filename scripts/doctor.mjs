@@ -5,7 +5,18 @@
  * Statuses: PASS | WARN | FAIL
  * FAIL exits non-zero. Secrets are never printed.
  */
+import { existsSync, readFileSync } from "node:fs";
 import { SomniaMarkets, SOMNIA_TESTNET_ADDRESSES, SOMNIA_TESTNET_PRICE_FEED } from "@somnia-chain/markets-sdk";
+
+if (existsSync(".env") && !process.env.OPERATOR_PRIVATE_KEY) {
+  for (const line of readFileSync(".env", "utf8").split(/\r?\n/)) {
+    if (!line || line.startsWith("#")) continue;
+    const eq = line.indexOf("=");
+    if (eq <= 0) continue;
+    const name = line.slice(0, eq);
+    if (process.env[name] === undefined) process.env[name] = line.slice(eq + 1);
+  }
+}
 import { somniaShannon } from "@somnia-chain/markets-sdk/chains";
 
 const RPC_URL = process.env.RPC_URL || "https://dream-rpc.somnia.network";

@@ -12,15 +12,17 @@ This repository is in **onboarding / verification**. There is no product UI and 
 
 ## Status
 
-Shannon reads work. Writes are not proven in this repo. See `docs/TECHNICAL_VERIFICATION.md`.
+Shannon reads work. The write-path script can discover a live BTC market and plan a post-only BUY. **Wet place/cancel is blocked until the disposable wallet has STT.** See `docs/TECHNICAL_VERIFICATION.md`.
 
 ```bash
 npm install
+npm test
 npm run doctor
-node scripts/discover.mjs
+npm run verify:write:dry
+npm run verify:write
 ```
 
-Both scripts are read-only.
+`verify:write` sends one tiny post-only BUY and cancels it. It needs `OPERATOR_PRIVATE_KEY` in gitignored `.env`, STT for gas, and tUSDC (`npm run fund:tusdc` after STT arrives).
 
 ## Docs
 

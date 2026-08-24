@@ -69,3 +69,21 @@ Only decisions that change the build. Each one has a why and a source.
 **Why:** Gotcha #13. Consumer docs still say BTC/ETH 15m and 1h. Live indexer 2026-08-24 also served 60s, 300s, 900s, 3600s, 14400s (plus a junk `898s` row). 1m/5m carry nonzero `strike`; 15m+ often `strike: "0"` and need `getOpeningPrices`.
 
 **Consequence:** Filter by `asset` + `intervalSec`. MVP may pick one cadence for the demo (1m fits a video; 15m matches the marketing line). Decision of which cadence is still open; both exist.
+
+## D13. Write-path uses `trader.placeOrder`, not unified `createOrder`
+
+**Why:** Installed 0.28.1 `CreateOrderParams` has `postOnly` but **no** `expireTimestampNs`. Binary `PlaceOrderParams` does, and defaults to **market expiry** if omitted (`trade.ts`). A crashed test must not leave a quote until window end.
+
+**Consequence:** `scripts/verify-write-path.mjs` sends `ORDER_TYPE.POST_ONLY` with an explicit nanosecond expiry capped below market expiry.
+
+## D14. STT faucet is interactive; tUSDC faucet is on-chain
+
+**Why:** Official STT sources (DoraHacks Telegram, https://testnet.somnia.network/, https://cloud.google.com/application/web3/faucet/somnia/shannon) require a browser/account. SDK `trader.faucet()` mints tUSDC but needs STT gas. Confirmed 2026-08-24: wallet 0 STT, so faucet tx cannot be sent.
+
+**Consequence:** Wet write-path is blocked on a human STT drip. Do not invent a third-party faucet.
+
+## D15. Confirm resting orders on-chain, not by receipt
+
+**Why:** SDK `getOrderOnchain` is documented for "right after placeOrder" while the indexer lags (`orders.ts`). Cancelled orders read as `null`.
+
+**Consequence:** The write-path script polls `getOrderOnchain` for presence and absence. `fetchOpenOrders` is secondary.

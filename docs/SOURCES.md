@@ -10,6 +10,7 @@ Map claims to where they came from. Prefer current official implementation over 
 | Displayed deadline 2026-09-08 18:00, submission 2026-08-25 00:00 | same, plus listing https://dorahacks.io/hackathon/event-contracts |
 | TZ conflict | Eventbrite https://www.eventbrite.com/e/event-contracts-hackathon-tickets-1998344868295 (secondary) |
 | Telegram / STT pointer | DoraHacks Contact Us |
+| STT faucet (interactive) | https://cloud.google.com/application/web3/faucet/somnia/shannon and https://testnet.somnia.network/ |
 | Bot kit / docs / bot builder links | DoraHacks Developer Resources |
 
 ## DreamDEX / Somnia docs (fetched 2026-08-24)
@@ -38,6 +39,11 @@ Path: `node_modules/@somnia-chain/markets-sdk/` version **0.28.1**.
 | Spot operator registry is SPOT-ONLY | `src/spot/operatorGrants.ts` |
 | BinaryMarket fields: strike, interval, expiry, venueId | `src/markets.ts` |
 | `getOpeningPrices` | `src/createClient.ts` |
+| Binary `trader.placeOrder` / `ORDER_TYPE.POST_ONLY` / default expiry = market expiry | `src/trade.ts` |
+| Unified `createOrder` postOnly, no expire field | `src/unified/exchange.ts` `CreateOrderParams` |
+| `getOrderOnchain` (active only; cancel → null) | `src/orders.ts` |
+| tUSDC `trader.faucet()` | `src/testnet.ts` |
+| `getBinaryBookParams` tick/lot/min | `src/orders.ts` |
 | Price feed types; 1m/1h/1d candles | `src/priceFeed/types.ts` |
 | Testnet addresses + `SOMNIA_TESTNET_PRICE_FEED` | `src/addresses.ts`, `src/config.ts` |
 

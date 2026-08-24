@@ -6,7 +6,11 @@
   "type": "module",
   "scripts": {
     "doctor": "node scripts/doctor.mjs",
-    "discover": "node scripts/discover.mjs"
+    "discover": "node scripts/discover.mjs",
+    "test": "node --test scripts/lib/write-path.test.mjs",
+    "verify:write": "node --env-file=.env scripts/verify-write-path.mjs",
+    "verify:write:dry": "node --env-file=.env scripts/verify-write-path.mjs --dry-run",
+    "fund:tusdc": "node --env-file=.env scripts/fund-tusdc.mjs"
   },
   "engines": {
     "node": ">=20"

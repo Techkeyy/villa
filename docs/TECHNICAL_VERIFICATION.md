@@ -16,7 +16,12 @@ Evidence is from this repo's installed SDK (`node_modules/@somnia-chain/markets-
 | BinaryMarketsModule bytecode | VERIFIED | 130 bytes at `0x3ecC…e388` (proxy-sized) | `eth_getCode` | Address from official contracts page is occupied | Do not hardcode per-window pools |
 | tUSDC bytecode | VERIFIED | 1965 bytes at `0x70a86D…5d8E` | `eth_getCode` | Faucet token exists | 6 decimals on testnet |
 | Foundry | VERIFIED WITH CONDITIONS | forge 1.7.1 at `~\.foundry\bin`, **not on PATH** | `Get-Command forge` failed; direct exe worked | Optional for MVP | Do not start Solidity until PATH is explicit |
-| Operator wallet / STT / tUSDC balances | NOT YET VERIFIED | no key created | — | Writes blocked | Create disposable key before write tests |
+| Operator wallet | VERIFIED | Disposable Shannon EOA created locally into gitignored `.env`. Public address `0xaf4ee6C0c6Ff6337F4C4F07b87C8343dF73e8d37`. Key never committed | `git check-ignore -v .env` | Safe to use for testnet writes once funded | Never reuse a mainnet/user wallet |
+| STT balance | NOT YET VERIFIED (funding blocked) | `getBalance` = 0 wei | live RPC | Official STT faucets are interactive (Google Cloud Web3 + DoraHacks Telegram / testnet hub). No CLI faucet found | User must drip STT to the public address before the wet gate can pass |
+| tUSDC balance | NOT YET VERIFIED (needs STT gas) | `getErc20Balance` = 0 raw | SDK read | On-chain `trader.faucet()` exists in sdk 0.28.1 (`src/testnet.ts`); cannot send without STT | After STT arrives, run `npm run fund:tusdc` |
+| Event Contract order placement | VERIFIED WITH CONDITIONS | `trader.placeOrder` + `ORDER_TYPE.POST_ONLY` in 0.28.1; dry-run selected a live BTC 24h market and a tick-aligned BUY at 0.666 / 0.001 | `npm run verify:write:dry` 2026-08-24 | Method exists; **wet send not executed** (no gas) | Wet gate still required |
+| Post-only / tick / lot / expiry plan | VERIFIED WITH CONDITIONS | Live `getBinaryBookParams`: tick=lot=min=1000 (6dp = 0.001). Plan: BUY_YES 0.666, expireNs capped to market. Dry-run refused to send with 0 STT | same | Helpers unit-tested; book was 0.676 / 0.704 so 0.666 should rest | Prefer `trader.placeOrder` (explicit `expireTimestampNs`); unified `createOrder` cannot set expiry |
+| Order visibility / cancel | NEEDS LIVE TESTING | `getOrderOnchain` is the on-chain confirm; `fetchOpenOrders` is indexer backup | script written, not sent | Do not claim until a wet run | — |
 | Deadline timezone | NOT YET VERIFIED | DoraHacks 2026-09-08 18:00 unlabelled; Eventbrite disagrees | Docs only | Confirm in Telegram | Submit earlier than the displayed time |
 
 ## Discovery and metadata
@@ -26,7 +31,7 @@ Evidence is from this repo's installed SDK (`node_modules/@somnia-chain/markets-
 | `loadMarkets()` | VERIFIED | 557 tradables, 548 binary, 12 `active` | `scripts/discover.mjs` | Works without a signer | First-pass discovery |
 | `listBinaryMarkets()` | VERIFIED | 200 rows: BTC/ETH 100 each | same | Works | Use for settled scan + interval census |
 | Live assets | VERIFIED | BTC and ETH only in sample | same | Matches consumer docs | Do not invent other underlyings |
-| Live intervals | VERIFIED WITH CONDITIONS | Counts in 200 rows: 60s×156, 300s×30, 900s×9, 3600s×2, 14400s×2, **898s×1** | same | **Disagrees with consumer docs** ("15m and 1h today") | Do not hardcode 15m/1h. Treat 898s as junk. 24h not seen in this 200-row window (Unknown, not disproven) |
+| Live intervals | VERIFIED WITH CONDITIONS | `listBinaryMarkets` 200-row sample: 60/300/900/3600/14400s. `loadMarkets` later returned a **86400s (24h)** BTC window `BTC-0-25AUG26/tUSDC` with on-chain status 1 | discover + `verify-write-path --dry-run` | Consumer docs (15m/1h) are stale. 24h exists | Do not hardcode cadences. Write-path prefers ≥5m |
 | Indexed status vs live | VERIFIED | 10 `Trading`, 190 `Finalized` in 200; official gotcha #1; SDK `BinaryMarket.status` comment: timestamp transitions emit no events | discover + SDK `markets.ts` | Never write on indexer status alone | Always `getMarketOnchain` → `status === 1` |
 | On-chain market status | VERIFIED | Sample future window `status: 1`, `isResolved: false` | `getMarketOnchain` | Matches Trading enum in kit `MARKET_STATUS` | Gate every write |
 | Strike field | VERIFIED | 1m/5m nonzero (e.g. BTC `7845797`); 15m/1h/4h often `"0"` | discover | Two market kinds | 1m/5m can use `strike`; longer windows need opening price |
