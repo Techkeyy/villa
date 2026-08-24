@@ -87,3 +87,15 @@ Only decisions that change the build. Each one has a why and a source.
 **Why:** SDK `getOrderOnchain` is documented for "right after placeOrder" while the indexer lags (`orders.ts`). Cancelled orders read as `null`.
 
 **Consequence:** The write-path script polls `getOrderOnchain` for presence and absence. `fetchOpenOrders` is secondary.
+
+## D16. Wet BUY rest+cancel is proven; do not inflate it
+
+**Why:** 2026-08-24 wet run placed BUY_YES 0.001 @ 0.774 on BTC 24h, saw it on-chain, cancelled it, escrow returned. Indexer listed the open order on the first poll (0ms) in this instance.
+
+**Consequence:** Quote engine can start from this place/cancel path. Do **not** treat SELL, mint, fills, or other intervals as verified. `loadMarkets()` remains slow (~3 min) and the SDK process can hang after the last write — later architecture should use a bounded client lifetime, not assume clean process exit.
+
+## D17. tUSDC faucet amount is explicit and small
+
+**Why:** SDK default is 10_000 (the cap). The write-path needs ~0.001 tUSDC of escrow. `fund-tusdc.mjs` requests **100**.
+
+**Consequence:** Keep faucet amounts as an argument, never the silent cap.

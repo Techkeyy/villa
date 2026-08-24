@@ -43,6 +43,7 @@ const MIN_INTERVAL_SEC = 300;
 const MIN_LEFT_SEC = 120;
 const POLL_MS = 400;
 const POLL_ATTEMPTS = 25;
+const CROSS_RETRIES = 3;
 
 function log(step, detail = "") {
   const extra = detail ? `  ${detail}` : "";
@@ -167,7 +168,7 @@ try {
   const bestAsk = bestAskH !== undefined ? toRaw(Number(bestAskH).toFixed(decimals), decimals) : undefined;
 
   const qty = minValidQuantity(bookParams);
-  const price = selectRestingBuyPrice({
+  let price = selectRestingBuyPrice({
     bestBid,
     bestAsk,
     tickSize: bookParams.tickSize,
@@ -231,21 +232,42 @@ try {
   }
 
   let placed;
-  try {
-    placed = await exchange.trader.placeOrder({
-      pool: onchain.pool,
-      side: "BUY_YES",
-      price,
-      quantity: qty,
-      orderType: ORDER_TYPE.POST_ONLY,
-      expireTimestampNs: expireNs,
-    });
-  } catch (err) {
-    if (err instanceof ContractRevertError && isPostOnlyWouldCross(err)) {
-      fail("contract revert", "PostOnlyWouldCross — book moved through our price between read and send");
+  let placePrice = price;
+  for (let attempt = 1; attempt <= CROSS_RETRIES; attempt++) {
+    try {
+      placed = await exchange.trader.placeOrder({
+        pool: onchain.pool,
+        side: "BUY_YES",
+        price: placePrice,
+        quantity: qty,
+        orderType: ORDER_TYPE.POST_ONLY,
+        expireTimestampNs: expireNs,
+      });
+      break;
+    } catch (err) {
+      const cross = err instanceof ContractRevertError && isPostOnlyWouldCross(err);
+      if (!cross || attempt === CROSS_RETRIES) {
+        if (cross) {
+          fail("contract revert", `PostOnlyWouldCross after ${CROSS_RETRIES} bounded retries`);
+        }
+        fail("contract revert", `${err?.errorName || err?.name || "revert"}: ${err?.message || err}`);
+      }
+      log("PostOnlyWouldCross", `attempt ${attempt}/${CROSS_RETRIES} — refresh book and reprice`);
+      const refreshed = await exchange.fetchOrderBook(yesSymbol, 5);
+      const rb = refreshed.bids[0]?.[0];
+      const ra = refreshed.asks[0]?.[0];
+      placePrice = selectRestingBuyPrice({
+        bestBid: rb !== undefined ? toRaw(Number(rb).toFixed(decimals), decimals) : undefined,
+        bestAsk: ra !== undefined ? toRaw(Number(ra).toFixed(decimals), decimals) : undefined,
+        tickSize: bookParams.tickSize,
+        one,
+        parkTicks: 10 + attempt * 5,
+      });
+      log("reprice", fromRaw(placePrice, decimals));
     }
-    fail("contract revert", `${err?.errorName || err?.name || "revert"}: ${err?.message || err}`);
   }
+  if (!placed) fail("contract revert", "placeOrder returned nothing");
+  price = placePrice;
 
   placedPool = onchain.pool;
   placedOrderId = placed.orderId;
@@ -351,6 +373,7 @@ try {
     tusdcAfterRaw: String(tusdcAfter),
   }));
   log("PASS wet write-path: placed post-only BUY, saw it on-chain, cancelled it, saw it gone");
+  process.exit(0);
 } catch (err) {
   if (process.exitCode !== 1) {
     const kind =

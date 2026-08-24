@@ -17,11 +17,12 @@ Evidence is from this repo's installed SDK (`node_modules/@somnia-chain/markets-
 | tUSDC bytecode | VERIFIED | 1965 bytes at `0x70a86D…5d8E` | `eth_getCode` | Faucet token exists | 6 decimals on testnet |
 | Foundry | VERIFIED WITH CONDITIONS | forge 1.7.1 at `~\.foundry\bin`, **not on PATH** | `Get-Command forge` failed; direct exe worked | Optional for MVP | Do not start Solidity until PATH is explicit |
 | Operator wallet | VERIFIED | Disposable Shannon EOA created locally into gitignored `.env`. Public address `0xaf4ee6C0c6Ff6337F4C4F07b87C8343dF73e8d37`. Key never committed | `git check-ignore -v .env` | Safe to use for testnet writes once funded | Never reuse a mainnet/user wallet |
-| STT balance | NOT YET VERIFIED (funding blocked) | `getBalance` = 0 wei | live RPC | Official STT faucets are interactive (Google Cloud Web3 + DoraHacks Telegram / testnet hub). No CLI faucet found | User must drip STT to the public address before the wet gate can pass |
-| tUSDC balance | NOT YET VERIFIED (needs STT gas) | `getErc20Balance` = 0 raw | SDK read | On-chain `trader.faucet()` exists in sdk 0.28.1 (`src/testnet.ts`); cannot send without STT | After STT arrives, run `npm run fund:tusdc` |
-| Event Contract order placement | VERIFIED WITH CONDITIONS | `trader.placeOrder` + `ORDER_TYPE.POST_ONLY` in 0.28.1; dry-run selected a live BTC 24h market and a tick-aligned BUY at 0.666 / 0.001 | `npm run verify:write:dry` 2026-08-24 | Method exists; **wet send not executed** (no gas) | Wet gate still required |
-| Post-only / tick / lot / expiry plan | VERIFIED WITH CONDITIONS | Live `getBinaryBookParams`: tick=lot=min=1000 (6dp = 0.001). Plan: BUY_YES 0.666, expireNs capped to market. Dry-run refused to send with 0 STT | same | Helpers unit-tested; book was 0.676 / 0.704 so 0.666 should rest | Prefer `trader.placeOrder` (explicit `expireTimestampNs`); unified `createOrder` cannot set expiry |
-| Order visibility / cancel | NEEDS LIVE TESTING | `getOrderOnchain` is the on-chain confirm; `fetchOpenOrders` is indexer backup | script written, not sent | Do not claim until a wet run | — |
+| STT balance | VERIFIED | Manual faucet drip. Live `getBalance` = **50 STT**, then 49.998481172 before place, 49.992880118 after place+cancel | RPC 2026-08-24 | Enough gas for faucet + two writes | Keep a disposable key; do not drain |
+| tUSDC balance | VERIFIED | `trader.faucet({ amount: 100e6 })` → **100 tUSDC** (raw 100000000). After BUY escrow+cancel, balance **unchanged** (escrow returned) | `npm run fund:tusdc` tx `0xe87717702926bbeabf97b8fdac68079bebcbb329f8318da6c9fa749ae8c1be9a` | On-chain faucet works once STT exists. Cap is 10_000; we minted 100 | Do not mint 10k unless needed |
+| Event Contract **BUY** placement | VERIFIED | Wet `trader.placeOrder` POST_ONLY BUY_YES 0.001 @ 0.774 on live BTC 24h. receipt success, **0 fills** | `npm run verify:write` tx `0x345cae9516dc96c275e8cc204e36a060916f184373d185d462526d29fe438898` | A tiny non-crossing buy rests. **Does not prove SELL, mint, or other intervals** | Use explicit `expireTimestampNs` |
+| Post-only / tick / lot | VERIFIED | tick=lot=min=1000 (0.001). Book 0.784/0.81; we bid 0.774 (10 ticks under). No `PostOnlyWouldCross` | same wet run | Grid math matched the pool | Bounded retry exists if the book moves |
+| Order visibility | VERIFIED | `getOrderOnchain` returned the order immediately (`confirmMs: 0`): id `18446744073709718435`, owner our wallet, isBid true, remaining 1000 | same | On-chain read is the source of truth right after place | Still poll; 0ms may not generalize |
+| Cancel | VERIFIED | `trader.cancelOrder` tx `0x2f6e566147e1da78d0d81dee308bbf631444a82c2f4cf99b1f61cda7a0ee673b`; `getOrderOnchain` then `null`/`gone` at 0ms | same | **This exact order** was removed. Does not prove cancel-all or fill cleanup | Cleanup only cancels the id this run created |
 | Deadline timezone | NOT YET VERIFIED | DoraHacks 2026-09-08 18:00 unlabelled; Eventbrite disagrees | Docs only | Confirm in Telegram | Submit earlier than the displayed time |
 
 ## Discovery and metadata
@@ -56,8 +57,8 @@ Evidence is from this repo's installed SDK (`node_modules/@somnia-chain/markets-
 | Capability | Status | Evidence | Test | Conclusion | Implementation consequence |
 | --- | --- | --- | --- | --- | --- |
 | Read order book | VERIFIED | 1m BTC YES: bids 0.259/0.249/0.239, asks 0.286/0.296/0.306, sizes 200–460 | `fetchOrderBook` | Books are not universally empty today | Inventory-aware quoting still required; empty-book fallback still needed |
-| `createOrder` / post-only | VERIFIED WITH CONDITIONS | SDK `createOrder` + `postOnly`/`PO`; ABI `placeBinaryOrder`; kit `placeLimit` uses raw trader to avoid float tick bug; official recipe documents `PostOnlyWouldCross` revert | Source + docs. **No write from this repo.** | Method exists. Wet path unproven here | First write test: one post-only + cancel. Prefer kit-style bigint ticks even on 6dp testnet so mainnet path does not rot |
-| Cancel | VERIFIED WITH CONDITIONS | `cancelOrder(id, ref)` on exchange; ABI `cancelOrder(uint128)` | Source. No write here | Exists | Track ids ourselves; indexer lags |
+| `trader.placeOrder` post-only BUY | VERIFIED | Wet rest on BTC 24h, 0 fills. Unified `createOrder` still unused (no expire field) | `npm run verify:write` | BUY escrow path works on Shannon 6dp | SELL / mint still unproven |
+| Cancel | VERIFIED | Wet cancel of that order id; on-chain gone | same | Works for our resting BUY | Do not cancel unrelated orders |
 | Order expiry | VERIFIED | ABI requires `expireTimestampNs`; gotcha #5: `0` reverts | ABI + docs | Dead-man switch is mandatory | Set just past requote interval, cap at market expiry |
 | Mint complete set | VERIFIED WITH CONDITIONS | SDK `mintSet` → pool `mintSet(yesTo,noTo,amount)`; kit `seedInventory` | Source. No write here | Exists; kit asserts receipt | Needed for **sell** inventory. Two buy-sides can quote with zero inventory (market-structure docs) |
 | Burn complete set | VERIFIED WITH CONDITIONS | SDK `burnSet` | Source only | Exists | Unwind unused pairs |
@@ -77,11 +78,11 @@ Evidence is from this repo's installed SDK (`node_modules/@somnia-chain/markets-
 | Step | Status |
 | --- | --- |
 | Operator connects/configures | NOT YET VERIFIED (no wallet, no UI) |
-| Allocates capital (tUSDC faucet + mint) | VERIFIED WITH CONDITIONS (faucet+mint in SDK; untested here) |
+| Allocates capital (tUSDC faucet; mint still untested) | tUSDC faucet **VERIFIED**; `mintSet` still **VERIFIED WITH CONDITIONS** |
 | Discover supported Event Contract | VERIFIED |
 | Independent fair value | VERIFIED WITH CONDITIONS (inputs exist; model not chosen) |
 | Permitted quotes (governor) | NOT YET VERIFIED (rules not coded; data for rules exists) |
-| Quote enters DreamDEX | VERIFIED WITH CONDITIONS (API exists; no write here) |
+| Quote enters DreamDEX | **VERIFIED** for one tiny post-only BUY_YES on one BTC 24h window. Not proven: SELL, other cadences, inventory skew |
 | Fill changes inventory | VERIFIED WITH CONDITIONS (balances+trades APIs; thin organic flow) |
 | Observe change | VERIFIED WITH CONDITIONS |
 | Risk logic changes behaviour | NOT YET VERIFIED |
@@ -102,7 +103,30 @@ capital (tUSDC)
   → next marketId (new symbol; possibly recycled pool)
 ```
 
-Each arrow has an SDK method. Wet proof of the whole chain is **NEEDS LIVE TESTING** in this repo.
+Each arrow has an SDK method. **BUY-side escrow → rest → cancel → collateral returned** is VERIFIED on one Shannon BTC 24h market. mintSet, fills, redeem, and roll remain **NEEDS LIVE TESTING**.
+
+## Wet write-path evidence (2026-08-24)
+
+| Field | Value |
+| --- | --- |
+| Wallet | `0xaf4ee6C0c6Ff6337F4C4F07b87C8343dF73e8d37` |
+| tUSDC faucet tx | `0xe87717702926bbeabf97b8fdac68079bebcbb329f8318da6c9fa749ae8c1be9a` |
+| Market | BTC 86400s `BTC-0-25AUG26/tUSDC` |
+| marketId | `0x0000000000000000000000000000000000000000000000000000000000007d53` |
+| venueId | `0x679795a0195a1b76cdebb7c51d74e058aee92919b8c3389af86ef24535e8a28c` |
+| expiry / status | `1787616000` / on-chain 1 |
+| book | bid 0.784 / ask 0.81 |
+| order | BUY_YES post-only 0.001 @ 0.774 |
+| place tx | `0x345cae9516dc96c275e8cc204e36a060916f184373d185d462526d29fe438898` |
+| orderId | `18446744073709718435` |
+| place confirm | `getOrderOnchain` 0ms; `fetchOpenOrders` 0ms |
+| cancel tx | `0x2f6e566147e1da78d0d81dee308bbf631444a82c2f4cf99b1f61cda7a0ee673b` |
+| cancel confirm | `getOrderOnchain` gone at 0ms |
+| STT | 49.998481172 → 49.992880118 |
+| tUSDC raw | 100000000 → 100000000 (escrow returned) |
+| retries | none (`PostOnlyWouldCross` did not fire) |
+
+This proves **one BUY rest+cancel** on **one 24h BTC window**. It does not prove SELL inventory, fills, 1m/5m/15m/1h/4h writes, or settlement.
 
 ## Disagreements (not silently resolved)
 

@@ -12,7 +12,7 @@ This repository is in **onboarding / verification**. There is no product UI and 
 
 ## Status
 
-Shannon reads work. The write-path script can discover a live BTC market and plan a post-only BUY. **Wet place/cancel is blocked until the disposable wallet has STT.** See `docs/TECHNICAL_VERIFICATION.md`.
+Shannon reads work. **Wet write-path passed** for one tiny post-only BUY rest+cancel on a live BTC Event Contract (see `docs/TECHNICAL_VERIFICATION.md`). That does not yet prove SELL, fills, or settlement.
 
 ```bash
 npm install

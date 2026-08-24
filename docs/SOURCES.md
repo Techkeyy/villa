@@ -43,6 +43,9 @@ Path: `node_modules/@somnia-chain/markets-sdk/` version **0.28.1**.
 | Unified `createOrder` postOnly, no expire field | `src/unified/exchange.ts` `CreateOrderParams` |
 | `getOrderOnchain` (active only; cancel → null) | `src/orders.ts` |
 | tUSDC `trader.faucet()` | `src/testnet.ts` |
+| Wet BUY place | Shannon tx `0x345cae9516dc96c275e8cc204e36a060916f184373d185d462526d29fe438898` |
+| Wet cancel | Shannon tx `0x2f6e566147e1da78d0d81dee308bbf631444a82c2f4cf99b1f61cda7a0ee673b` |
+| tUSDC faucet 100 | Shannon tx `0xe87717702926bbeabf97b8fdac68079bebcbb329f8318da6c9fa749ae8c1be9a` |
 | `getBinaryBookParams` tick/lot/min | `src/orders.ts` |
 | Price feed types; 1m/1h/1d candles | `src/priceFeed/types.ts` |
 | Testnet addresses + `SOMNIA_TESTNET_PRICE_FEED` | `src/addresses.ts`, `src/config.ts` |

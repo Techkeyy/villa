@@ -25,8 +25,11 @@ const me = exchange.walletAddress;
 const before = token ? await exchange.client.getErc20Balance(token, me) : 0n;
 console.log("address", me);
 console.log("tUSDC before raw", String(before));
-const res = await exchange.trader.faucet();
+// 100 tUSDC is far more than one-lot escrow and well under the 10_000 cap.
+const amount = 100n * 10n ** 6n;
+const res = await exchange.trader.faucet({ amount });
 console.log("faucet tx", res.hash);
 console.log("receipt.status", res.receipt?.status);
 const after = token ? await exchange.client.getErc20Balance(token, me) : 0n;
 console.log("tUSDC after raw", String(after));
+process.exit(0);
