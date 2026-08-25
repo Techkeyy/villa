@@ -159,3 +159,23 @@ This proves **one BUY rest+cancel** on **one 24h BTC window**. It does not prove
 4. **SDK version:** kit test report `^0.22.0` vs installed `0.28.1`. Prefer installed package + current Event Contracts docs. Re-verify writes; do not trust 0.22 receipt folklore without checking 0.28 (`ContractRevertError` is documented on `createOrder`).
 5. **Deadline TZ:** DoraHacks vs Eventbrite. Prefer DoraHacks time, TZ still Unknown.
 6. **Session keys:** spot docs vs binary ABI `placeBinaryOrderFor`. Prefer "spot registry does not apply"; binary-for is unverified.
+
+## Phase 2B risk-governor evidence (2026-08-25)
+
+| Capability | Status | Evidence | Conclusion |
+| --- | --- | --- | --- |
+| Pure deterministic governor | VERIFIED | `src/risk-governor/governor.mjs`; 50 scenario tests | Same normalized input produces the same state, permissions, limits, reasons, and warnings. |
+| Versioned policy | VERIFIED | `villa-risk-v1` in `src/risk-governor/config.mjs` | Thresholds are centralized and invalid versions fail closed. |
+| Chain-time expiry gate | VERIFIED | `chainNowSec` and `observationAgeSec` are required inputs; local clock offset test passes | Expiry uses chain time; stale chain observations halt. |
+| Feed timestamp safety | VERIFIED | stale, future, missing, non-monotonic, and source-age scenarios pass | Broken feed timing halts; no neutral fallback. |
+| Reference safety | VERIFIED | valid strike/opening source plus ambiguous/unsupported scale scenarios pass | Missing or unsafe reference scaling halts. |
+| Binary exposure | VERIFIED | complete-set, YES residual, NO residual, pending BUY/SELL scenarios pass | Worst case pairs YES/NO and counts risk-increasing open orders. |
+| Capital / gas / drawdown boundary | VERIFIED WITH CONDITIONS | hard collateral, gas, capital, drawdown scenarios pass; live drawdown is explicit `UNAVAILABLE` | No PnL is invented; strict drawdown mode is available for a future accounting layer. |
+| Live risk snapshot | VERIFIED | `npm run risk` read-only run found BTC `BTC-0-26AUG26-8BD1/tUSDC`, on-chain `Trading (1)`, opening reference `78982.93`, fair UP `26.3%`, book midpoint `28.8%` comparison-only | Governor returned `ALLOW`; warnings were `CAPITAL_ACCOUNTING_PARTIAL`, `DRAWDOWN_UNACCOUNTED`. |
+| Transactions during Phase 2B | VERIFIED | `npm run risk` has no signer/private-key import and printed `Transactions sent: NO` | No Phase 2B transaction was sent. |
+
+The live run used chain time `1787698314`, 4086 seconds of headroom, realized
+volatility `3.901993e-5` per square-root second, zero YES/NO inventory, and zero
+chain/indexed open orders. The midpoint was fetched after the governor decision
+and is comparison-only; it did not influence `pUp`, state, permissions, or
+limits.

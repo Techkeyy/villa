@@ -50,8 +50,12 @@ Fixture/offline path: replay a recorded snapshot so the demo survives indexer bl
 0. **This phase — DONE:** onboarding docs, doctor, live read discovery, kit+SDK inspection.
 1. **DONE:** disposable testnet wallet + read-only doctor green + **one wet write test** in a clearly named script: faucet (if needed) → `getMarketOnchain` Trading with headroom → one post-only bid → confirm it rests → cancel → print balances. This proves one BUY rest/cancel only; it does not prove SELL, fills, or settlement.
 2A. **DONE:** Pure fair-value unit tests and read-only live snapshot (spot, strike/opening, τ, realized vol; no order book in the model).
-2B. Next: deterministic governor unit tests and refusal policy (separate from fair value).
-3. Quoting loop against one live window (still CLI), only after the governor exists.
+2B. **DONE:** deterministic `villa-risk-v1` governor, binary exposure math,
+refusal policy, and read-only live risk snapshot. It stops at snapshot → risk
+decision → explanation. It does not quote, cancel, or transact.
+3. Next: quoting loop against one live window (still CLI), only after the
+governor is wired as a permission gate and drawdown/accounting boundaries are
+made explicit.
 4. Claim sweep on Finalized holdings (may be zero first day — prove the scan).
 5. Successor rediscovery.
 6. Operator dashboard (design-skill) wired to real engine state, four states on every async action.

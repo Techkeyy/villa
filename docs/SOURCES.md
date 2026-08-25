@@ -77,3 +77,16 @@ https://github.com/somnia-chain/dreamdex-bot-kit
 ## Local prior work (hints only, not sources of truth)
 
 `Desktop/house-spike`, `Desktop/skill/idea-research/*`. Used to know where to look. Re-verified; some findings changed (books not empty; venue id moved).
+
+## Phase 2B risk-governor implementation evidence
+
+| Claim | Source |
+| --- | --- |
+| Chain-head block timestamp and block number | Installed SDK `src/client.ts` / `getViemClient()`; live `npm run risk` read |
+| Current market status, expiry, pool, outcome-token ids | Installed SDK `src/somniaMarketsClient.ts` and `src/markets.ts` `getMarketOnchain(marketId)` |
+| Chain-head account open-order ids and active order details | Installed SDK `src/orders.ts` `getOwnOpenOrdersOnchain` and `getOrderOnchain` |
+| YES/NO order classification | Installed SDK `src/orders.ts` / `src/binary/portfolio.ts` indexed `OpenOrder.side`; reconciled against chain ids before use |
+| ERC-6909 outcome balances | Installed SDK `src/somniaMarketsClient.ts` and `src/binary/portfolio.ts` `getOutcomeBalance` |
+| Binary side semantics | Installed SDK `src/trade.ts` and `src/tradeAbi.ts`: `BUY_YES`, `SELL_YES`, `BUY_NO`, `SELL_NO` |
+| Deterministic risk policy and exposure math | This repository: `src/risk-governor/config.mjs`, `exposure.mjs`, `governor.mjs`, and `governor.test.mjs` |
+| Live read-only risk output | This repository: `scripts/risk-snapshot.mjs`; no signer and no write call |

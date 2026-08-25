@@ -113,3 +113,47 @@ Only decisions that change the build. Each one has a why and a source.
 **Why:** SDK 0.28.1 exposes `client.fetchPriceHistory` with underlying `PricePoint` timestamps and `fetchPriceFeedInfo` freshness metadata. This is more direct for realized volatility than treating the 1m candle update count as trade volume. The live check also showed Shannon's chain timestamp was about 556 seconds ahead of the workstation clock.
 
 **Consequence:** VILLA computes volatility and expiry using the feed's latest chain timestamp, reports a bounded clock-skew warning, and refuses genuinely stale/future-invalid feed data. The user-facing snapshot exits after one read-only result.
+
+## D20. Risk governor is `villa-risk-v1` pure policy, not a quoting loop
+
+**Why:** Fair value says what UP may be worth; it must not decide whether VILLA
+should trade. The risk boundary needs deterministic, testable permissions and
+stable reasons before any model output can affect a live writer.
+
+**Consequence:** `evaluateRisk(snapshot, config)` has no RPC, GraphQL, SDK,
+environment, clock, wallet, book, fair-value collector, inventory reader, or
+order-control dependency. It returns `ALLOW`, `REDUCE_ONLY`, or `HALT` plus
+`cancelExisting` as a non-executing recommendation. There is no Phase 2B order
+path.
+
+## D21. Chain time is authoritative for risk expiry and feed age
+
+**Why:** Shannon was observed roughly 556 seconds ahead of the workstation
+clock during Phase 2A. Local wall-clock arithmetic could therefore either
+trade an expired window or refuse a healthy one.
+
+**Consequence:** The collector reads a current block and the pure governor
+computes `expiry - chainNow`. Price age compares the feed timestamp with the
+same chain timestamp. Local timestamps and the observed offset are diagnostics
+only; stale chain observations halt.
+
+## D22. Pending exposure assumes buys fill and sells do not
+
+**Why:** A resting buy can escrow additional outcome/collateral risk before it
+fills. A resting sell cannot be relied on as protection because it may remain
+unfilled. Binary positions are therefore summarized as complete sets plus the
+YES/NO residual.
+
+**Consequence:** Every reconciled risk-increasing pending BUY contributes to
+worst-case exposure. A chain/indexer mismatch or missing YES/NO classification
+halts rather than silently dropping the order.
+
+## D23. Drawdown is an explicit accounting input, not an invented zero
+
+**Why:** The repository does not yet have a reliable session equity, PnL, or
+high-water-mark ledger. A governor that silently supplied `0%` would make a
+false safety claim.
+
+**Consequence:** The live Phase 2B snapshot passes `UNAVAILABLE`, emits
+`DRAWDOWN_UNACCOUNTED`, and uses an explicit non-strict testnet policy. Strict
+configuration fails closed until a future accounting layer supplies a ratio.

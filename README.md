@@ -4,9 +4,9 @@ Autonomous liquidity manager for DreamDEX Event Contracts.
 
 Operator-facing. Not a prediction market. Not a retail Up/Down app. Ordinary traders meet VILLA only as orders on DreamDEX.
 
-This repository is in **Phase 2A**. The independent `villa-fv-v1` fair-value
-engine and a read-only live BTC snapshot are present. There is no product UI,
-quoting loop, or risk governor yet.
+This repository is in **Phase 2B**. The independent `villa-fv-v1` fair-value
+engine, deterministic `villa-risk-v1` governor, and read-only live BTC
+snapshots are present. There is no product UI or quoting loop yet.
 
 ## Repo
 
@@ -21,6 +21,7 @@ npm install
 npm test
 npm run doctor
 npm run fair-value
+npm run risk
 npm run verify:write:dry
 npm run verify:write
 ```
@@ -38,8 +39,13 @@ npm run verify:write
 | `docs/DECISIONS.md` | Choices and why |
 | `docs/SOURCES.md` | Claim → URL/file |
 | `docs/BUILD_PLAN.md` | MVP, stretch, order of work |
+| `docs/FAIR_VALUE_MODEL.md` | Independent fair-value formula, units, and validation |
+| `docs/RISK_GOVERNOR.md` | Deterministic risk states, exposure math, policy, and refusal boundary |
 | `docs/INCOMING-BRIEF.md` | Directing-agent spec as received |
 
 ## Secrets
 
 Disposable testnet wallet only. `.env` is gitignored. `.env.example` has names, not values.
+
+`npm run risk` is read-only. It prints the governor state and a comparison-only
+DreamDEX midpoint; it does not cancel orders or send any transaction.

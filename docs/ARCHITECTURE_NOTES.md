@@ -6,14 +6,15 @@ Based only on verified capabilities. No frontend. No invented SDK methods.
 
 ```
 Operator dashboard (not built)
-  -> villa engine (our code; not started)
+  -> villa engine (our code; Phase 2B, no writer yet)
        collector | fair-value | governor | quoting | lifecycle
     -> @somnia-chain/markets-sdk 0.28.1  (installed)
          unified: loadMarkets, fetchOrderBook, fetchPrice, fetchPriceOHLCV,
                   createOrder, cancelOrder, mintSet, burnSet, redeem,
                   fetchOpenOrders, fetchMyTrades
          client:  getMarketOnchain, listBinaryMarkets, getOutcomeBalance,
-                  getOpeningPrices, getErc20Balance
+                  getOpeningPrices, getErc20Balance, getOwnOpenOrdersOnchain,
+                  getOrderOnchain
          trader:  raw bigint place/redeem/faucet
       -> Shannon RPC + indexer GraphQL + price-feed GraphQL
         -> BinaryMarketsModule / BinaryPool / OutcomeToken6909 / BinarySettlement / OracleHub
@@ -69,7 +70,7 @@ Above that plumbing:
 | --- | --- | --- | --- |
 | collector | venue config | MarketSnapshot (on-chain status, book, spot, opening/strike, τ, balances, open orders) | SDK reads |
 | fair-value | current price + reference + τ + realized-vol stats + freshness | `{ pUp, pDown, confidence, dataQuality, inputsUsed }` | pure |
-| governor | snapshot + pUp + limits + pnl | `{ ok, haltReasons[], quoteCaps }` | pure |
+| governor | normalized snapshot + limits | `{ state, permissions, reasons, exposure budgets }` | pure |
 | quoting | permission + pUp + inventory | post-only orders / cancels | SDK writes |
 | lifecycle | Finalized list + holdings | redeems + new marketId | SDK writes/reads |
 | dashboard | all of the above | operator view | later |
@@ -89,6 +90,35 @@ The model returns a data-quality score/status rather than treating probability
 extremity as confidence. No wallet, inventory, PnL, governor, or order-control
 dependency is present. A future governor may reject a high-quality fair value;
 that is a separate decision layer.
+
+## Phase 2B risk boundary
+
+`src/risk-governor/governor.mjs` is the Phase 2B decision core. It is pure and
+versioned as `villa-risk-v1`: normalized facts in, `ALLOW` / `REDUCE_ONLY` /
+`HALT` plus permissions, exposure budgets, named reasons, warnings, and
+authoritative chain-time facts out. It does not import the SDK, fair-value
+collector, book reader, wallet, environment, or order-control code.
+
+`src/risk-governor/exposure.mjs` owns binary YES/NO accounting. It pairs
+complete sets before calculating directional residuals and assumes all
+risk-increasing pending buys fill while sells do not. `src/risk-governor/live.mjs`
+is the separate read-only collector: it reads the current block, market,
+price/reference/history, ERC-6909 balances, collateral, gas, and reconciled
+open orders, then passes a normalized snapshot to the pure core.
+
+The Phase 2B data flow ends here:
+
+```
+Shannon / indexer / price feed
+  -> read-only normalized snapshot
+  -> pure villa-risk-v1 governor
+  -> state + permissions + reasons + limits
+```
+
+The book midpoint is fetched after the decision in `scripts/risk-snapshot.mjs`
+and is printed as comparison-only. The governor does not receive it. The
+`cancelExisting` field is a recommendation only; no cancellation or other
+transaction is reachable from the snapshot command.
 
 ## On-chain vs off-chain
 
@@ -114,3 +144,7 @@ Always `marketId` (and the on-chain snapshot taken for that pass). Never persist
 - Voided markets (redeem both sides)
 - Losing redeem succeeds and pays 0
 - Two processes, one key (nonce) — one writer loop only
+- Missing or ambiguous drawdown accounting — explicit warning in the Phase 2B
+  testnet snapshot, strict mode can fail closed
+- Chain/indexer mismatch while classifying open orders — fail closed rather than
+  guessing whether an order is YES or NO
