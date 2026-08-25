@@ -137,18 +137,35 @@ computes `expiry - chainNow`. Price age compares the feed timestamp with the
 same chain timestamp. Local timestamps and the observed offset are diagnostics
 only; stale chain observations halt.
 
-## D22. Pending exposure assumes buys fill and sells do not
+## D22. Pending exposure stresses every signed binary order delta
 
-**Why:** A resting buy can escrow additional outcome/collateral risk before it
-fills. A resting sell cannot be relied on as protection because it may remain
-unfilled. Binary positions are therefore summarized as complete sets plus the
-YES/NO residual.
+**Why:** The earlier buy-only stress model was unsafe. A SELL can break a
+complete set and create directional exposure: from YES 10 / NO 10, a filled
+SELL_YES 5 leaves YES 5 / NO 10, or 5 DOWN residual. A pending SELL is not
+automatically protective merely because it could reduce the current balance.
 
-**Consequence:** Every reconciled risk-increasing pending BUY contributes to
-worst-case exposure. A chain/indexer mismatch or missing YES/NO classification
-halts rather than silently dropping the order.
+**Consequence:** The pure exposure layer uses `D = YES - NO` and the verified
+mapping `BUY_YES +q`, `SELL_YES -q`, `BUY_NO -q`, `SELL_NO +q`. Worst UP adds
+every positive pending delta; worst DOWN subtracts every negative pending delta.
+Opposing orders are not optimistically netted. Gross inventory and pending BUY
+collateral remain separate accounting dimensions. A chain/indexer mismatch or
+missing YES/NO classification still halts rather than silently dropping an
+order.
 
-## D23. Drawdown is an explicit accounting input, not an invented zero
+## D23. Reduce-only actions cannot cross neutral
+
+**Why:** A reduce-only permission must decrease the current absolute
+directional exposure, not allow an arbitrarily large opposite-side order.
+
+**Consequence:** With `D > 0`, only SELL_YES and BUY_NO are reducing actions and
+their combined quantity is capped at `D`. With `D < 0`, only BUY_YES and SELL_NO
+are reducing actions and their combined quantity is capped at `-D`. A proposed
+quantity that crosses zero is rejected or capped at neutral. With `D = 0`, no
+reduce-only action is permitted. The future planner can use the pure
+`assessReduceOnlyOrder` helper before adding a candidate to the resting-order
+stress set.
+
+## D24. Drawdown is an explicit accounting input, not an invented zero
 
 **Why:** The repository does not yet have a reliable session equity, PnL, or
 high-water-mark ledger. A governor that silently supplied `0%` would make a

@@ -39,7 +39,7 @@ governor never cancels an order.
 | State | Meaning | Future execution permission |
 | --- | --- | --- |
 | `ALLOW` | The configured hard gates pass and exposure is below the reduce-only boundary. | Risk-increasing and reducing actions may be considered by a later quote planner. |
-| `REDUCE_ONLY` | A soft directional exposure boundary has been reached. | Only actions that reduce the dominant residual are permitted. No new directional risk. |
+| `REDUCE_ONLY` | A soft directional exposure boundary has been reached. | Only current-inventory reducing actions are permitted, capped at neutral. No new directional risk and no overshoot into the opposite direction. |
 | `HALT` | A hard safety gate failed. | No actions are permitted. `cancelExisting: true` is a recommendation only. |
 
 The output also includes `sizeMultiplier`. It is `1` for an ordinary healthy
@@ -111,6 +111,8 @@ The structured output includes:
 - `sizeMultiplier`, `primaryReasonCode`, `triggeredRules`, warnings, and stable explanations;
 - `authoritativeTime`, including chain time and `timeRemainingSec`;
 - current and worst-case binary exposure facts;
+- `reduceOnlyPolicy`, including the permitted reducing direction, action set,
+  neutralization quantity cap, and risk-increasing actions;
 - the model summary and reference source/scale;
 - `governorVersion` and `configurationVersion`.
 
@@ -153,13 +155,51 @@ grossOutcome   = YES + NO
 Example: 12 YES and 10 NO means 10 complete sets and 2 residual UP tokens.
 It is not a 22-token directional UP position.
 
-For open orders, the conservative stress case assumes every remaining
-risk-increasing BUY fills and no SELL fills. This means a resting BUY_YES or
-BUY_NO counts toward worst-case exposure even before it fills. A resting SELL
-is still validated and reported, but cannot be relied on as protection. If the
-chain-head order ids and the indexer’s YES/NO classification cannot be
-reconciled, the live collector marks the order state ambiguous and the
-governor halts.
+For a filled order, use the signed directional delta `D = YES - NO`:
+
+| Binary action | Directional delta |
+| --- | ---: |
+| `BUY_YES` | `+quantity` |
+| `SELL_YES` | `-quantity` |
+| `BUY_NO` | `-quantity` |
+| `SELL_NO` | `+quantity` |
+
+These signs follow the verified Event Contract representation: YES is the UP
+outcome token and NO is the DOWN outcome token; buying adds that token and
+selling removes it. A SELL is therefore not automatically protective. For
+example, with 10 YES and 10 NO, `SELL_YES 5` leaves a possible 5-token DOWN
+residual by breaking five complete sets.
+
+The directional pending-order stress is one-sided and conservative:
+
+- worst UP starts at current `D` and adds every pending positive delta
+  (`BUY_YES` and `SELL_NO`);
+- worst DOWN starts at current `D` and subtracts every pending negative delta
+  (`SELL_YES` and `BUY_NO`).
+
+Opposing open orders are not netted optimistically. Each side is stressed as if
+all orders that move in that direction fill, so multiple orders accumulate and
+the governor cannot rely on convenient fill ordering. Gross inventory and
+collateral remain separate: gross outcome stress includes pending BUY
+quantities, while pending BUY collateral is the capital commitment. SELLs do
+not create new collateral requirements merely because they change directional
+exposure.
+
+The live collector still reconciles every active chain order with the indexer’s
+YES/NO classification. If the chain-head order ids and classification cannot
+be reconciled, the order state is ambiguous and the governor halts.
+
+When `REDUCE_ONLY` is active, the current signed balance controls permissions.
+If `D > 0`, only `SELL_YES` and `BUY_NO` may reduce risk, with a combined
+quantity cap of `D`. If `D < 0`, only `BUY_YES` and `SELL_NO` may reduce risk,
+with a cap of `-D`. A proposed order that exceeds the cap is rejected or
+reduced to the cap; it may not cross neutral and create opposite exposure.
+When `D = 0`, there is no reduce-only action to permit.
+
+For a future planner, `calculateBinaryExposureWithAdditionalOrder` appends a
+candidate to the verified resting-order set and recomputes the same one-sided
+UP/DOWN stress. It is a pure projection helper only; it does not place or
+cancel the candidate.
 
 ## Capital, gas, and drawdown boundary
 
@@ -202,10 +242,11 @@ is never executed.
 
 ## Validation and limitations
 
-The pure suite contains 50 Phase 2B tests and covers healthy decisions, exact
+The pure suite contains 67 Phase 2B tests and covers healthy decisions, exact
 thresholds, deterministic output, local clock offsets, stale/future feeds,
 ambiguous references, market status/expiry, model quality, complete sets,
-directional residuals, pending orders, all three decision states, capital/gas,
+directional residuals, all four pending order deltas, one-sided open-order
+ stress, reduce-only neutralization caps, all three decision states, capital/gas,
 drawdown, volatility, configuration, and fail-closed malformed input.
 
 The live proof is a read-only Shannon snapshot. Historical risk performance is

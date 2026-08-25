@@ -100,8 +100,9 @@ authoritative chain-time facts out. It does not import the SDK, fair-value
 collector, book reader, wallet, environment, or order-control code.
 
 `src/risk-governor/exposure.mjs` owns binary YES/NO accounting. It pairs
-complete sets before calculating directional residuals and assumes all
-risk-increasing pending buys fill while sells do not. `src/risk-governor/live.mjs`
+complete sets before calculating current directional residuals, applies the
+verified signed delta for all four binary order actions, and separately
+stresses every pending order in the UP and DOWN directions. `src/risk-governor/live.mjs`
 is the separate read-only collector: it reads the current block, market,
 price/reference/history, ERC-6909 balances, collateral, gas, and reconciled
 open orders, then passes a normalized snapshot to the pure core.
@@ -148,3 +149,8 @@ Always `marketId` (and the on-chain snapshot taken for that pass). Never persist
   testnet snapshot, strict mode can fail closed
 - Chain/indexer mismatch while classifying open orders — fail closed rather than
   guessing whether an order is YES or NO
+- Pending SELLs that break complete sets — all four signed order deltas are
+  included in one-sided worst-case directional stress; opposing orders are not
+  netted optimistically
+- Reduce-only overshoot — the pure order assessment caps a reducing action at
+  neutral and rejects a quantity that would cross into the opposite direction

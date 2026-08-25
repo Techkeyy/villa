@@ -2,7 +2,10 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
   DEFAULT_RISK_CONFIG,
+  assessReduceOnlyOrder,
   calculateBinaryExposure,
+  calculateBinaryExposureWithAdditionalOrder,
+  directionalDeltaForOrder,
   evaluateRisk,
   RISK_GOVERNOR_VERSION,
 } from "./index.mjs";
@@ -234,6 +237,14 @@ describe("villa-risk-v1 data gates", () => {
 });
 
 describe("binary inventory and pending-order exposure", () => {
+  it("uses the verified signed deltas for all four binary order actions", () => {
+    const order = (side, outcome, remainingQty = 2) => directionalDeltaForOrder({ side, outcome, remainingQty });
+    assert.equal(order("BUY", "YES").delta, 2);
+    assert.equal(order("SELL", "YES").delta, -2);
+    assert.equal(order("BUY", "NO").delta, -2);
+    assert.equal(order("SELL", "NO").delta, 2);
+  });
+
   it("treats matched YES and NO as complete sets, not directional exposure", () => {
     const exposure = calculateBinaryExposure({ yes: 8, no: 8, openOrders: [] });
     assert.equal(exposure.current.completeSets, 8);
@@ -241,6 +252,108 @@ describe("binary inventory and pending-order exposure", () => {
     assert.equal(exposure.current.directionalDown, 0);
     const result = evaluateRisk(snapshot({ inventory: { yes: 8, no: 8 } }));
     assert.equal(result.state, "ALLOW");
+  });
+
+  it("sees a balanced inventory SELL_YES as potential DOWN exposure", () => {
+    const exposure = calculateBinaryExposure({
+      yes: 10,
+      no: 10,
+      openOrders: [{ outcome: "YES", side: "SELL", remainingQty: 5 }],
+    });
+    assert.equal(exposure.current.completeSets, 10);
+    assert.equal(exposure.current.directionalBalance, 0);
+    assert.equal(exposure.directionalStress.worstDown.postFillBalance, -5);
+    assert.equal(exposure.worstCase.directionalDown, 5);
+  });
+
+  it("sees a balanced inventory SELL_NO as potential UP exposure", () => {
+    const exposure = calculateBinaryExposure({
+      yes: 10,
+      no: 10,
+      openOrders: [{ outcome: "NO", side: "SELL", remainingQty: 5 }],
+    });
+    assert.equal(exposure.directionalStress.worstUp.postFillBalance, 5);
+    assert.equal(exposure.worstCase.directionalUp, 5);
+  });
+
+  it("counts BUY_YES and BUY_NO from a balanced inventory in opposite stress directions", () => {
+    const up = calculateBinaryExposure({ yes: 10, no: 10, openOrders: [{ outcome: "YES", side: "BUY", remainingQty: 4 }] });
+    const down = calculateBinaryExposure({ yes: 10, no: 10, openOrders: [{ outcome: "NO", side: "BUY", remainingQty: 4 }] });
+    assert.equal(up.worstCase.directionalUp, 4);
+    assert.equal(down.worstCase.directionalDown, 4);
+  });
+
+  it("accumulates multiple pending BUY_YES orders in worst-case UP exposure", () => {
+    const exposure = calculateBinaryExposure({
+      yes: 0,
+      no: 0,
+      openOrders: [
+        { outcome: "YES", side: "BUY", remainingQty: 3 },
+        { outcome: "YES", side: "BUY", remainingQty: 4 },
+      ],
+    });
+    assert.equal(exposure.worstCase.directionalUp, 7);
+  });
+
+  it("accumulates multiple pending SELL_NO orders in worst-case UP exposure", () => {
+    const exposure = calculateBinaryExposure({
+      yes: 10,
+      no: 10,
+      openOrders: [
+        { outcome: "NO", side: "SELL", remainingQty: 2 },
+        { outcome: "NO", side: "SELL", remainingQty: 3 },
+      ],
+    });
+    assert.equal(exposure.worstCase.directionalUp, 5);
+  });
+
+  it("accumulates mixed BUY_YES and SELL_NO in the same UP-risk direction", () => {
+    const exposure = calculateBinaryExposure({
+      yes: 10,
+      no: 10,
+      openOrders: [
+        { outcome: "YES", side: "BUY", remainingQty: 2 },
+        { outcome: "NO", side: "SELL", remainingQty: 3 },
+      ],
+    });
+    assert.equal(exposure.pendingRiskIncrease.directionalUp, 5);
+    assert.equal(exposure.worstCase.directionalUp, 5);
+  });
+
+  it("accumulates mixed BUY_NO and SELL_YES in the same DOWN-risk direction", () => {
+    const exposure = calculateBinaryExposure({
+      yes: 10,
+      no: 10,
+      openOrders: [
+        { outcome: "NO", side: "BUY", remainingQty: 2 },
+        { outcome: "YES", side: "SELL", remainingQty: 3 },
+      ],
+    });
+    assert.equal(exposure.pendingRiskIncrease.directionalDown, 5);
+    assert.equal(exposure.worstCase.directionalDown, 5);
+  });
+
+  it("does not net opposing pending orders into a falsely neutral stress case", () => {
+    const exposure = calculateBinaryExposure({
+      yes: 0,
+      no: 0,
+      openOrders: [
+        { outcome: "YES", side: "BUY", remainingQty: 8 },
+        { outcome: "NO", side: "BUY", remainingQty: 8 },
+      ],
+    });
+    assert.equal(exposure.worstCase.directionalUp, 8);
+    assert.equal(exposure.worstCase.directionalDown, 8);
+  });
+
+  it("can project one proposed order together with every resting order", () => {
+    const projected = calculateBinaryExposureWithAdditionalOrder({
+      yes: 5,
+      no: 0,
+      openOrders: [{ outcome: "YES", side: "BUY", remainingQty: 2 }],
+    }, { outcome: "NO", side: "SELL", remainingQty: 3 });
+    assert.equal(projected.worstCase.directionalUp, 10);
+    assert.equal(projected.openOrderSummary.count, 2);
   });
 
   it("reports a YES residual as UP exposure", () => {
@@ -273,6 +386,78 @@ describe("binary inventory and pending-order exposure", () => {
     }));
     assert.equal(result.exposure.worstCase.directionalUp, 8);
     assert.equal(result.state, "REDUCE_ONLY");
+  });
+
+  it("lets an existing SELL independently reach the soft and hard boundaries", () => {
+    const exposureOnlyConfig = { ...DEFAULT_RISK_CONFIG, grossExposureHard: 100 };
+    const soft = evaluateRisk(snapshot({
+      inventory: { yes: 10, no: 10 },
+      openOrders: [{ outcome: "YES", side: "SELL", remainingQty: 7 }],
+    }), exposureOnlyConfig);
+    const hard = evaluateRisk(snapshot({
+      inventory: { yes: 10, no: 10 },
+      openOrders: [{ outcome: "YES", side: "SELL", remainingQty: 10 }],
+    }), exposureOnlyConfig);
+    assert.equal(soft.state, "REDUCE_ONLY");
+    assert.equal(soft.exposure.worstCase.directionalDown, 7);
+    assert.equal(hard.primaryReasonCode, "DIRECTIONAL_EXPOSURE_HARD");
+  });
+
+  it("lets an existing BUY independently reach the soft and hard boundaries", () => {
+    const soft = evaluateRisk(snapshot({
+      openOrders: [{ outcome: "YES", side: "BUY", remainingQty: 7 }],
+    }));
+    const hard = evaluateRisk(snapshot({
+      openOrders: [{ outcome: "YES", side: "BUY", remainingQty: 10 }],
+    }));
+    assert.equal(soft.state, "REDUCE_ONLY");
+    assert.equal(hard.primaryReasonCode, "DIRECTIONAL_EXPOSURE_HARD");
+  });
+
+  it("caps a +5 UP reduce-only SELL_YES at three units without crossing neutral", () => {
+    const three = assessReduceOnlyOrder(5, { outcome: "YES", side: "SELL", remainingQty: 3 });
+    const five = assessReduceOnlyOrder(5, { outcome: "YES", side: "SELL", remainingQty: 5 });
+    const eight = assessReduceOnlyOrder(5, { outcome: "YES", side: "SELL", remainingQty: 8 });
+    assert.equal(three.permitted, true);
+    assert.equal(three.safeDirectionalBalance, 2);
+    assert.equal(five.permitted, true);
+    assert.equal(five.safeDirectionalBalance, 0);
+    assert.equal(eight.permitted, false);
+    assert.equal(eight.maxPermittedQuantity, 5);
+    assert.equal(eight.safeQuantity, 5);
+    assert.equal(eight.safeDirectionalBalance, 0);
+  });
+
+  it("applies the inverse reduce-only cap to a -5 DOWN balance", () => {
+    const three = assessReduceOnlyOrder(-5, { outcome: "YES", side: "BUY", remainingQty: 3 });
+    const five = assessReduceOnlyOrder(-5, { outcome: "NO", side: "SELL", remainingQty: 5 });
+    const eight = assessReduceOnlyOrder(-5, { outcome: "YES", side: "BUY", remainingQty: 8 });
+    assert.equal(three.permitted, true);
+    assert.equal(three.safeDirectionalBalance, -2);
+    assert.equal(five.safeDirectionalBalance, 0);
+    assert.equal(eight.permitted, false);
+    assert.equal(eight.maxPermittedQuantity, 5);
+  });
+
+  it("does not classify a risk-increasing action as reduce-only", () => {
+    const result = assessReduceOnlyOrder(5, { outcome: "YES", side: "BUY", remainingQty: 1 });
+    assert.equal(result.permitted, false);
+    assert.equal(result.maxPermittedQuantity, 0);
+  });
+
+  it("exposes no reduce-only action when current directional balance is neutral", () => {
+    const exposure = calculateBinaryExposure({ yes: 10, no: 10, openOrders: [] });
+    assert.deepEqual(exposure.reduceOnlyPolicy.permittedActions, []);
+    assert.equal(exposure.reduceOnlyPolicy.maxQuantityBeforeNeutral, 0);
+  });
+
+  it("does not grant reduce-only permission to cross neutral when pending risk triggers it", () => {
+    const result = evaluateRisk(snapshot({
+      openOrders: [{ outcome: "YES", side: "BUY", remainingQty: 7 }],
+    }));
+    assert.equal(result.state, "REDUCE_ONLY");
+    assert.deepEqual(result.permissions.allowedActions, []);
+    assert.equal(result.permissions.allowReduceOnly, false);
   });
 
   it("halts at the hard directional exposure limit", () => {

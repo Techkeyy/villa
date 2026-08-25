@@ -164,12 +164,12 @@ This proves **one BUY rest+cancel** on **one 24h BTC window**. It does not prove
 
 | Capability | Status | Evidence | Conclusion |
 | --- | --- | --- | --- |
-| Pure deterministic governor | VERIFIED | `src/risk-governor/governor.mjs`; 50 scenario tests | Same normalized input produces the same state, permissions, limits, reasons, and warnings. |
+| Pure deterministic governor | VERIFIED | `src/risk-governor/governor.mjs`; 67 scenario tests | Same normalized input produces the same state, permissions, limits, reasons, and warnings. |
 | Versioned policy | VERIFIED | `villa-risk-v1` in `src/risk-governor/config.mjs` | Thresholds are centralized and invalid versions fail closed. |
 | Chain-time expiry gate | VERIFIED | `chainNowSec` and `observationAgeSec` are required inputs; local clock offset test passes | Expiry uses chain time; stale chain observations halt. |
 | Feed timestamp safety | VERIFIED | stale, future, missing, non-monotonic, and source-age scenarios pass | Broken feed timing halts; no neutral fallback. |
 | Reference safety | VERIFIED | valid strike/opening source plus ambiguous/unsupported scale scenarios pass | Missing or unsafe reference scaling halts. |
-| Binary exposure | VERIFIED | complete-set, YES residual, NO residual, pending BUY/SELL scenarios pass | Worst case pairs YES/NO and counts risk-increasing open orders. |
+| Binary exposure | VERIFIED | complete-set, YES residual, NO residual, all four pending order deltas, opposing-order, threshold, and reduce-only cap scenarios pass | Worst-case directional stress includes every signed pending order delta; gross inventory and pending BUY collateral remain separate. |
 | Capital / gas / drawdown boundary | VERIFIED WITH CONDITIONS | hard collateral, gas, capital, drawdown scenarios pass; live drawdown is explicit `UNAVAILABLE` | No PnL is invented; strict drawdown mode is available for a future accounting layer. |
 | Live risk snapshot | VERIFIED | `npm run risk` read-only run found BTC `BTC-0-26AUG26-8BD1/tUSDC`, on-chain `Trading (1)`, opening reference `78982.93`, fair UP `26.3%`, book midpoint `28.8%` comparison-only | Governor returned `ALLOW`; warnings were `CAPITAL_ACCOUNTING_PARTIAL`, `DRAWDOWN_UNACCOUNTED`. |
 | Transactions during Phase 2B | VERIFIED | `npm run risk` has no signer/private-key import and printed `Transactions sent: NO` | No Phase 2B transaction was sent. |
@@ -179,3 +179,48 @@ volatility `3.901993e-5` per square-root second, zero YES/NO inventory, and zero
 chain/indexed open orders. The midpoint was fetched after the governor decision
 and is comparison-only; it did not influence `pUp`, state, permissions, or
 limits.
+
+## Phase 2B corrective patch (2026-08-26)
+
+The original Phase 2B review identified a material flaw in the buy-only pending
+stress assumption: a filled SELL can break a complete set and create the
+opposite directional residual. The patch keeps `D = YES - NO` as the signed
+directional balance and centralizes the verified deltas:
+
+| Action | Delta to D |
+| --- | ---: |
+| `BUY_YES` | `+quantity` |
+| `SELL_YES` | `-quantity` |
+| `BUY_NO` | `-quantity` |
+| `SELL_NO` | `+quantity` |
+
+Worst UP adds every positive pending delta (`BUY_YES` and `SELL_NO`). Worst
+DOWN subtracts every negative pending delta (`SELL_YES` and `BUY_NO`). Opposing
+orders are not netted optimistically. The gross/collateral path still counts
+pending BUY quantities, while SELLs do not create new collateral requirements
+merely because they affect directional exposure.
+
+`REDUCE_ONLY` now exposes the current reducing action set and a quantity cap
+before neutral. A proposed order that crosses zero is rejected or safely capped
+at neutral. A balanced inventory has no reduce-only action, even if pending
+orders have already caused the governor to stop new risk.
+
+The corrective patch added 17 deterministic Phase 2B tests, bringing the pure
+risk-governor suite to 67 tests and the repository suite to 117 tests. The
+full suite passed 117/117. The live read-only recheck found:
+
+- current market `BTC-0-26AUG26-8BD1/tUSDC`, on-chain `Trading (1)`, opening
+  reference `78982.93`, chain time `1787701048`;
+- BTC `78704.95`, 1352 seconds remaining, realized volatility
+  `4.931148e-5` per square-root second, fair value UP `2.6%` / DOWN `97.4%`
+  with HIGH confidence (`97.5%`);
+- YES `0`, NO `0`, signed directional balance `D=0`, worst-case UP `0`, DOWN
+  `0`, gross `0`, and zero chain/indexed open orders;
+- governor `ALLOW`, primary reason `NONE`, book midpoint `4.9%` fetched after
+  the decision as comparison-only; midpoint affects state `NO`;
+- an independent active-pool scan covered six current Trading pools and found
+  zero active VILLA orders in all six;
+- `npm run verify:write:dry` passed and reported no transaction sent.
+
+No live order was created, filled, cancelled, or otherwise changed by this
+corrective patch.

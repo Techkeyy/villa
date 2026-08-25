@@ -224,7 +224,9 @@ function emptyExposure() {
   return {
     current: null,
     worstCase: null,
+    directionalStress: null,
     pendingRiskIncrease: null,
+    reduceOnlyPolicy: null,
     openOrderSummary: null,
   };
 }
@@ -248,6 +250,7 @@ function decisionForInvalidConfig(err) {
     explanations: [explanation("CONFIG_INVALID", "HALT")],
     authoritativeTime: null,
     exposure: emptyExposure(),
+    reduceOnlyPolicy: null,
     model: null,
     error: err?.message || "risk config invalid",
   };
@@ -310,14 +313,12 @@ export function evaluateRisk(snapshot, suppliedConfig = DEFAULT_RISK_CONFIG) {
   const state = hardHalt ? "HALT" : reduceOnly ? "REDUCE_ONLY" : "ALLOW";
 
   if (worst && state === "ALLOW" && (worst.directionalUp >= config.directionalExposureWarning || worst.directionalDown >= config.directionalExposureWarning)) addWarning(warnings, "SIZE_REDUCED_FOR_EXPOSURE");
-  const dominantDirection = worst && worst.directionalUp > worst.directionalDown ? "UP" : worst && worst.directionalDown > worst.directionalUp ? "DOWN" : null;
+  const reducePolicy = exposure.reduceOnlyPolicy;
   const allowedActions = state === "HALT"
     ? []
-    : state === "REDUCE_ONLY" && dominantDirection === "UP"
-      ? ["SELL_YES", "BUY_NO"]
-      : state === "REDUCE_ONLY" && dominantDirection === "DOWN"
-        ? ["BUY_YES", "SELL_NO"]
-        : ["BUY_YES", "SELL_YES", "BUY_NO", "SELL_NO"];
+    : state === "REDUCE_ONLY"
+      ? reducePolicy?.permittedActions ?? []
+      : ["BUY_YES", "SELL_YES", "BUY_NO", "SELL_NO"];
 
   let sizeMultiplier = state === "HALT" || state === "REDUCE_ONLY" ? 0 : 1;
   if (state === "ALLOW" && worst) {
@@ -333,16 +334,12 @@ export function evaluateRisk(snapshot, suppliedConfig = DEFAULT_RISK_CONFIG) {
     capitalAtRisk: input.capital && nonNegative(input.capital.capitalAtRisk) ? Math.max(0, config.capitalAtRiskHard - input.capital.capitalAtRisk) : 0,
   };
   if (state !== "ALLOW") {
-    if (state === "HALT") {
-      maxAdditionalExposure.directionalUp = 0;
-      maxAdditionalExposure.directionalDown = 0;
-      maxAdditionalExposure.grossOutcome = 0;
-      maxAdditionalExposure.capitalAtRisk = 0;
-    } else if (dominantDirection === "UP") {
-      maxAdditionalExposure.directionalUp = 0;
-    } else if (dominantDirection === "DOWN") {
-      maxAdditionalExposure.directionalDown = 0;
-    }
+    // REDUCE_ONLY has no budget for additional risk. Its permitted order
+    // direction and neutralization cap are exposed separately below.
+    maxAdditionalExposure.directionalUp = 0;
+    maxAdditionalExposure.directionalDown = 0;
+    maxAdditionalExposure.grossOutcome = 0;
+    maxAdditionalExposure.capitalAtRisk = 0;
   }
 
   const time = input.chainTime && finite(input.chainTime.chainNowSec) && finite(input.market?.expirySec)
@@ -359,7 +356,7 @@ export function evaluateRisk(snapshot, suppliedConfig = DEFAULT_RISK_CONFIG) {
     permissions: {
       allowNewRisk: state === "ALLOW",
       allowRiskIncreasingOrders: state === "ALLOW",
-      allowReduceOnly: state === "ALLOW" || state === "REDUCE_ONLY",
+      allowReduceOnly: state === "ALLOW" || (state === "REDUCE_ONLY" && (reducePolicy?.permittedActions.length ?? 0) > 0),
       allowedActions,
     },
     cancelExisting: state === "HALT",
@@ -379,6 +376,7 @@ export function evaluateRisk(snapshot, suppliedConfig = DEFAULT_RISK_CONFIG) {
       clockOffsetSec: nullIfNotFinite(input.chainTime?.clockOffsetSec),
     },
     exposure,
+    reduceOnlyPolicy: reducePolicy,
     model: input.fairValue ? {
       modelVersion: input.fairValue.modelVersion ?? null,
       pUp: nullIfNotFinite(input.fairValue.pUp),

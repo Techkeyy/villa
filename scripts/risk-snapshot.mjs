@@ -60,12 +60,15 @@ async function main() {
     console.log(`Model confidence:       ${snapshot.fairValue.dataQualityStatus} (${(snapshot.fairValue.confidence * 100).toFixed(1)}% data quality)`);
     console.log("");
     console.log(`Inventory:              YES ${formatNumber(snapshot.inventory.yes, 6)} / NO ${formatNumber(snapshot.inventory.no, 6)}`);
+    console.log(`Directional balance:    D=${formatNumber(decision.exposure.current?.directionalBalance, 6)} (YES - NO)`);
     console.log(`Worst-case exposure:    UP ${formatNumber(exposure?.directionalUp, 6)} / DOWN ${formatNumber(exposure?.directionalDown, 6)} / gross ${formatNumber(exposure?.grossOutcome, 6)}`);
+    console.log(`Pending stress:         UP +${formatNumber(decision.exposure.directionalStress?.worstUp?.pendingDelta, 6)} / DOWN +${formatNumber(decision.exposure.directionalStress?.worstDown?.pendingDelta === undefined ? null : Math.abs(decision.exposure.directionalStress.worstDown.pendingDelta), 6)}`);
     console.log(`Open orders:            ${context.openOrderRead.chainCount} chain / ${context.openOrderRead.indexedCount} indexed (${snapshot.openOrdersStatus})`);
     console.log("");
     console.log(`Governor:               ${decision.state}`);
     console.log(`Primary reason:         ${decision.primaryReasonCode}`);
     console.log(`Allowed actions:        ${decision.permissions.allowedActions.join(", ") || "none"}`);
+    console.log(`Reduce-only cap:        ${decision.reduceOnlyPolicy?.maxQuantityBeforeNeutral === undefined ? "unavailable" : `${decision.reduceOnlyPolicy.maxQuantityBeforeNeutral.toFixed(6)} ${decision.reduceOnlyPolicy.permittedDirection ? `toward ${decision.reduceOnlyPolicy.permittedDirection}` : "(neutral)"}`}`);
     console.log(`Size multiplier:        ${decision.sizeMultiplier.toFixed(2)}`);
     console.log(`Cancel existing:        ${decision.cancelExisting ? "RECOMMENDED (no cancellation executed)" : "no"}`);
     console.log(`Additional risk budget: UP ${formatNumber(decision.maxAdditionalExposure.directionalUp, 6)} / DOWN ${formatNumber(decision.maxAdditionalExposure.directionalDown, 6)}`);
