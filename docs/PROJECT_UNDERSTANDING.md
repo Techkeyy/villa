@@ -1,6 +1,6 @@
 # Project understanding — VILLA
 
-Skill: `Desktop/skill/project-understanding`. Product locked by the directing agent. Model formula not locked.
+Skill: `Desktop/skill/project-understanding`. Product locked by the directing agent. Phase 2A selected `villa-fv-v1`: a zero-drift log-return digital baseline with a separate data-quality score.
 
 ## One sentence
 
@@ -50,7 +50,7 @@ Magic moment: **the underlying ticks, fair value moves, quotes move, one English
 | --- | --- |
 | Dashboard | later, design-skill |
 | Collector | markets-sdk + priceFeed + RPC |
-| Fair value | deterministic TS, formula TBD |
+| Fair value | deterministic TypeScript `villa-fv-v1` zero-drift log-return digital model |
 | Adaptive quoting | post-only via SDK/raw trader |
 | Governor | deterministic rules |
 | Claim / roll | `listBinaryMarkets(Finalized)` + `redeem` + rediscover |

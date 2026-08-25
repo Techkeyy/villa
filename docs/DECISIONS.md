@@ -40,11 +40,11 @@ Only decisions that change the build. Each one has a why and a source.
 
 **Consequence:** Discover venue from live markets. Hardcoding the README value would quote nothing.
 
-## D7. Fair-value model is not chosen yet
+## D7. Fair value is an independent pure layer
 
-**Why:** Directing brief: do not assume the exact model. Inputs that **exist** are verified (spot, ema, 1m OHLCV, strike field, `getOpeningPrices` for strike=0). The mapping from those inputs to a probability is a product choice.
+**Why:** VILLA must add intelligence above `ec-maker`. The model may use the underlying price, the market's reference, time remaining, and realized volatility; it must not learn its baseline probability from the DreamDEX midpoint.
 
-**Consequence:** No closed-form in code until approved. Architecture reserves a pure function `inputs → {pUp, confidence}`.
+**Consequence:** Data acquisition is separated from a pure `inputs → {pUp, pDown, confidence, dataQuality}` function. The order book is fetched only for an explicitly labelled comparison.
 
 ## D8. Governor is off-chain deterministic rules in MVP
 
@@ -99,3 +99,17 @@ Only decisions that change the build. Each one has a why and a source.
 **Why:** SDK default is 10_000 (the cap). The write-path needs ~0.001 tUSDC of escrow. `fund-tusdc.mjs` requests **100**.
 
 **Consequence:** Keep faucet amounts as an argument, never the silent cap.
+
+## D18. `villa-fv-v1` uses a zero-drift log-return digital model
+
+**Why:** `ec-maker`'s midpoint/0.5 value is circular, while `ec-oracle-follow`'s signal is a directional taker that anchors part of its decision to the book. VILLA needs a standalone, understandable baseline for a liquidity provider. A zero-drift log-return model is the smallest defensible mapping from moneyness, remaining seconds, and realized uncertainty to `P(final price >= reference)` without fitting a tiny sample or claiming a mean-reversion/momentum edge.
+
+**Formula:** `pUp = Φ(ln(S/K) / (σ√τ))`, with `σ` in per-√second realized log-return units and `τ` in seconds. At exact expiry the result is the discrete settlement indicator.
+
+**Consequence:** The initial model version is `villa-fv-v1`. Its confidence is a separate deterministic data-quality score; it refuses stale/malformed/insufficient inputs and has no inventory, PnL, wallet, governor, or order dependency. Details and limitations live in `docs/FAIR_VALUE_MODEL.md`.
+
+## D19. Use SDK price history and chain time for the Phase 2A snapshot
+
+**Why:** SDK 0.28.1 exposes `client.fetchPriceHistory` with underlying `PricePoint` timestamps and `fetchPriceFeedInfo` freshness metadata. This is more direct for realized volatility than treating the 1m candle update count as trade volume. The live check also showed Shannon's chain timestamp was about 556 seconds ahead of the workstation clock.
+
+**Consequence:** VILLA computes volatility and expiry using the feed's latest chain timestamp, reports a bounded clock-skew warning, and refuses genuinely stale/future-invalid feed data. The user-facing snapshot exits after one read-only result.

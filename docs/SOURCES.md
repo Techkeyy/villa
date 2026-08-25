@@ -48,6 +48,7 @@ Path: `node_modules/@somnia-chain/markets-sdk/` version **0.28.1**.
 | tUSDC faucet 100 | Shannon tx `0xe87717702926bbeabf97b8fdac68079bebcbb329f8318da6c9fa749ae8c1be9a` |
 | `getBinaryBookParams` tick/lot/min | `src/orders.ts` |
 | Price feed types; 1m/1h/1d candles | `src/priceFeed/types.ts` |
+| `LivePrice`/`PricePoint` fields, freshness metadata, `fetchPriceHistory` | `src/priceFeed/types.ts`, `src/priceFeed/query.ts`, `src/somniaMarketsClient.ts` |
 | Testnet addresses + `SOMNIA_TESTNET_PRICE_FEED` | `src/addresses.ts`, `src/config.ts` |
 
 Upstream: https://www.npmjs.com/package/@somnia-chain/markets-sdk
@@ -61,6 +62,7 @@ https://github.com/somnia-chain/dreamdex-bot-kit
 | ec-maker fair value is book mid or 0.5 | `strategies/ec-maker/src/index.ts` |
 | Kit EC plumbing | `packages/ec-core/src/*.ts` |
 | Opening price + strike scale heuristic | `strategies/ec-oracle-follow/src/signal.ts` |
+| Underlying-only oracle signal and its book-anchor boundary | `strategies/ec-oracle-follow/src/signal.ts`, `strategies/ec-oracle-follow/src/index.ts` |
 | Session keys are spot vault/`placeOrderFor` | `docs/session-keys.md` |
 | Documented testnet VENUE_ID (stale vs live) | `docs/event-contracts.md` |
 | Kit tests used sdk ^0.22.0 on 2026-08-06 | `docs/tests/ec-test-report.md` |
@@ -70,7 +72,7 @@ https://github.com/somnia-chain/dreamdex-bot-kit
 | Claim | How |
 | --- | --- |
 | Chain 50312, contracts have code | RPC `eth_chainId` / `eth_getCode` |
-| Markets, intervals, venue ids, books, spot, OHLCV, opening price | `npm run doctor`, `node scripts/discover.mjs`, one-off `getOpeningPrices` |
+| Markets, intervals, venue ids, books, spot, history, opening price, model-vs-book snapshot | `npm run doctor`, `node scripts/discover.mjs`, `npm run fair-value` |
 
 ## Local prior work (hints only, not sources of truth)
 

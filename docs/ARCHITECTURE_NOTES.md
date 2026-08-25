@@ -68,13 +68,27 @@ Above that plumbing:
 | Module | In | Out | I/O |
 | --- | --- | --- | --- |
 | collector | venue config | MarketSnapshot (on-chain status, book, spot, opening/strike, τ, balances, open orders) | SDK reads |
-| fair-value | snapshot | `{ pUp, confidence, inputsUsed }` | pure |
+| fair-value | current price + reference + τ + realized-vol stats + freshness | `{ pUp, pDown, confidence, dataQuality, inputsUsed }` | pure |
 | governor | snapshot + pUp + limits + pnl | `{ ok, haltReasons[], quoteCaps }` | pure |
 | quoting | permission + pUp + inventory | post-only orders / cancels | SDK writes |
 | lifecycle | Finalized list + holdings | redeems + new marketId | SDK writes/reads |
 | dashboard | all of the above | operator view | later |
 
 Load-bearing risky module to prove first: **collector + one real post-only round-trip**, then a **pure fair-value + governor** with fixtures (no network).
+
+## Phase 2A fair-value boundary
+
+`src/fair-value/model.mjs` is the load-bearing Phase 2A core. It uses the
+`villa-fv-v1` zero-drift log-return digital formula and accepts no order-book
+midpoint field. `src/fair-value/live.mjs` is the separate read-only collector:
+it reads `client.fetchPriceFeedInfo`, `client.fetchPriceHistory`, and
+`getOpeningPrices`, then passes facts into the pure function. The snapshot reads
+the YES book only after pricing so the midpoint can be shown as comparison-only.
+
+The model returns a data-quality score/status rather than treating probability
+extremity as confidence. No wallet, inventory, PnL, governor, or order-control
+dependency is present. A future governor may reject a high-quality fair value;
+that is a separate decision layer.
 
 ## On-chain vs off-chain
 

@@ -136,3 +136,4 @@ if (warnings > 0) {
   process.exit(0);
 }
 console.log("STATUS READY");
+process.exit(0);

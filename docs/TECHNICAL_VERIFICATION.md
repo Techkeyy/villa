@@ -48,9 +48,32 @@ Evidence is from this repo's installed SDK (`node_modules/@somnia-chain/markets-
 | Spot via `fetchPrice("BTC")` | VERIFIED | price 78434.515, ema present, `blockTimestamp` 1787574557 | doctor + discover | Needs `config.priceFeed = SOMNIA_TESTNET_PRICE_FEED` | Without that key SDK throws `NotConfiguredError` (prior local note + SDK types) |
 | ETH spot | VERIFIED WITH CONDITIONS | doctor only asserted BTC; SDK is the same `fetchPrice(asset)` | BTC only this session | Call ETH once before relying | One line in doctor |
 | 1m OHLCV | VERIFIED | `fetchPriceOHLCV("BTC","1m")` returned candles; last vol=18 (oracle update count, not trade volume) | discover | Vol estimator possible | SDK comment: only 1m/1h/1d. No sub-minute candles |
+| Underlying price history | VERIFIED | SDK 0.28.1 `client.fetchPriceHistory("BTC", { limit })` returns newest-first `PricePoint` rows with human price + chain timestamp | Phase 2A read-only snapshot | Use chronological log returns with chain-time seconds | Reject malformed, stale, or gapped history |
 | Stale-feed detection | VERIFIED WITH CONDITIONS | `LivePrice.blockTimestamp` exists; kit `SpotHistory` ages samples | types + kit `signal.ts` | Computable | Governor tripwire: halt if `now - blockTimestamp` too large |
 | Independent of book mid | VERIFIED as possible | Spot 78434 vs 1m book mid ~0.272 | live numbers | Fair value **can** disagree with the book | This is the product. Do not quote 0.272 because the book said so |
-| Exact fair-value formula | NOT YET VERIFIED | Brief forbids assuming it | — | Open product choice | Pure function, tests later |
+| Exact fair-value formula | VERIFIED WITH CONDITIONS | `docs/FAIR_VALUE_MODEL.md`, pure `villa-fv-v1`, 50 deterministic tests | `npm test` + live snapshot | Zero-drift log-return digital baseline | No order-control dependency; confidence is data quality |
+
+## Phase 2A read-only evidence (2026-08-25)
+
+One successful `npm run fair-value` run read a live BTC 300s Event Contract:
+
+| Field | Observed value |
+| --- | --- |
+| Market / marketId | `BTC-7893003-25AUG26-1935/tUSDC` / `0x0000000000000000000000000000000000000000000000000000000000009795` |
+| On-chain status | `Trading (1)` |
+| Reference | `78930.03`, explicit `strike`, selected raw scale `10^2` |
+| BTC now / time left | `78895.85` / `188s` using chain time |
+| Realized volatility | `4.176245e-5` per square-root second; 235 observations over 248s |
+| VILLA result | `UP 22.5%`, `DOWN 77.5%`, `HIGH` data quality (`97.5%`) |
+| DreamDEX midpoint | `28.7%`, comparison only |
+| Difference | `-6.2 percentage points` |
+| Transactions | None; the script has no signer and only performs reads |
+
+Shannon's chain clock was about 556 seconds ahead of the workstation in this
+run. The snapshot reported the offset and used the latest chain timestamp for
+history/expiry math. A later successful run also exercised a fresh zero-moneyness
+case and an empty-book comparison; the midpoint is therefore optional data, never
+a required model input.
 
 ## Orders, inventory, lifecycle
 
@@ -80,7 +103,7 @@ Evidence is from this repo's installed SDK (`node_modules/@somnia-chain/markets-
 | Operator connects/configures | NOT YET VERIFIED (no wallet, no UI) |
 | Allocates capital (tUSDC faucet; mint still untested) | tUSDC faucet **VERIFIED**; `mintSet` still **VERIFIED WITH CONDITIONS** |
 | Discover supported Event Contract | VERIFIED |
-| Independent fair value | VERIFIED WITH CONDITIONS (inputs exist; model not chosen) |
+| Independent fair value | VERIFIED WITH CONDITIONS (pure model + live read-only snapshot) |
 | Permitted quotes (governor) | NOT YET VERIFIED (rules not coded; data for rules exists) |
 | Quote enters DreamDEX | **VERIFIED** for one tiny post-only BUY_YES on one BTC 24h window. Not proven: SELL, other cadences, inventory skew |
 | Fill changes inventory | VERIFIED WITH CONDITIONS (balances+trades APIs; thin organic flow) |

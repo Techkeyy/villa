@@ -4,7 +4,9 @@ Autonomous liquidity manager for DreamDEX Event Contracts.
 
 Operator-facing. Not a prediction market. Not a retail Up/Down app. Ordinary traders meet VILLA only as orders on DreamDEX.
 
-This repository is in **onboarding / verification**. There is no product UI and no quoting loop yet.
+This repository is in **Phase 2A**. The independent `villa-fv-v1` fair-value
+engine and a read-only live BTC snapshot are present. There is no product UI,
+quoting loop, or risk governor yet.
 
 ## Repo
 
@@ -18,6 +20,7 @@ Shannon reads work. **Wet write-path passed** for one tiny post-only BUY rest+ca
 npm install
 npm test
 npm run doctor
+npm run fair-value
 npm run verify:write:dry
 npm run verify:write
 ```

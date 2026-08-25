@@ -25,6 +25,14 @@ Loop:
 9. On symbol change, reset position state and enter the successor.
 10. A single operator view: value, quotes, inventory, last reason, halt state.
 
+## Phase 2A status
+
+Completed in this repository: a pure `villa-fv-v1` fair-value engine, a
+read-only collector for the SDK price feed/history and strike/opening reference,
+50 deterministic tests, and `npm run fair-value` for a live BTC snapshot. The
+engine stops at `data → fair value → validation → explanation`. It has no signer,
+order placement, cancellation, inventory, PnL, or governor dependency.
+
 Fixture/offline path: replay a recorded snapshot so the demo survives indexer blips.
 
 ## Stretch (after the loop is real)
@@ -40,9 +48,10 @@ Fixture/offline path: replay a recorded snapshot so the demo survives indexer bl
 ## Prioritized work (stop after onboarding unless told to continue)
 
 0. **This phase — DONE:** onboarding docs, doctor, live read discovery, kit+SDK inspection.
-1. **Next recommended implementation task:** disposable testnet wallet + read-only doctor green + **one wet write test** in a clearly named script: faucet (if needed) → `getMarketOnchain` Trading with headroom → one post-only bid → confirm it rests or document `PostOnlyWouldCross` → cancel → print balances. No strategy, no UI, no second wallet unless the book never fills and we only need to prove *placement*.
-2. Pure fair-value + governor unit tests on fixtures (spot, strike/opening, τ, vol, inventory).
-3. Quoting loop against one live window (still CLI).
+1. **DONE:** disposable testnet wallet + read-only doctor green + **one wet write test** in a clearly named script: faucet (if needed) → `getMarketOnchain` Trading with headroom → one post-only bid → confirm it rests → cancel → print balances. This proves one BUY rest/cancel only; it does not prove SELL, fills, or settlement.
+2A. **DONE:** Pure fair-value unit tests and read-only live snapshot (spot, strike/opening, τ, realized vol; no order book in the model).
+2B. Next: deterministic governor unit tests and refusal policy (separate from fair value).
+3. Quoting loop against one live window (still CLI), only after the governor exists.
 4. Claim sweep on Finalized holdings (may be zero first day — prove the scan).
 5. Successor rediscovery.
 6. Operator dashboard (design-skill) wired to real engine state, four states on every async action.
@@ -58,4 +67,4 @@ Halfway checkpoint: if step 3 is not quoting a real book, cut cadence/asset/UI c
 - Installing global toolchains
 - Mainnet
 - Inventing session-key custody
-- Picking a cute closed-form and burying it in UI
+- Connecting fair value to order control before the deterministic governor exists
