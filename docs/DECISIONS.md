@@ -330,3 +330,51 @@ reports nonzero claimable holdings without sending. Wet sessions persist only
 non-secret state after each boundary under ignored `runtime/state/`; restart
 reads the same market and skips zero/already-cleared legs. No cached pool is
 used as market identity and no rollover is started in Phase 5A.
+
+## D38. Series identity is binary asset plus exact interval
+
+**Why:** A pool is recycled between Event Contract windows, and live venue
+identifiers can change. The successor relationship must be defined by stable
+market semantics, not by a pool, symbol, question text, or a stale venue
+constant.
+
+**Consequence:** villa-rollover-v1 uses BINARY:<ASSET>:<intervalSec> as the
+series key. Venue is captured for evidence but is not required for a valid
+same-series successor. Every candidate and every active context still has an
+explicit marketId.
+
+## D39. Rollover uses chain-time polling and earliest later expiry
+
+**Why:** A short market can move from Trading to Resolved between reads, and
+the workstation clock was previously observed out of sync with Shannon. The
+next window must be discovered from the current source rather than derived
+from A's id or pool.
+
+**Consequence:** The bounded adapter gates A stop and B selection with current
+chain block time, accepts either terminal observation (Resolved or Voided),
+rechecks B on-chain, chooses the earliest later expiry for the exact series,
+and fails closed on equal-earliest ambiguity. No candidate means an explicit
+WAITING_FOR_SUCCESSOR state.
+
+## D40. Market, wallet, strategy, history, and settlement scopes are explicit
+
+**Why:** A rollover must not carry A's outcome ids, inventory, pending orders,
+or quote decision into B, while capital/risk configuration and underlying
+history may legitimately persist. A settled losing token can also remain in a
+wallet without being tradeable inventory.
+
+**Consequence:** B initialization resets market scope, preserves wallet and
+strategy scope, retains only fresh/gap-safe underlying ticks, and keeps A in a
+separate settlement registry. Exact B token ids are the only ids used for B
+inventory; old residuals are labelled rather than hidden.
+
+## D41. Phase 5B stops at a read-only B decision context
+
+**Why:** Fair value, risk, and the quote planner are now available for B, but
+connecting rollover directly to order control would turn a lifecycle proof
+into an unbounded trading loop before restart and settlement behavior are
+complete.
+
+**Consequence:** The verifier may end in SUCCESSOR_READY or a structured
+HALTED/NO_QUOTE context, but sends no transaction and does not select a
+fallback market. The existing Phase 5A settlement path remains separate.

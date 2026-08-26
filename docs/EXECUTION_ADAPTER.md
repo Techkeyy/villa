@@ -93,3 +93,11 @@ Settlement is intentionally outside this writer. Phase 5A's
 or treats `burnSet` as a redeem. It observes terminal chain state, redeems by
 `marketId` and explicit outcome index, and reconciles payout and gas before
 stopping.
+
+## Rollover binding
+
+Phase 5B does not invoke this writer. Its pure rollover boundary adds the
+market-scope checks that a future writer must honor: a quote plan must carry
+the active marketId, and an execution session must be bound to that same id.
+trackCreatedOrder() rejects a supplied order whose market differs from the
+session. A plan or session from A therefore cannot mutate B after a rollover.

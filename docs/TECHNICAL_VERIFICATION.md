@@ -444,3 +444,58 @@ The final read-only claim sweep scanned 200 finalized BTC rows and reported no
 claimable outcome; it identified only this known losing-side residual. No
 transaction was sent by the final claim sweep or by any inherited dry-run
 gate.
+
+## Phase 5B successor-market rollover (2026-08-26)
+
+The bounded read-only verifier ran against Shannon using the existing
+disposable operator address and the installed @somnia-chain/markets-sdk
+0.28.1. It selected a short BTC Market A, observed its terminal transition
+with chain time, verified zero A orders, rediscovered a later same-series
+Market B, rechecked B on-chain, and assembled a fresh B reference -> fair
+value -> governor -> quote-plan context. No transaction function was called.
+
+Final live identifiers and timing:
+
+| Fact | Evidence |
+| --- | --- |
+| Market A | 0x000000000000000000000000000000000000000000000000000000000000a17b |
+| A series / expiry | BTC binary 60s / 1787745240 |
+| A YES / NO ids | 776664966871418313858016266783285107726519691425877167524175228708608 / 776664966871418313858016266783285107726519691425877167524175228708609 |
+| A pool / venue | 0x1ccedff37647f3216201b5b556dc28fdf9d71eb4 / 0x1a1e6821cde7d0159c0d293177871e09677b4e42307c7db3ba94f8648a5a050f |
+| A terminal observation | chain time 1787745241, status 4, isResolved true, isVoided false |
+| A open orders | chain 0, indexed 0, VERIFIED |
+| Market B | 0x000000000000000000000000000000000000000000000000000000000000a17d |
+| B series / expiry | BTC binary 60s / 1787745300 |
+| B YES / NO ids | 1794547639858194023358288879777632407713807181339744266363869969026304 / 1794547639858194023358288879777632407713807181339744266363869969026305 |
+| B pool / venue | 0x42903fa9f7fe00dd26d29bdc1d826caa6dc29e62 / 0x1a1e6821cde7d0159c0d293177871e09677b4e42307c7db3ba94f8648a5a050f |
+| B discovery | client.listLiveBinaryMarkets, one candidate, 593 ms |
+| Stop -> successor observation | successor appeared at chain time 1787745242 |
+| Observed A/B overlap | 0s; B was first observed after A left Trading |
+| B reference | 78529.44, explicit strike, raw scale 10^2 |
+| B underlying | 78532.35 |
+| B remaining time | 57s by chain time |
+| B realized volatility | 3.8973363e-5 per square-root second |
+| B fair value | UP 55.0108%, DOWN 44.9892%, villa-fv-v1 |
+| B data quality | HIGH, score 0.95 |
+| B governor | ALLOW, primary reason NONE |
+| B quote plan | NO_QUOTE (minimum-quantity / post-only constraints; retained, no fallback) |
+| B inventory | YES 0, NO 0 raw; exact B ids only |
+| B open orders | chain 0, indexed 0, VERIFIED |
+| final active operator orders | 0 |
+| known Phase 5A residual | market ...a00b, NO 1000 raw, KNOWN_ZERO_VALUE_SETTLED_RESIDUAL |
+| transactions | 0 |
+
+The run took approximately 57s wall time including the short A stop
+observation. The terminal boundary was chain-authoritative; local wall time
+was used only for the bound and latency measurements. The B YES book was read
+separately: best bid 541000, best ask 571000, midpoint 55.60%,
+comparison-only. It did not enter fair value, governor, or quote-centre input.
+
+The pure rollover suite added 45 deterministic tests. The repository suite
+after Phase 5B is 287 tests, with the inherited 242 tests preserved.
+
+Known limitation: the verifier tracks A in the rollover settlement history
+but does not claim or alter A's terminal balances. The existing Phase 5A
+settlement lifecycle remains responsible for settlement claims. A B HALT or
+NO_QUOTE is a valid bounded rollover outcome, not a reason to select a third
+market. This milestone is not a continuous writer.

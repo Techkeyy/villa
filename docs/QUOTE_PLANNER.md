@@ -233,3 +233,13 @@ re-runs the model, governor, and planner after minting and after the first
 reconciled order; it then preflights the chosen target against chain time,
 market status, current feed, current book, visible inventory, collateral, and
 the exact grid.
+
+## Rollover binding
+
+Phase 5B runs villa-quote-v1 again from B's independently resolved reference,
+fresh underlying history, B expiry, exact B inventory ids, and B open-order
+read. The resulting plan is market-scoped: its marketId must equal B's active
+context before a future execution adapter can consume it. A plan from A is
+rejected as stale and is never reused for B. A B NO_QUOTE remains an
+explainable no-action result; the rollover boundary does not fall back to
+another market or send a transaction.

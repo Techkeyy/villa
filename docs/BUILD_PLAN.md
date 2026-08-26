@@ -68,7 +68,10 @@ snapshot. No writer or transaction path is connected.
    complete-set session, chain-authoritative resolution/void handling,
    explicit SDK redeem, finalized rediscovery, claim sweep dry path,
    restartable state, and exact payout/gas reconciliation. No rollover.
-7. Successor rediscovery.
+7. **DONE:** Phase 5B bounded successor-market rediscovery and rollover:
+   chain-time A stop, same-series B verification, explicit scope reset, fresh
+   B fair-value/risk/quote context, residual registry, and zero-write live
+   proof. It is not a continuous loop and does not execute B quotes.
 8. Operator dashboard (design-skill) wired to real engine state, four states on every async action.
 9. Demo path + optional disclosed taker.
 10. perfect-readme, Audit-skill, project-edge, submit.
@@ -86,7 +89,7 @@ cut cadence/asset/UI chrome, not the governor or pure planner boundaries.
 - Connecting fair value to order control before the deterministic governor exists
 - Treating the Phase 3 quote plan as proof that a SELL, fill, mint, or settlement path has been verified
 - Treating one bounded quote cycle as permission to start an always-on writer
-- Treating `burnSet` as settlement redemption or starting successor rollover
+- Treating `burnSet` as settlement redemption or treating one rollover as permission for continuous execution
 
 ## Phase 5A settlement boundary
 
@@ -97,3 +100,13 @@ The settlement milestone stops at:
 It does not resolve/void, fill, quote, cancel, claim an unrelated market,
 start a second wallet, or enter a successor window. The operator-facing claim
 sweep is read-only and uses the SDK/indexer `Finalized` historical path.
+
+## Phase 5B rollover boundary
+
+The successor milestone stops at:
+
+observe A terminal -> close A scope -> rediscover and verify later same-series
+B -> initialize B -> reference -> fair value -> governor -> quote plan -> stop.
+
+It does not place/cancel orders, mint/burn outcome sets, claim settlement
+value, parse questions, derive a successor from a pool, or run continuously.

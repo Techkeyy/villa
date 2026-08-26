@@ -260,3 +260,27 @@ transaction dependency.
 
 The midpoint is carried in session facts as comparison-only. It is not an
 input to fair value, governor state, planner centre, or target price.
+
+## Phase 5B successor-rollover boundary
+
+src/rollover/index.mjs is the pure villa-rollover-v1 state machine and
+identity boundary. It defines a series from binary type, normalized asset, and
+exact interval; marketId remains the only market identity and a recycled pool
+never identifies B. It selects only a later same-series window, rejects
+equal-expiry ambiguity, preserves wallet/strategy/history scopes, resets every
+market-scoped field, and keeps A in separate settlement history.
+
+src/rollover/live.mjs and scripts/verify-rollover.mjs are read-only acquisition
+boundaries:
+
+    observe A terminal on chain
+      -> SDK rediscovery + exact B on-chain verification
+      -> B reference + spot/history
+      -> villa-fv-v1 -> villa-risk-v1 -> villa-quote-v1
+      -> structured rollover state
+
+The B book is comparison/post-only context only and cannot affect pUp. A HALT
+or NO_QUOTE on B is retained as a structured result; the verifier does not
+switch to an unrelated market. The bounded verifier has no signer, writer,
+order, settlement-claim, or continuous-loop path. A may remain under
+settlement tracking while B is the active decision context.

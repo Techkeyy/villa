@@ -102,6 +102,22 @@ export function targetFromPlan(plan, side, verificationCapRaw = null) {
   };
 }
 
+/** A quote plan is market-scoped; stale plans must not cross a rollover. */
+export function assertPlanMarketBound(plan, expectedMarketId) {
+  if (!plan?.marketId || !expectedMarketId || String(plan.marketId).toLowerCase() !== String(expectedMarketId).toLowerCase()) {
+    throw new ExecutionPolicyError("MARKET_SCOPE_MISMATCH", "quote plan is bound to a different market");
+  }
+  return true;
+}
+
+/** An execution session may only mutate the market it was created for. */
+export function assertExecutionSessionBound(session, expectedMarketId) {
+  if (!session?.marketId || !expectedMarketId || String(session.marketId).toLowerCase() !== String(expectedMarketId).toLowerCase()) {
+    throw new ExecutionPolicyError("SESSION_SCOPE_MISMATCH", "execution session is bound to a different market");
+  }
+  return true;
+}
+
 /**
  * Final preflight gate. It checks facts that may change between planning and
  * broadcast; it never mutates state and never sends a transaction.
@@ -167,6 +183,7 @@ export function trackCreatedOrder(session, order) {
   if (!id || !order.action) throw new ExecutionPolicyError("ORDER_INVALID", "created order id and action are required");
   if (session.createdOrders.some((item) => item.orderId === id)) throw new ExecutionPolicyError("ORDER_DUPLICATE", `order ${id} is already tracked`);
   if (session.createdOrders.length >= session.maxOrders) throw new ExecutionPolicyError("ORDER_LIMIT", `session limit is ${session.maxOrders} orders`);
+  if (order.marketId !== undefined) assertExecutionSessionBound(session, order.marketId);
   return { ...session, createdOrders: [...session.createdOrders, { orderId: id, pool: order.pool, action: order.action, priceRaw: String(order.priceRaw), quantityRaw: String(order.quantityRaw), txHash: order.txHash ?? null }] };
 }
 

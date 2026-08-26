@@ -154,3 +154,14 @@ collateral return. The normal market view omitted the settled market while
 was zero. The only remaining outcome token was the documented `1000` raw
 resolved-loser residual; the final dry claim sweep reported no claimable side.
 Transaction and gas evidence is recorded in `docs/TECHNICAL_VERIFICATION.md`.
+
+## Rollover coexistence
+
+Phase 5B keeps settlement tracking separate from successor decision state. A
+market may be terminal and retained in the rollover settlement history while a
+later B market is active for fresh reference, fair value, governor, and quote
+planning. The rollover verifier does not claim A's settlement value or alter
+A's balances; it only labels the known historical losing residual and proves
+that its token id is excluded from B's 0/0 inventory. Settlement can therefore
+be completed by this lifecycle without allowing an A residual to be treated as
+B inventory.

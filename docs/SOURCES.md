@@ -39,6 +39,7 @@ Path: `node_modules/@somnia-chain/markets-sdk/` version **0.28.1**.
 | Spot operator registry is SPOT-ONLY | `src/spot/operatorGrants.ts` |
 | BinaryMarket fields: strike, interval, expiry, venueId | `src/markets.ts` |
 | `getOpeningPrices` | `src/createClient.ts` |
+| Live binary discovery filters and current expiry ordering | `src/somniaMarketsClient.ts`, `src/createClient.ts` (listLiveBinaryMarkets) |
 | Binary `trader.placeOrder` / `ORDER_TYPE.POST_ONLY` / default expiry = market expiry | `src/trade.ts` |
 | Unified `createOrder` postOnly, no expire field | `src/unified/exchange.ts` `CreateOrderParams` |
 | `getOrderOnchain` (active only; cancel → null) | `src/orders.ts` |
@@ -138,3 +139,13 @@ https://github.com/somnia-chain/dreamdex-bot-kit
 | SDK payout and claimable semantics | Installed SDK 0.28.1: `node_modules/@somnia-chain/markets-sdk/src/derivedReads.ts`, `src/binary/settlement.ts` |
 | Finalized rediscovery and resolved/void claim behavior | Gitignored official reference clone: `.scratch/dreamdex-bot-kit/packages/ec-core/src/settlement.ts`, `src/claim.ts`, `docs/event-contracts.md` |
 | VILLA settlement decisions and live adapter | This repository: `src/settlement/index.mjs`, `src/settlement/live.mjs`, `scripts/verify-settlement.mjs` |
+
+## Phase 5B rollover implementation evidence
+
+| Claim | Source |
+| --- | --- |
+| Stable series identity, successor selection, ambiguity refusal, state machine, scope reset, and residual labels | VILLA `src/rollover/index.mjs` and `src/rollover/index.test.mjs` |
+| SDK/indexer acquisition, chain-time terminal watch, exact B on-chain verification, and fresh B pipeline | VILLA `src/rollover/live.mjs` and `scripts/verify-rollover.mjs` |
+| Same-series live window cadence and recycled-pool behavior | Installed SDK `src/markets.ts`, `src/somniaMarketsClient.ts`; live `client.listLiveBinaryMarkets` proof on 2026-08-26 |
+| Official respawn/reload guidance | `.scratch/dreamdex-bot-kit/packages/ec-core/src/markets.ts`, `strategies/ec-maker/src/index.ts`, and `docs/event-contracts.md` |
+| Phase 5B live hashes, chain times, zero orders, residual classification, and no-transaction evidence | `docs/TECHNICAL_VERIFICATION.md`, Phase 5B section |
