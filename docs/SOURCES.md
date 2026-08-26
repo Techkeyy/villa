@@ -77,6 +77,17 @@ Path: `node_modules/@somnia-chain/markets-sdk/` version **0.28.1**.
 | SELL_YES reference plumbing and held-outcome check | `.scratch/dreamdex-bot-kit/packages/ec-core/src/orders.ts` |
 | Live Shannon receipts and final zero-state re-read | `docs/INVENTORY_LIFECYCLE.md`, Phase 4A command output |
 
+## Phase 4B execution implementation evidence
+
+| Claim | Source |
+| --- | --- |
+| One-shot execution boundary, event contract, and cleanup rules | VILLA `src/execution/policy.mjs`, `src/execution/live.mjs`, `scripts/verify-quote-cycle.mjs`, `docs/EXECUTION_ADAPTER.md` |
+| Single serialized write queue | VILLA `src/execution/write-queue.mjs` and `write-queue.test.mjs` |
+| Exact binary write parameters, post-only order type, order expiry, and receipt shape | Installed SDK `src/trade.ts`, `src/orders.ts`, `src/tradeAbi.ts` |
+| On-chain active order and indexer reconciliation | VILLA `src/risk-governor/live.mjs`, `src/execution/policy.mjs`, `scripts/verify-quote-cycle.mjs` |
+| One-lot cap and paired cleanup | VILLA `src/inventory-lifecycle/index.mjs`, `src/execution/policy.mjs` |
+| Live Phase 4B transaction and final-state evidence | `docs/TECHNICAL_VERIFICATION.md`, Phase 4B command output |
+
 Upstream: https://www.npmjs.com/package/@somnia-chain/markets-sdk
 
 ## Official bot kit (cloned `.scratch/dreamdex-bot-kit`, not vendored)

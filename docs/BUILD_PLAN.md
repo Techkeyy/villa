@@ -60,9 +60,10 @@ snapshot. No writer or transaction path is connected.
    minimum mint, one resting/cancelled post-only SELL_YES, exact pair burn, and
    final zero-state re-read. The future writer must consume observed escrow
    semantics and remain separate from the pure planner.
-5. Next: a bounded quote-execution adapter against one live window, only after
-   explicit order expiry/reconciliation, inventory-capacity, and lifecycle
-   gates are designed.
+5. **DONE:** Phase 4B bounded quote execution: one explicit session, one-lot
+   inventory provision, fresh model/risk/quote passes, post-only ASK then BID,
+   exact on-chain/indexer reconciliation, exact cancellation, safe pair burn,
+   and final clean-state scan. It is not a continuous loop.
 6. Claim sweep on Finalized holdings (may be zero first day — prove the scan).
 7. Successor rediscovery.
 8. Operator dashboard (design-skill) wired to real engine state, four states on every async action.
@@ -81,3 +82,4 @@ cut cadence/asset/UI chrome, not the governor or pure planner boundaries.
 - Inventing session-key custody
 - Connecting fair value to order control before the deterministic governor exists
 - Treating the Phase 3 quote plan as proof that a SELL, fill, mint, or settlement path has been verified
+- Treating one bounded quote cycle as permission to start an always-on writer

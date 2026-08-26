@@ -208,3 +208,31 @@ filled SELL_YES can break that set.
 
 `burnSet` is a pre-settlement pair burn. Settlement `redeem` remains a
 separate future lifecycle phase.
+
+## Phase 4B bounded execution boundary
+
+Phase 4B adds `villa-execution-v1` as a narrow I/O adapter around the existing
+pure layers:
+
+```
+live chain/feed/indexer/book/account reads
+  -> villa-fv-v1
+  -> villa-risk-v1
+  -> villa-quote-v1
+  -> execution preflight
+  -> one serialized writer queue
+  -> exact on-chain/indexer reconciliation
+  -> exact cancellation and safe pair cleanup
+```
+
+The adapter is one-shot and bounded. It chooses one current BTC Trading market,
+uses the minimum complete set only when the planner needs a YES ask, caps each
+target to one valid lot for the verifier, places ASK then BID with a fresh
+pipeline pass before each write, and cancels only its recorded order IDs. A
+HALT, `NO_QUOTE`, stale decision, unsafe expiry, invalid feed, unverified open
+orders, grid error, or post-only crossing refusal stops new writes. The quote
+planner and governor remain usable without the writer and have no wallet or
+transaction dependency.
+
+The midpoint is carried in session facts as comparison-only. It is not an
+input to fair value, governor state, planner centre, or target price.

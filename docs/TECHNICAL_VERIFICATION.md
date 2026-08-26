@@ -299,3 +299,67 @@ An on-chain read-only scan covered 10 current Trading pools and found zero
 active orders for the VILLA operator. The inherited `npm run verify:write:dry`
 also completed with `PASS dry-run`, explicitly reporting that no transaction
 was sent. The planner itself has no transaction capability by construction.
+
+## Phase 4B bounded end-to-end quote execution (2026-08-26)
+
+The final `npm run verify:quote-cycle -- --confirm` run passed on one live BTC
+24-hour Trading contract (`marketId` ending `9a4f`) with approximately 16.2
+hours of chain-time headroom. The adapter used the existing disposable wallet,
+one minimum 6-decimal lot (`1000` raw = `0.001`), one serialized session, and at
+most two simultaneous `ORDER_TYPE.POST_ONLY` orders.
+
+The baseline read was tUSDC `100000000` raw, YES `0`, NO `0`, zero target open
+orders, and zero active orders across the current BTC candidate scan. The
+initial independent model pass reported BTC `78975.325`, opening reference
+`78528.87`, `58320s` remaining, realized volatility
+`3.208549e-5` per square-root second, fair UP `76.8%`, and HIGH data quality
+(`90.0%`). The YES midpoint was `71.65%` and was recorded as comparison-only;
+it was not passed to fair value, risk, or quote planning. The governor was
+`ALLOW`.
+
+The live event sequence was:
+
+1. Mint exactly `1000` raw: collateral became `99999000`, YES and NO each
+   became `1000`, and the post-mint read re-ran fair value, risk, and planning.
+2. Place post-only `SELL_YES` at raw price `786000`, quantity `1000`; the
+   order was visible on-chain and in the indexer with zero fills.
+3. Re-run the full pipeline after that resting ask. The governor stayed
+   `ALLOW`, open orders were `VERIFIED`, and the second plan was re-evaluated.
+4. Place post-only `BUY_YES` at raw price `725000`, quantity `1000`; it was
+   visible on-chain and in the indexer with zero fills.
+5. Cancel the two exact session order IDs sequentially. Both disappeared from
+   active on-chain reads and reconciled open-order reads.
+6. Burn the exact temporary `1000` YES + `1000` NO pair. Final tUSDC returned
+   to `100000000` raw, YES/NO returned to zero, and the final BTC scan found
+   zero active orders.
+
+Final-session transaction evidence:
+
+| Action | Shannon transaction |
+| --- | --- |
+| minimum complete-set mint | `0x5af3eec659addbbd095aab49dcbfad8c60ec6c4dd2d4f4fd316074a40ec617e7` |
+| post-only SELL_YES | `0xf03046325a38106e3b517502bf33ffe22a33236ff60d0a61ef576552d2af2332` |
+| post-only BUY_YES | `0x56866b26fb1b4a10e1cea9a168b0e1657e5113fe964db249960a85e3d0e1c34f` |
+| exact SELL cancel | `0x452523e2e1f6b19601423548575429d5bdfbaf06b1f417f4ebef59016f14b642` |
+| exact BUY cancel | `0x9dae86e4a5b9357ff097b4b8c4d936ade9f464d54ae7ffc2392428932b19b0b9` |
+| temporary pair burn | `0x349cfb5707aa91c518a7b6c11514a76e4c3a5de1865a2012b0b5b11aac88f77e` |
+
+No intentional or observed fill occurred. The session's structured event stream
+included baseline, model/risk/plan, mint, both order submissions, both resting
+reconciliations, re-plan after the first order, both exact cancels, inventory
+reconciliation, burn, and `SESSION_CLEAN`. The final run's transaction count
+was six. Native STT decreased only through transaction gas; the adapter does
+not claim a fixed gas cost.
+
+During implementation, a first controlled attempt found and safely cleaned up
+an indexer raw-quantity double-scaling bug, and a later attempt found a final
+event-field spelling bug. Both were corrected; every subsequent read-only
+check showed zero orders and zero YES/NO inventory before the final successful
+run. The current implementation and final live run use the corrected paths.
+
+The execution adapter's pure test suite covers HALT/NO_QUOTE, stale/future
+feed timestamps, market/expiry gates, action permissions, cap and price
+invariants, exact escrow, post-only crossings, inventory/collateral gates,
+session tracking, serialized writes, partial/full/unknown reconciliation,
+exact cancellation, and paired-burn refusal. The repository suite passed
+`212/212`.

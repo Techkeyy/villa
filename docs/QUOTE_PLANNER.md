@@ -222,3 +222,14 @@ estimate adverse selection, account for PnL/drawdown itself, or control an
 order loop. It does not decide whether to trade; the risk governor decides
 permissions. The live snapshot is intentionally one read-only pass and may
 show no ask when the disposable operator has no YES inventory.
+
+## Phase 4B execution handoff
+
+The planner remains pure and returns no transaction. The bounded execution
+adapter consumes its raw action, price, and quantity only after a fresh risk
+decision. For the live verifier, a one-lot cap may reduce `targetQuantityRaw`
+but never changes `targetPriceRaw`, action, or a disabled side. The adapter
+re-runs the model, governor, and planner after minting and after the first
+reconciled order; it then preflights the chosen target against chain time,
+market status, current feed, current book, visible inventory, collateral, and
+the exact grid.

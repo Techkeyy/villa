@@ -4,10 +4,10 @@ Autonomous liquidity manager for DreamDEX Event Contracts.
 
 Operator-facing. Not a prediction market. Not a retail Up/Down app. Ordinary traders meet VILLA only as orders on DreamDEX.
 
-This repository is in **Phase 4A**. The independent `villa-fv-v1` fair-value
+This repository is in **Phase 4B**. The independent `villa-fv-v1` fair-value
 engine, deterministic `villa-risk-v1` governor, pure `villa-quote-v1` planner,
-and bounded complete-set SELL lifecycle verifier are present. There is no
-product UI or continuous quoting loop yet.
+complete-set inventory lifecycle, and bounded end-to-end quote execution
+verifier are present. There is no product UI or continuous quoting loop yet.
 
 ## Repo
 
@@ -29,7 +29,8 @@ npm run risk
 npm run quote
 npm run verify:write:dry
 npm run verify:inventory:dry
-npm run verify:write
+npm run verify:quote-cycle:dry
+npm run verify:quote-cycle -- --confirm
 ```
 
 `verify:write` sends one tiny post-only BUY and cancels it. It needs `OPERATOR_PRIVATE_KEY` in gitignored `.env`, STT for gas, and tUSDC (`npm run fund:tusdc` after STT arrives).
@@ -37,6 +38,11 @@ npm run verify:write
 `verify:inventory` sends one bounded mint / post-only `SELL_YES` / exact cancel /
 `burnSet` sequence. Use the dry run first; it does not create a quote loop or
 exercise settlement.
+
+`verify:quote-cycle:dry` exercises live acquisition and the full model → risk →
+quote → execution preflight without a signer. The wet command requires the
+explicit `--confirm` flag and is limited to one BTC market, one minimum lot,
+two post-only orders, exact cancellation, and temporary complete-set cleanup.
 
 ## Docs
 
@@ -50,6 +56,7 @@ exercise settlement.
 | `docs/SOURCES.md` | Claim → URL/file |
 | `docs/BUILD_PLAN.md` | MVP, stretch, order of work |
 | `docs/INVENTORY_LIFECYCLE.md` | Complete-set mint, SELL escrow, exact cancel, and burn evidence |
+| `docs/EXECUTION_ADAPTER.md` | Bounded quote execution, reconciliation, and cleanup boundary |
 | `docs/FAIR_VALUE_MODEL.md` | Independent fair-value formula, units, and validation |
 | `docs/RISK_GOVERNOR.md` | Deterministic risk states, exposure math, policy, and refusal boundary |
 | `docs/INCOMING-BRIEF.md` | Directing-agent spec as received |

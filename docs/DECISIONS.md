@@ -243,3 +243,54 @@ to the planner when it already excludes committed SELL quantity. It subtracts
 reconciled open SELL quantity only for a venue state where committed tokens
 remain visible. The risk governor still includes the pending SELL's signed
 directional stress independently.
+
+## D30. Execution is a bounded adapter, not a quote loop
+
+**Why:** The pure planner is valuable only if it remains independently
+testable, while an always-on loop would introduce unbounded transaction and
+inventory risk before settlement and restart behavior are designed.
+
+**Consequence:** `villa-execution-v1` runs one explicit session on one current
+BTC market. It reads, prices, governs, plans, preflights, places at most two
+post-only targets, reconciles, cancels exact session IDs, and cleans up. A
+continuous quoting loop is a later milestone.
+
+## D31. Every signer write uses one serialized queue
+
+**Why:** The SDK tracks the local nonce across writes, but concurrent callers
+or cleanup racing placement can still create ambiguous ordering and unsafe
+recovery.
+
+**Consequence:** Mint, placement, cancellation, and burn are awaited through
+one promise chain. There is no `Promise.all` around writes, no broad cancel,
+and no second wallet. The queue is closed after cleanup.
+
+## D32. Verification caps may reduce size, never change price
+
+**Why:** A tiny live test should exercise the real planner target while
+limiting capital and inventory exposure. Moving the price toward the midpoint
+would make the test no longer representative of VILLA's plan.
+
+**Consequence:** The execution cap is one minimum valid lot. It applies only as
+`min(plannerQuantity, cap)`. Raw planner price, action, side, and disabled
+state are preserved exactly.
+
+## D33. Revalidate after inventory and after the first order
+
+**Why:** Minting changes collateral and outcome inventory; a resting order
+changes pending exposure and venue-visible inventory. A stale pre-mint plan is
+not safe to reuse.
+
+**Consequence:** The adapter runs the live fair-value → risk → quote pipeline
+again after mint and after the first reconciled order, and again before each
+possible write. A fresh HALT or NO_QUOTE skips the remaining side safely.
+
+## D34. Chain-active state and indexer state must reconcile before cleanup
+
+**Why:** A receipt is not proof that an order is resting or gone, while an
+indexer can lag or classify a recycled pool incorrectly.
+
+**Consequence:** Active on-chain fields are checked first; matching indexer
+fields strengthen the evidence. Contradictions are `UNKNOWN`, retried only in
+a bounded window, and block any burn that would require guessing. Cleanup
+enumerates only this session's recorded IDs.

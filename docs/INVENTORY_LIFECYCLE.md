@@ -142,3 +142,12 @@ it refuses a blind burn and reports the stranded state for operator review.
 
 No transaction is sent by dry mode, the pure helpers, the fair-value snapshot,
 the risk snapshot, or the quote snapshot.
+
+## Phase 4B handoff
+
+The bounded quote executor reuses this lifecycle boundary. It mints the same
+minimum valid complete set only when a planned `SELL_YES` requires inventory,
+uses the live planner's unchanged price with a one-lot quantity cap, and burns
+only the controlled paired increment after every session order is gone. An
+unexpected fill never triggers a compensating trade: a complete remaining pair
+may be burned, while unmatched YES/NO is preserved for later operator review.

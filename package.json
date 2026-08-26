@@ -7,7 +7,7 @@
   "scripts": {
     "doctor": "node scripts/doctor.mjs",
     "discover": "node scripts/discover.mjs",
-    "test": "node --test scripts/lib/write-path.test.mjs src/fair-value/*.test.mjs src/risk-governor/*.test.mjs src/quote-planner/*.test.mjs src/inventory-lifecycle/*.test.mjs",
+    "test": "node --test scripts/lib/write-path.test.mjs src/fair-value/*.test.mjs src/risk-governor/*.test.mjs src/quote-planner/*.test.mjs src/inventory-lifecycle/*.test.mjs src/execution/*.test.mjs",
     "fair-value": "node --env-file=.env scripts/fair-value-snapshot.mjs",
     "risk": "node --env-file=.env scripts/risk-snapshot.mjs",
     "quote": "node --env-file=.env scripts/quote-snapshot.mjs",
@@ -15,6 +15,8 @@
     "verify:write:dry": "node --env-file=.env scripts/verify-write-path.mjs --dry-run",
     "verify:inventory": "node --env-file=.env scripts/verify-inventory-lifecycle.mjs",
     "verify:inventory:dry": "node --env-file=.env scripts/verify-inventory-lifecycle.mjs --dry-run",
+    "verify:quote-cycle": "node --env-file=.env scripts/verify-quote-cycle.mjs",
+    "verify:quote-cycle:dry": "node --env-file=.env scripts/verify-quote-cycle.mjs --dry-run",
     "fund:tusdc": "node --env-file=.env scripts/fund-tusdc.mjs"
   },
   "engines": {
