@@ -19,6 +19,8 @@
     "verify:quote-cycle:dry": "node --env-file=.env scripts/verify-quote-cycle.mjs --dry-run",
     "verify:settlement": "node --env-file=.env scripts/verify-settlement.mjs --confirm",
     "verify:settlement:dry": "node --env-file=.env scripts/verify-settlement.mjs --dry-run",
+    "verify:organic-redeem": "node --env-file=.env scripts/redeem-organic-fills.mjs --confirm",
+    "verify:organic-redeem:dry": "node --env-file=.env scripts/redeem-organic-fills.mjs --dry-run",
     "verify:rollover": "node --env-file=.env scripts/verify-rollover.mjs",
     "villa:bounded:dry": "node --env-file=.env scripts/villa-bounded.mjs --dry-run",
     "villa:bounded": "node --env-file=.env scripts/villa-bounded.mjs --confirm",

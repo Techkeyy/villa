@@ -78,6 +78,10 @@ snapshot. No writer or transaction path is connected.
    settlement overlap, and verified same-series successor continuation.
    Final dry and wet proofs passed on 2026-08-26; see
    `docs/TECHNICAL_VERIFICATION.md`.
+8A. **DONE:** Phase 6A.1 organic-fill settlement recovery: exact A/B claim
+cases, market-specific payout planning, serialized redeems, collateral/gas
+reconciliation, known-loser skip, residual registry, and duplicate-prevention
+recheck. No new orders or mints.
 9. Operator dashboard (design-skill) wired to real engine state, four states on every async action.
 10. Demo path + optional disclosed taker.
 11. perfect-readme, Audit-skill, project-edge, submit.

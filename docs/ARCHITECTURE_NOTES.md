@@ -323,3 +323,20 @@ expiry headroom the runner stops quoting, cancels and reconciles exact ids,
 burns only paired inventory, records any directional residual under the old
 market, and observes terminal state before same-series rediscovery. Older
 settlement records coexist with the new market context.
+
+## Phase 6A.1 recovery boundary
+
+`src/settlement/recovery.mjs` is the pure
+`villa-organic-fill-recovery-v1` planner. It validates exact market cases,
+separates payout vectors by `marketId`, classifies claimable/already-redeemed/
+zero-value residual state, reconciles winning-balance clearance, and keeps
+native gas separate from collateral payout. It has no RPC, SDK, wallet, or
+environment dependency.
+
+`scripts/redeem-organic-fills.mjs` is the bounded I/O boundary. It performs a
+full finalized claim sweep, then an exact A/B/a00b preflight. Only entries
+whose market-specific plan is `REDEEM` enter the existing serialized writer;
+the old losing residual is a skip-only case. Each claim is re-read immediately
+before submission and reconciled after its confirmed receipt. The journal
+preserves the Phase 6A fill evidence and records Phase 6A.1 as a later
+settlement event rather than rewriting the original run.

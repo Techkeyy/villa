@@ -87,15 +87,15 @@ a required model input.
 | Mint complete set | VERIFIED WITH CONDITIONS | SDK `mintSet` → pool `mintSet(yesTo,noTo,amount)`; live 0.001 mint increased YES and NO by exactly 1000 raw and debited exactly 1000 raw tUSDC | `npm run verify:inventory` | Complete-set mint works on Shannon 6dp | One minimum-size Trading market; SDK auto-approval path is version-specific |
 | Burn complete set | VERIFIED WITH CONDITIONS | Live `burnSet` of the exact paired 1000 raw YES+NO restored tUSDC and both outcome balances to baseline | `npm run verify:inventory` | Unused pre-settlement pairs can be unwound | Not settlement `redeem`; no finalized claim proven |
 | Outcome balances | VERIFIED | `getOutcomeBalance({outcomeToken, account, id})`; live mint/rest/cancel/burn observed ERC-6909 balances and token escrow semantics | Source + `npm run verify:inventory` | ERC-6909 ids, not ERC-20; resting SELL escrowed YES out of visible balance | Key by marketId + ids from the same on-chain snapshot; do not double-reserve escrowed SELLs |
-| Fill detection | VERIFIED WITH CONDITIONS | `fetchMyTrades`; order-book events ABI; kit says indexer lags seconds | Source + docs | Do not trust a single indexer read | Poll + on-chain balances as truth |
+| Fill detection | VERIFIED | Phase 6A reconciled two organic full `SELL_YES` fills against the exact resting order ids; on-chain/indexer state was reconciled | Phase 6A and Phase 6A.1 evidence below | Do not trust a single indexer read | Poll + on-chain balances as truth |
 | Settlement detection | VERIFIED WITH CONDITIONS | `getMarketOnchain` `isResolved`/`isVoided`; `listBinaryMarkets({status:"Finalized"})` returned rows | discover finalized sample | Detectable without watching 15 minutes if we scan Finalized | Dashboard can show claims without a live expiry |
-| Redeem / claim | VERIFIED WITH CONDITIONS | SDK `redeem` via module; kit `claim.ts`; official recipes; kit test report 2026-08-06 claimed 205 YES on BTC 60s **on older SDK 0.22** | Source + third-party kit report | Path exists. **This repo has not redeemed.** | Implement from 0.28.1 `trader.redeem`, void both sides at 0.5 |
+| Redeem / claim | VERIFIED | Phase 6A.1 redeemed exact winning NO balances for two organic-fill markets with SDK 0.28.1; receipts and zero post-claim balances reconciled | Phase 6A.1 evidence below | Winning outcome only; known losing residuals are skipped | Keep market-specific payout vectors and serialized writes |
 | Successor discovery | VERIFIED WITH CONDITIONS | `loadMarkets(true)` each cycle in kit; 12 active flags while windows roll | live active_flag=12 | Polling works. Reactivity not required | Do not cache pool address |
 | HTTP Event Contract API | UNSUPPORTED | Official Event Contracts page | docs | Spot API is the wrong door | Never call `api.dreamdex.io` for EC |
 | Spot session keys for EC | UNSUPPORTED for kit/registry path | SDK `operatorGrants.ts` SPOT-ONLY; ec-core has no OWNER_ADDRESS | source | Do not copy session-keys.md onto Event Contracts | EOA signs MVP |
 | `placeBinaryOrderFor` | NOT YET VERIFIED | ABI exists | ABI only | Maybe a different operator model | Out of MVP until granted live |
-| Organic fill during demo | NEEDS LIVE TESTING | Most live `tradeCount` 0; ETH 4h had 4; 1m book had rest | discover | Flow is thin, not zero | Disclose a taker wallet if we must prove fill handling |
-| Full mint→quote→fill→redeem→roll | NEEDS LIVE TESTING | Kit report did this on 0.22 / old venue id | not this repo | Do not claim it | Day-1 write script after wallet exists |
+| Organic fill during demo | VERIFIED WITH CONDITIONS | Phase 6A observed two genuine external full `SELL_YES` fills; no taker or second wallet | Phase 6A evidence below | Flow remains market-dependent | Disclose bounded evidence and do not manufacture fills |
+| Full mint→quote→fill→redeem→roll | VERIFIED WITH CONDITIONS | Phase 6A quote/fill/roll plus Phase 6A.1 settlement redeem; bounded Shannon proof only | Phase 6A and Phase 6A.1 evidence below | No profitability or continuous-service claim | Keep each lifecycle bounded and auditable |
 
 ## Target product flow — classification
 
@@ -579,6 +579,69 @@ session order ids and expected raw prices. Unknown or contradictory orders
 still fail closed. The midpoint was collected for comparison only and did not
 enter fair value, governor, or quote-centre inputs.
 
-The Phase 6A pure suite adds 60 deterministic tests. The final repository
-suite is 347/347, preserving the inherited 287 tests. No frontend or Phase 6B
-work was started.
+The Phase 6A pure suite added 60 deterministic tests, bringing the suite to
+347/347 at that milestone. Phase 6A.1 adds 16 recovery tests; the current
+repository suite is 363/363, preserving all 347 prior tests. No frontend or
+Phase 6B work was started.
+
+## Phase 6A.1 organic fill -> settlement -> redeem (2026-08-26)
+
+This focused recovery ran after Phase 6A and did not start the autonomous
+loop or create any new market-making state. The exact cases came from the
+Phase 6A fill evidence: market A `...a3dd` with fill order
+`55340232221128713213`, and market B `...a3e9` with fill order
+`18446744073709615271`. Both fills were `SELL_YES 1000` raw and both left
+`YES 0 / NO 1000` raw after their markets resolved.
+
+The pre-claim plan checked A and B through finalized BTC history, and checked
+the aged-out `a00b` case by its exact direct on-chain market id. All three
+cases then passed exact on-chain state, payout-vector, wallet-balance, and
+zero-active-order checks:
+
+| Case | Chain settlement | Payout vector | Claim balance | Plan |
+| --- | --- | --- | --- | --- |
+| `...a3dd` | status `4`, resolved, winner NO | `[0,10000000]` | NO `1000` raw; token `6581887522981231166894129818630694520938795290852728544886350510349313` | REDEEM, expected `1000` raw |
+| `...a3e9` | status `4`, resolved, winner NO | `[0,10000000]` | NO `1000` raw; token `6468875483760989288541009934126241821734299972216764884215967483228161` | REDEEM, expected `1000` raw |
+| `...a00b` | status `4`, resolved, winner YES | `[10000000,0]` | NO `1000` raw | SKIP: `KNOWN_ZERO_VALUE_SETTLED_RESIDUAL` |
+
+The exact redemption sequence was A then B through one serialized queue:
+
+| Market | Redeem transaction | Amount | Expected payout | Actual payout | Gas |
+| --- | --- | ---: | ---: | ---: | ---: |
+| `...a3dd` | `0xc365dcd77a9f66ade5ca3363812ebccbbad091eb8618167e53693b230919d134` | `1000` raw NO | `1000` raw | `1000` raw | `2836314000000000` wei |
+| `...a3e9` | `0xb04fffb4f9c55248e387029a66bc1de1e5671fd5cdd59f5b6be6b815e6ca4` | `1000` raw NO | `1000` raw | `1000` raw | `2836314000000000` wei |
+
+Both receipts were successful. Independent post-claim reads reported A and B
+as status `4`, `isResolved: true`, `isVoided: false`, payout vector
+`[0,10000000]`, `YES 0`, `NO 0`, and verified zero open orders. The old
+`a00b` read remained `YES 0 / NO 1000`, winner YES, vector `[10000000,0]`,
+and zero open orders. It was never submitted to the writer.
+
+Recovery accounting:
+
+- recovery baseline: STT `49851275504000000000` raw; tUSDC `99997954` raw;
+- final: STT `49845602876000000000` raw; tUSDC `99999954` raw;
+- collateral recovered: `2000` raw (`0.002` tUSDC);
+- redeem gas total: `5672628000000000` wei, equal to the two measured receipt
+  gas amounts;
+- native STT gas and tUSDC payout were recorded separately;
+- `REALIZED_PNL_NOT_YET_FULLY_ACCOUNTED`: the ledger lacks complete per-fill
+  maker execution proceeds, protocol fees, and any other cash-flow components
+  required to calculate true realized maker P&L.
+
+The pre-claim sweep scanned 200 finalized rows and found A, B, and unrelated
+`...a3cf` as claim candidates. The post-claim sweep scanned 200 rows and found
+only unrelated `...a3cf` YES `1000` raw. A duplicate-prevention confirmed dry
+check planned zero A/B redeems and classified both as `ALREADY_REDEEMED`; it
+again skipped `a00b`. No new order, mint, or second wallet was used.
+
+The recovery event additions were
+`ORGANIC_FILL_POSITION_TRACKED`, `KNOWN_RESIDUAL_CLASSIFIED`,
+`CLAIMABLE_POSITION_FOUND`, `REDEEM_PLANNED`, `REDEEM_SUBMITTED`,
+`REDEEM_CONFIRMED`, `ORGANIC_FILL_PAYOUT_RECONCILED`,
+`CLAIMABLE_POSITION_CLEARED`, and `SETTLEMENT_RECOVERY_CLEAN`.
+
+The recovery journal is `runtime/state/organic-fill-recovery-v1.json`. It
+contains the original fill references, exact claim receipts, structured
+recovery events, residual registry, and final clean state. The original Phase
+6A journal/evidence was not rewritten.

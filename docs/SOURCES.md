@@ -160,3 +160,12 @@ https://github.com/somnia-chain/dreamdex-bot-kit
 | Existing fair value → risk → quote composition | VILLA `src/fair-value/`, `src/risk-governor/`, `src/quote-planner/` |
 | Successor selection and market-scope reset | VILLA `src/rollover/live.mjs`, `src/rollover/index.mjs` |
 | Phase 6A live command output, transaction counts, market ids, balances, and final scans | `docs/TECHNICAL_VERIFICATION.md`, Phase 6A section |
+
+## Phase 6A.1 organic-fill recovery evidence
+
+| Claim | Source |
+| --- | --- |
+| Exact recovery case registry, fill order ids, no new market/order path | `scripts/redeem-organic-fills.mjs` |
+| Market-separated claim planning, residual classifications, exact payout math, duplicate prevention, and queue order | `src/settlement/recovery.mjs`, `src/settlement/recovery.test.mjs` |
+| Finalized claim sweep acquisition and post-claim zero-balance verification | `src/settlement/live.mjs` and `scripts/redeem-organic-fills.mjs` |
+| Phase 6A.1 live hashes, balances, payouts, gas, residuals, and final scans | `docs/TECHNICAL_VERIFICATION.md`, Phase 6A.1 section |

@@ -180,3 +180,55 @@ future redeem write must use the same serialized queue as mint/place/cancel/
 burn and the existing explicit settlement guards. A may therefore remain in
 settlement tracking while B is Trading, with no scope leakage between their
 outcome ids, references, balances, or quote plans.
+
+## Phase 6A.1 organic-fill settlement recovery
+
+Phase 6A.1 closes the missing economic loop after the Phase 6A maker run:
+
+`maker SELL_YES fill -> held NO -> resolved NO -> claim discovery -> redeem -> collateral recovery`.
+
+The recovery is deliberately separate from market making. It does not discover
+a new market, mint a set, place an order, or change fair value, governor, or
+quote logic. It binds to the two exact Phase 6A `marketId` values and the two
+recorded fill order ids. A complete all-case preflight checks finalized history,
+on-chain status, winner, payout vector, balances, and zero active orders before
+the first redeem. Each redeem is rechecked immediately before submission and
+after confirmation.
+
+The two organic-fill cases were:
+
+| Market | Fill | Settlement | Claimable token | Expected payout |
+| --- | --- | --- | --- | ---: |
+| `...a3dd` | order `55340232221128713213`, `SELL_YES 1000` raw | `Resolved`, winner `NO`, vector `[0,10000000]` | NO id `6581887522981231166894129818630694520938795290852728544886350510349313`, balance `1000` raw | `1000` raw |
+| `...a3e9` | order `18446744073709615271`, `SELL_YES 1000` raw | `Resolved`, winner `NO`, vector `[0,10000000]` | NO id `6468875483760989288541009934126241821734299972216764884215967483228161`, balance `1000` raw | `1000` raw |
+
+The redeem order was A, then B, through the existing one-wallet serialized
+queue. A confirmed with transaction
+`0xc365dcd77a9f66ade5ca3363812ebccbbad091eb8618167e53693b230919d134` and B
+with transaction
+`0xb04fffb4f9c55248e387029a66bc1de1e5671fd5cdd59f5b6be6b815e6ca4`. Each
+receipt used `2836314000000000` wei of gas, returned exactly `1000` raw tUSDC,
+and cleared the winning NO balance. The final A and B balances were YES `0`,
+NO `0`, with verified zero active orders.
+
+The older Phase 5A `...a00b` market was checked separately by its exact market
+id because it had aged out of the bounded latest finalized page. Its chain
+state is `Resolved`, winner `YES`, payout vector `[10000000,0]`, and its NO
+`1000` raw balance is therefore planned as `SKIP` with reason
+`KNOWN_ZERO_VALUE_SETTLED_RESIDUAL`. No redeem was attempted for it. A separate
+unrelated `...a3cf` claim candidate remained visible in the post-claim sweep
+and was intentionally not touched.
+
+The recovery journal is `runtime/state/organic-fill-recovery-v1.json`. It keeps
+the original fill evidence, recovery plan, transaction receipts, payout
+reconciliations, residual registry, and post-claim state. A repeat confirmed
+run plans zero redeems for A and B (`ALREADY_REDEEMED`) and again skips `a00b`;
+the duplicate-prevention dry check confirmed this without a transaction.
+
+The collateral baseline at recovery was `99997954` raw and the final balance
+was `99999954` raw: `2000` raw (`0.002` tUSDC) was recovered. STT moved from
+`49851275504000000000` raw to `49845602876000000000` raw, exactly the two
+redeem receipt gas amounts. This proves payout and gas separately, but does not
+claim realized maker P&L: the complete per-fill execution proceeds, protocol
+fees, and any other cash-flow components needed for full P&L are not yet
+captured in the Phase 6A ledger.

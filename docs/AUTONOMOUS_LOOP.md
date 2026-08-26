@@ -196,3 +196,20 @@ fallback through the official Shannon HTTP RPC alias. This is an operational
 transport choice, not a change to Event Contract semantics. Known short-lived
 indexer lag is chain-authoritative only for known session order ids with
 matching expected prices; unknown contradictions still halt.
+
+## Phase 6A.1: organic-fill settlement recovery
+
+After the bounded Phase 6A run, the two genuine external `SELL_YES` fills left
+one `NO 1000` raw residual in each exact old market. Phase 6A.1 added a
+separate `villa-organic-fill-recovery-v1` claim planner and runner. It verified
+each market independently, confirmed both resolved with NO as winner and a
+full `[0,10000000]` payout vector, redeemed A then B through the existing
+serialized queue, and reconciled `1000` raw tUSDC per market.
+
+The recovery never mints, places orders, starts the autonomous loop, uses a
+second wallet, or changes strategy logic. The known `a00b` YES-winning market
+was classified as `KNOWN_ZERO_VALUE_SETTLED_RESIDUAL` for its NO `1000` raw
+balance and skipped. After recovery, A and B were `YES 0 / NO 0` with zero
+active orders. A later duplicate check classified both as `ALREADY_REDEEMED`
+and planned no writes. An unrelated `a3cf` claim candidate remained outside
+this exact recovery scope.

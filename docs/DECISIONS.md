@@ -451,3 +451,17 @@ wet proof's order-book midpoint is comparison-only; it never influences
 `pUp`, governor state, or quote-centre selection. SDK raw-write transport is
 kept inside the existing SDK Trader and one serialized queue, with the
 official Shannon HTTP fallback used for the final bounded proof.
+
+## D48. Organic-fill recovery is exact-market and claim-only
+
+**Why:** Phase 6A produced real NO residuals, while the older `a00b` residual
+is a known losing position. A generic balance sweep could redeem the wrong
+market or spend gas on a zero-value token.
+
+**Consequence:** Phase 6A.1 uses an explicit A/B/a00b case registry keyed by
+`marketId` and recorded fill order id. It requires chain-authoritative
+settlement and a market-specific payout vector before writing, redeems only
+the winning A/B balances through one queue, skips `a00b` with
+`KNOWN_ZERO_VALUE_SETTLED_RESIDUAL`, and records `ALREADY_REDEEMED` after
+winning-balance clearance. It does not mint, quote, trade, or modify strategy
+logic.

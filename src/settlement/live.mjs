@@ -265,6 +265,25 @@ export async function scanActiveBtcInventory(exchange, owner, { limit = SETTLEME
   return { scanned: unique.length, entries, errors };
 }
 
+/** Read-only finalized claim sweep. It never returns a signer or calls redeem. */
+export async function scanFinalizedBtcClaimSweep(exchange, owner, { limit = SETTLEMENT_FINALIZED_LIMIT } = {}) {
+  const rows = await exchange.client.listBinaryMarkets({ asset: "BTC", status: "Finalized", limit });
+  const unique = [...new Map(rows.map((row) => [marketRowId(row), row]).filter(([id]) => id)).values()];
+  const entries = [];
+  const errors = [];
+  for (const row of unique) {
+    try {
+      const onchain = await exchange.client.getMarketOnchain(row.marketId);
+      const balances = await readBalances(exchange, onchain, owner);
+      const entry = buildFinalizedClaimSweepEntry({ row, onchain, yesRaw: balances.yesRaw, noRaw: balances.noRaw });
+      if (entry.claimableOutcomes?.length || entry.warnings?.length) entries.push({ ...entry, symbol: row.symbol ?? null, intervalSec: row.intervalSec ?? null });
+    } catch (error) {
+      errors.push({ marketId: row.marketId ?? null, warning: error?.message || String(error) });
+    }
+  }
+  return { scanned: unique.length, entries, errors };
+}
+
 export function buildSettlementRedemptionPlan({ selected, snapshot, payoutNumerators, owned, alreadyRedeemed }) {
   const resolution = snapshot.resolution.resolution;
   if (!resolution) throw new SettlementLifecycleError("NOT_REDEEMABLE", `market ${selected.marketId} is ${snapshot.resolution.state}`);
