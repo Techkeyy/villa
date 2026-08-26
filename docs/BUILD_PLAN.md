@@ -53,16 +53,19 @@ Fixture/offline path: replay a recorded snapshot so the demo survives indexer bl
 2B. **DONE:** deterministic `villa-risk-v1` governor, binary exposure math,
 refusal policy, and read-only live risk snapshot. It stops at snapshot → risk
 decision → explanation. It does not quote, cancel, or transact.
-3. Next: quoting loop against one live window (still CLI), only after the
-governor is wired as a permission gate and drawdown/accounting boundaries are
-made explicit.
-4. Claim sweep on Finalized holdings (may be zero first day — prove the scan).
-5. Successor rediscovery.
-6. Operator dashboard (design-skill) wired to real engine state, four states on every async action.
-7. Demo path + optional disclosed taker.
-8. perfect-readme, Audit-skill, project-edge, submit.
+3. **DONE:** pure `villa-quote-v1` adaptive YES bid/ask planner, exact raw
+tick/lot/minimum handling, pending-order projection, and read-only live quote
+snapshot. No writer or transaction path is connected.
+4. Next: a bounded quote-execution adapter against one live window, only after
+explicit order expiry/reconciliation and lifecycle gates are designed.
+5. Claim sweep on Finalized holdings (may be zero first day — prove the scan).
+6. Successor rediscovery.
+7. Operator dashboard (design-skill) wired to real engine state, four states on every async action.
+8. Demo path + optional disclosed taker.
+9. perfect-readme, Audit-skill, project-edge, submit.
 
-Halfway checkpoint: if step 3 is not quoting a real book, cut cadence/asset/UI chrome, not the governor.
+Halfway checkpoint: if the future execution step is not quoting a real book,
+cut cadence/asset/UI chrome, not the governor or pure planner boundaries.
 
 ## What not to do next
 
@@ -72,3 +75,4 @@ Halfway checkpoint: if step 3 is not quoting a real book, cut cadence/asset/UI c
 - Mainnet
 - Inventing session-key custody
 - Connecting fair value to order control before the deterministic governor exists
+- Treating the Phase 3 quote plan as proof that a SELL, fill, mint, or settlement path has been verified

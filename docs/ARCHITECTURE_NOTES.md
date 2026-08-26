@@ -71,7 +71,8 @@ Above that plumbing:
 | collector | venue config | MarketSnapshot (on-chain status, book, spot, opening/strike, τ, balances, open orders) | SDK reads |
 | fair-value | current price + reference + τ + realized-vol stats + freshness | `{ pUp, pDown, confidence, dataQuality, inputsUsed }` | pure |
 | governor | normalized snapshot + limits | `{ state, permissions, reasons, exposure budgets }` | pure |
-| quoting | permission + pUp + inventory | post-only orders / cancels | SDK writes |
+| quote-planner | permission + pUp + inventory + pending orders + raw grid | adaptive YES bid/ask plan | pure |
+| execution (future) | approved quote plan + fresh book | post-only orders / cancels | SDK writes |
 | lifecycle | Finalized list + holdings | redeems + new marketId | SDK writes/reads |
 | dashboard | all of the above | operator view | later |
 
@@ -121,6 +122,31 @@ and is printed as comparison-only. The governor does not receive it. The
 `cancelExisting` field is a recommendation only; no cancellation or other
 transaction is reachable from the snapshot command.
 
+## Phase 3 quote-planner boundary
+
+`src/quote-planner/planner.mjs` is the pure `villa-quote-v1` planning layer.
+It consumes the fair-value result, the governor's already-computed state and
+permissions, normalized YES/NO inventory, verified pending orders, exact raw
+tick/lot/minimum parameters, collateral, and an optional YES book. It returns
+an `ACTIVE`, `ONE_SIDED`, or `NO_QUOTE` plan with raw/human prices and sizes,
+skew/spread/size components, projected Phase 2B exposure, and stable reasons.
+
+The Phase 3 data flow is:
+
+```
+read-only market/feed/account/book acquisition
+  -> pure villa-fv-v1
+  -> pure villa-risk-v1
+  -> pure villa-quote-v1
+  -> structured plan only
+```
+
+The planner has one YES book. It never invents a DOWN book, never uses the
+DreamDEX midpoint as a pUp input, never assumes minting or opposing fills, and
+never sends a transaction. `scripts/quote-snapshot.mjs` is the separate
+read-only assembler. A future writer may consume a plan only after the
+remaining lifecycle and execution gates are designed.
+
 ## On-chain vs off-chain
 
 On-chain: orders, escrow, ERC-6909 positions, settlement, redeem.
@@ -154,3 +180,12 @@ Always `marketId` (and the on-chain snapshot taken for that pass). Never persist
   netted optimistically
 - Reduce-only overshoot — the pure order assessment caps a reducing action at
   neutral and rejects a quantity that would cross into the opposite direction
+- Adaptive-quote constraints — higher ordinary volatility widens rather than
+  halts; lower confidence and near-expiry reduce size; HALT remains an
+  absolute no-quote state
+- Real YES inventory — `SELL_YES` is disabled/capped from actual outcome
+  balance and existing YES asks reserve their quantity; pending BUYs do not
+  create sell inventory
+- Post-only price safety — raw integer tick arithmetic keeps BUY_YES at least
+  one tick below best ask and SELL_YES at least one tick above best bid; an
+  impossible side is disabled rather than crossed

@@ -224,3 +224,38 @@ full suite passed 117/117. The live read-only recheck found:
 
 No live order was created, filled, cancelled, or otherwise changed by this
 corrective patch.
+
+## Phase 3 quote-planner verification (2026-08-26)
+
+The pure `villa-quote-v1` planner was added in `src/quote-planner/`. It accepts
+normalized fair value, governor permissions/limits, YES/NO inventory, pending
+orders, exact raw grid parameters, collateral, and an optional YES book. It
+returns only a structured plan. `scripts/quote-snapshot.mjs` assembles the
+same inputs from read-only SDK/chain/indexer/feed reads and prints bid/ask
+intent without creating an SDK trader or signer.
+
+The planner was tested for neutral two-sided output, absolute HALT, both
+REDUCE_ONLY directions, neutral reduce-only refusal, signed inventory skew,
+bounded skew, volatility/confidence/expiry spread and size changes, real YES
+inventory, collateral reserve, lot/minimum/tick rounding, impossible
+post-only sides, fair-value/book independence, complementary probabilities,
+invalid grid/fair/governor inputs, exact raw conversion, and all corrected
+Phase 2B pending-order stress directions. The focused planner suite has 42
+deterministic tests.
+
+The first successful live `npm run quote` read on Shannon found:
+
+- BTC `BTC-0-27AUG26/tUSDC`, marketId ending `9a4f`, on-chain `Trading (1)`;
+- opening reference `78528.87` at raw scale `10^2`, BTC `78575.89`, and 85273s remaining;
+- realized volatility `7.170467e-5` per square-root second;
+- fair value UP `51.1%` / DOWN `48.9%`, HIGH confidence (`92.5%` data quality);
+- YES book bid `49.70%`, ask `52.60%`, midpoint `51.15%` comparison-only;
+- governor `ALLOW`, plan `ONE_SIDED`, bid `BUY_YES` `0.004` at `47.00%`;
+- ask disabled as `NO_SELL_INVENTORY` because the wallet held zero YES;
+- warnings `CAPITAL_ACCOUNTING_PARTIAL` and `DRAWDOWN_UNACCOUNTED`;
+- transactions and order placement: `NO`.
+
+An on-chain read-only scan covered 10 current Trading pools and found zero
+active orders for the VILLA operator. The inherited `npm run verify:write:dry`
+also completed with `PASS dry-run`, explicitly reporting that no transaction
+was sent. The planner itself has no transaction capability by construction.

@@ -174,3 +174,42 @@ false safety claim.
 **Consequence:** The live Phase 2B snapshot passes `UNAVAILABLE`, emits
 `DRAWDOWN_UNACCOUNTED`, and uses an explicit non-strict testnet policy. Strict
 configuration fails closed until a future accounting layer supplies a ratio.
+
+## D25. Quote around independent value, not book midpoint
+
+**Why:** The official `ec-maker` already provides symmetric post-only plumbing
+around the YES book midpoint. VILLA's differentiation is an independent
+`villa-fv-v1` value plus deterministic inventory skew, adaptive spread, size,
+and risk-aware permissions. Feeding the midpoint into pUp would turn VILLA
+back into a wrapper around the reference maker.
+
+**Consequence:** `villa-quote-v1` uses pUp as its centre, moves it only for
+bounded signed inventory skew, and uses realized move, confidence, and expiry
+to widen/reduce quotes. The book is comparison/post-only input only. No quote
+planner output is an order and no live writer exists in Phase 3.
+
+## D26. One YES book with exact raw grid arithmetic
+
+**Why:** DreamDEX's binary representation exposes YES/NO outcomes, but the
+market-maker surface can be expressed as a single YES bid/ask. The installed
+SDK's `getBinaryBookParams` provides the authoritative tick, lot, and minimum
+quantity. Floating-point prices can create off-grid orders or cross a moving
+book by one tick.
+
+**Consequence:** VILLA plans `BUY_YES` and `SELL_YES` only, derives DOWN as
+`1 - pUp`, serializes raw price/quantity as decimal strings, floors bid/lot
+quantities and ceils ask prices with integer arithmetic, and fails closed on
+invalid raw grid inputs. A future execution layer must re-read the book before
+submitting any post-only order.
+
+## D27. Pending orders remain separate in quote projection
+
+**Why:** Phase 2B corrected the exposure model after identifying that SELLs can
+break complete sets and that opposing pending orders must not be treated as a
+guaranteed net fill. A two-sided planner that nets its own bid and ask would
+reintroduce that safety flaw.
+
+**Consequence:** Every candidate quote is projected with existing pending
+orders through `calculateBinaryExposureWithAdditionalOrder`; a two-sided plan
+is checked with both proposed orders without optimistic netting. Sell
+inventory is separately reserved against existing YES asks.

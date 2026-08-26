@@ -51,6 +51,19 @@ Path: `node_modules/@somnia-chain/markets-sdk/` version **0.28.1**.
 | `LivePrice`/`PricePoint` fields, freshness metadata, `fetchPriceHistory` | `src/priceFeed/types.ts`, `src/priceFeed/query.ts`, `src/somniaMarketsClient.ts` |
 | Testnet addresses + `SOMNIA_TESTNET_PRICE_FEED` | `src/addresses.ts`, `src/config.ts` |
 
+## Phase 3 quote-planner implementation evidence
+
+| Claim | Source |
+| --- | --- |
+| Official maker is symmetric around book mid with fixed spread and maker plumbing | `.scratch/dreamdex-bot-kit/strategies/ec-maker/src/index.ts` and its README |
+| Official oracle-follow separates underlying spot/reference logic from its optional book anchor | `.scratch/dreamdex-bot-kit/strategies/ec-oracle-follow/src/signal.ts` and `src/index.ts` |
+| Binary pool returns exact `tickSize`, `lotSize`, and `minQuantity` | Installed SDK `node_modules/@somnia-chain/markets-sdk/src/orders.ts`, `getBinaryBookParams` |
+| YES book can be expanded to NO by inversion, but VILLA's planner intentionally uses one YES book | Installed SDK `src/orders.ts`, `toBinaryBook`; `docs/QUOTE_PLANNER.md` boundary |
+| Post-only bid/ask raw inequalities | Installed SDK binary order/write helpers and VILLA `src/quote-planner/planner.mjs` |
+| Pending signed order stress and reduce-only caps | VILLA `src/risk-governor/exposure.mjs`, Phase 2B corrective evidence |
+| Pure adaptive quote formula and limits | VILLA `src/quote-planner/config.mjs`, `planner.mjs`, and `docs/QUOTE_PLANNER.md` |
+| Live read-only assembly | VILLA `scripts/quote-snapshot.mjs`; it imports no signer or write path |
+
 Upstream: https://www.npmjs.com/package/@somnia-chain/markets-sdk
 
 ## Official bot kit (cloned `.scratch/dreamdex-bot-kit`, not vendored)
