@@ -645,3 +645,58 @@ The recovery journal is `runtime/state/organic-fill-recovery-v1.json`. It
 contains the original fill references, exact claim receipts, structured
 recovery events, residual registry, and final clean state. The original Phase
 6A journal/evidence was not rewritten.
+
+## Phase 6A.2 final wallet-state hygiene
+
+The starting backend commit was
+`ccf61a6a529e9eefeed01666d1aad72d573eee46`. The Phase 6A.1 post-claim sweep
+left an unrelated finalized candidate ending `a3cf` with YES `1000` raw. A
+read-only exact indexer lookup identified it as:
+
+| Field | Verified value |
+| --- | --- |
+| marketId | `0x000000000000000000000000000000000000000000000000000000000000a3cf` |
+| asset / interval | BTC / 300 seconds (`5m`) |
+| expiry | `1787759400` |
+| YES token / NO token | `776664966871418313858016266783285107726519691425877167524175228726272` / `776664966871418313858016266783285107726519691425877167524175228726273` |
+| indexer status / on-chain status | `Finalized` / `4` |
+| resolution | resolved, not voided |
+| payout vector / winner | `[10000000,0]` / YES (`0`) |
+| wallet balances before | YES `1000`, NO `0` raw |
+| open orders | `0`, verified against indexer and chain |
+
+The market's direct indexer row records one filled VILLA-wallet `BUY_YES`
+order, order id `147573952589676446899`, quantity `1000`, price `690000`,
+placed transaction
+`0x6c621c1b73a7737ac37115abd349057540ec4df5dc5f844a07aa7c273ed9b9f5`, and
+fill transaction
+`0xac5752a04f75ba4bfa384412664f447320ac8aa8bbbaca563533268bd5589dd2`.
+No matching VILLA runtime journal or structured session event records this
+market, so exact session attribution is unavailable. The audit records that
+gap rather than fabricating a phase origin.
+
+`a3cf` was conclusively `CLAIMABLE_SETTLED_INVENTORY`. The exact YES claim was
+submitted through the existing serialized wallet queue in
+`0xacc6c3173fd5c5ef887a93df6d1e56472ac054f5cfe7b246d8e7f4484e7af28f`.
+Expected and actual payout were both `1000` raw; redeem gas was
+`2836242000000000` wei. Before/after balances were STT
+`49845602876000000000` / `49842766634000000000` raw, tUSDC
+`99999954` / `100000954` raw, and YES `1000` / `0` raw.
+
+The complete indexed portfolio contained only two nonzero positions before
+the claim: `a3cf` YES `1000` (claimable) and `a00b` NO `1000` (known zero-value
+settled residual). After the claim, only `a00b` remained. The final full audit
+reported `UNKNOWN = 0`, active-order count `0`, and no claimable winners. The
+finalized sweep scanned 200 rows and returned no claimable entries.
+
+The pure audit model is `villa-wallet-hygiene-v1` in
+`src/settlement/wallet-audit.mjs`; its tests cover claimable winners, known
+zero-value losers, active and paired-burnable inventory, exact token/balance
+agreement, and unknown fail-closed behavior. The frontend boundary is
+`villa-dashboard-v1` in `src/dashboard/contract.mjs`; it maps system, market,
+model, book/quotes, risk, inventory, activity, lifecycle, and accounting facts.
+Accounting exposes `PNL_UNAVAILABLE` and never fabricates realized PnL.
+
+The ignored wallet hygiene journal is `runtime/state/wallet-hygiene-v1.json`.
+No private key or secret was written. The backend-freeze handoff is
+`docs/BACKEND_FREEZE.md`.

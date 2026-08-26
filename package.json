@@ -7,7 +7,7 @@
   "scripts": {
     "doctor": "node scripts/doctor.mjs",
     "discover": "node scripts/discover.mjs",
-    "test": "node --test scripts/lib/write-path.test.mjs src/fair-value/*.test.mjs src/risk-governor/*.test.mjs src/quote-planner/*.test.mjs src/inventory-lifecycle/*.test.mjs src/execution/*.test.mjs src/settlement/*.test.mjs src/rollover/*.test.mjs src/orchestrator/*.test.mjs",
+    "test": "node --test scripts/lib/write-path.test.mjs src/fair-value/*.test.mjs src/risk-governor/*.test.mjs src/quote-planner/*.test.mjs src/inventory-lifecycle/*.test.mjs src/execution/*.test.mjs src/settlement/*.test.mjs src/dashboard/*.test.mjs src/rollover/*.test.mjs src/orchestrator/*.test.mjs",
     "fair-value": "node --env-file=.env scripts/fair-value-snapshot.mjs",
     "risk": "node --env-file=.env scripts/risk-snapshot.mjs",
     "quote": "node --env-file=.env scripts/quote-snapshot.mjs",
@@ -21,6 +21,8 @@
     "verify:settlement:dry": "node --env-file=.env scripts/verify-settlement.mjs --dry-run",
     "verify:organic-redeem": "node --env-file=.env scripts/redeem-organic-fills.mjs --confirm",
     "verify:organic-redeem:dry": "node --env-file=.env scripts/redeem-organic-fills.mjs --dry-run",
+    "verify:wallet-hygiene": "node --env-file=.env scripts/wallet-hygiene-audit.mjs --confirm",
+    "verify:wallet-hygiene:dry": "node --env-file=.env scripts/wallet-hygiene-audit.mjs --dry-run",
     "verify:rollover": "node --env-file=.env scripts/verify-rollover.mjs",
     "villa:bounded:dry": "node --env-file=.env scripts/villa-bounded.mjs --dry-run",
     "villa:bounded": "node --env-file=.env scripts/villa-bounded.mjs --confirm",

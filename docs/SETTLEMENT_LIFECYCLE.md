@@ -232,3 +232,17 @@ redeem receipt gas amounts. This proves payout and gas separately, but does not
 claim realized maker P&L: the complete per-fill execution proceeds, protocol
 fees, and any other cash-flow components needed for full P&L are not yet
 captured in the Phase 6A ledger.
+
+## Phase 6A.2 final wallet hygiene
+
+The final wallet audit found two nonzero settled outcomes: the exact `a3cf`
+YES winner and the known `a00b` NO loser. It verified `a3cf` directly by
+market id, token id, status `4`, winner YES, and payout vector
+`[10000000,0]`, then redeemed exactly `1000` raw through the existing
+serialized queue. The receipt returned an exact `1000` raw collateral payout
+and cleared the winning balance.
+
+The `a00b` NO token remains a known zero-value residual and was not submitted.
+The complete portfolio audit and final claim sweep report no unknown positions,
+no active orders, and no remaining claimable winners. This closes settlement
+recovery for the current wallet and freezes the backend before frontend work.

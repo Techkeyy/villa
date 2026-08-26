@@ -213,3 +213,17 @@ balance and skipped. After recovery, A and B were `YES 0 / NO 0` with zero
 active orders. A later duplicate check classified both as `ALREADY_REDEEMED`
 and planned no writes. An unrelated `a3cf` claim candidate remained outside
 this exact recovery scope.
+
+## Phase 6A.2: wallet hygiene boundary
+
+The final hygiene audit resolved the previously unrelated `a3cf` candidate
+before frontend handoff. Direct chain and indexed portfolio reads proved it
+was a settled BTC 5m winner with YES `1000` raw; the exact claim was redeemed
+through the existing serialized write queue and reconciled to `1000` raw
+tUSDC. The only remaining nonzero balance is the earlier `a00b` losing NO
+residual, explicitly classified as `KNOWN_ZERO_VALUE_SETTLED_RESIDUAL`.
+
+The full wallet audit ended with zero active orders, zero claimable winners,
+and zero `UNKNOWN` outcome positions. The backend is now feature-frozen;
+`src/dashboard/contract.mjs` is the only new frontend-facing boundary and
+reports accounting PnL as `PNL_UNAVAILABLE`.

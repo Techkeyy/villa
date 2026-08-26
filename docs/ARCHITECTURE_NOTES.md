@@ -340,3 +340,22 @@ the old losing residual is a skip-only case. Each claim is re-read immediately
 before submission and reconciled after its confirmed receipt. The journal
 preserves the Phase 6A fill evidence and records Phase 6A.1 as a later
 settlement event rather than rewriting the original run.
+
+## Phase 6A.2 wallet hygiene and backend freeze
+
+`src/settlement/wallet-audit.mjs` is the pure final wallet-inventory classifier.
+It compares every indexed nonzero outcome position with direct market state,
+exact ERC-6909 ids, balances, and settlement payout vectors. A missing or
+contradictory fact becomes `UNKNOWN` and cannot pass the freeze.
+
+`scripts/wallet-hygiene-audit.mjs` is the bounded I/O boundary. It audited the
+full indexed binary portfolio, exact owner order/fill history, direct chain
+state, and a finalized claim sweep. It submitted only the pre-identified
+`a3cf` winning YES claim through the existing serialized queue, with no order,
+mint, loop, or strategy path. The old `a00b` losing NO residual remained
+explicitly registered and untouched.
+
+`src/dashboard/contract.mjs` defines the pure `villa-dashboard-v1` mapping for
+Phase 6B. It exposes backend facts only and forces accounting to
+`PNL_UNAVAILABLE` until complete proceeds, fee, and cash-flow accounting exists.
+The handoff and feature-freeze status live in `docs/BACKEND_FREEZE.md`.

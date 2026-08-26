@@ -465,3 +465,23 @@ the winning A/B balances through one queue, skips `a00b` with
 `KNOWN_ZERO_VALUE_SETTLED_RESIDUAL`, and records `ALREADY_REDEEMED` after
 winning-balance clearance. It does not mint, quote, trade, or modify strategy
 logic.
+
+## D49. Final wallet hygiene precedes the backend freeze
+
+**Decision:** Before frontend work, audit every indexed nonzero Event Contract
+outcome balance against direct chain truth and settle only an exact, verified
+winning residual. Classify losing settled tokens as known zero-value residuals;
+classify missing or contradictory evidence as `UNKNOWN` and fail closed.
+
+**Why:** The Phase 6A.1 claim sweep exposed an unrelated `a3cf` YES `1000`
+position outside the A/B recovery registry. Ignoring it would leave the
+wallet state unexplained, while blindly redeeming any sweep result could touch
+the wrong market. The complete portfolio audit proved `a3cf` was the only
+unclaimed winner and `a00b` the only remaining known loser.
+
+**Consequence:** `scripts/wallet-hygiene-audit.mjs` redeemed only `a3cf` via
+the existing queue, reconciled exact payout and gas separately, and required
+zero active orders and zero unknown inventory before declaring the wallet
+clean. `src/dashboard/contract.mjs` is the stable frontend boundary; it uses
+`PNL_UNAVAILABLE` rather than inventing realized PnL. Backend trading features
+are frozen for the hackathon.

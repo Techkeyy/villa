@@ -169,3 +169,12 @@ https://github.com/somnia-chain/dreamdex-bot-kit
 | Market-separated claim planning, residual classifications, exact payout math, duplicate prevention, and queue order | `src/settlement/recovery.mjs`, `src/settlement/recovery.test.mjs` |
 | Finalized claim sweep acquisition and post-claim zero-balance verification | `src/settlement/live.mjs` and `scripts/redeem-organic-fills.mjs` |
 | Phase 6A.1 live hashes, balances, payouts, gas, residuals, and final scans | `docs/TECHNICAL_VERIFICATION.md`, Phase 6A.1 section |
+
+## Phase 6A.2 wallet hygiene and freeze evidence
+
+| Claim | Source |
+| --- | --- |
+| Pure full-wallet classification, paired-burnable detection, claimability, zero-value residuals, and UNKNOWN fail-closed behavior | `src/settlement/wallet-audit.mjs`, `src/settlement/wallet-audit.test.mjs` |
+| Exact a3cf read-only audit, owner order/fill provenance, serialized redeem, payout reconciliation, and final wallet scan | `scripts/wallet-hygiene-audit.mjs`, `runtime/state/wallet-hygiene-v1.json` (ignored runtime evidence) |
+| Stable frontend-facing structures and explicit `PNL_UNAVAILABLE` accounting state | `src/dashboard/contract.mjs`, `src/dashboard/contract.test.mjs` |
+| Final backend capability status, wallet balances, residual registry, and freeze limitations | `docs/BACKEND_FREEZE.md`, `docs/TECHNICAL_VERIFICATION.md`, Phase 6A.2 section |
