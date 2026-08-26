@@ -4,10 +4,12 @@ Autonomous liquidity manager for DreamDEX Event Contracts.
 
 Operator-facing. Not a prediction market. Not a retail Up/Down app. Ordinary traders meet VILLA only as orders on DreamDEX.
 
-This repository is in **Phase 4B**. The independent `villa-fv-v1` fair-value
+This repository is in **Phase 5A**. The independent `villa-fv-v1` fair-value
 engine, deterministic `villa-risk-v1` governor, pure `villa-quote-v1` planner,
 complete-set inventory lifecycle, and bounded end-to-end quote execution
-verifier are present. There is no product UI or continuous quoting loop yet.
+verifier are present, along with a bounded settlement/redeem lifecycle
+verifier. There is no product UI, successor rollover, or continuous quoting
+loop yet.
 
 ## Repo
 
@@ -30,7 +32,9 @@ npm run quote
 npm run verify:write:dry
 npm run verify:inventory:dry
 npm run verify:quote-cycle:dry
+npm run verify:settlement:dry
 npm run verify:quote-cycle -- --confirm
+npm run verify:settlement
 ```
 
 `verify:write` sends one tiny post-only BUY and cancels it. It needs `OPERATOR_PRIVATE_KEY` in gitignored `.env`, STT for gas, and tUSDC (`npm run fund:tusdc` after STT arrives).
@@ -43,6 +47,14 @@ exercise settlement.
 quote → execution preflight without a signer. The wet command requires the
 explicit `--confirm` flag and is limited to one BTC market, one minimum lot,
 two post-only orders, exact cancellation, and temporary complete-set cleanup.
+
+`verify:settlement:dry` scans recent Finalized BTC markets for claimable
+outcome balances and reads one current short BTC market without writes. The
+wet settlement command requires explicit confirmation and is limited to one
+minimum complete-set mint, expiry/resolution observation, explicit SDK
+redemption, and exact payout reconciliation. It never uses the order book or
+places/cancels orders. A pending session can be resumed from its gitignored
+`runtime/state/settlement-session-*.json` record.
 
 ## Docs
 
@@ -57,6 +69,7 @@ two post-only orders, exact cancellation, and temporary complete-set cleanup.
 | `docs/BUILD_PLAN.md` | MVP, stretch, order of work |
 | `docs/INVENTORY_LIFECYCLE.md` | Complete-set mint, SELL escrow, exact cancel, and burn evidence |
 | `docs/EXECUTION_ADAPTER.md` | Bounded quote execution, reconciliation, and cleanup boundary |
+| `docs/SETTLEMENT_LIFECYCLE.md` | Finalization, explicit redeem, claim sweep, and payout reconciliation |
 | `docs/FAIR_VALUE_MODEL.md` | Independent fair-value formula, units, and validation |
 | `docs/RISK_GOVERNOR.md` | Deterministic risk states, exposure math, policy, and refusal boundary |
 | `docs/INCOMING-BRIEF.md` | Directing-agent spec as received |

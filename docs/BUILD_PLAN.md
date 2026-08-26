@@ -64,7 +64,10 @@ snapshot. No writer or transaction path is connected.
    inventory provision, fresh model/risk/quote passes, post-only ASK then BID,
    exact on-chain/indexer reconciliation, exact cancellation, safe pair burn,
    and final clean-state scan. It is not a continuous loop.
-6. Claim sweep on Finalized holdings (may be zero first day — prove the scan).
+6. **DONE:** Phase 5A bounded finalization + settlement redeem: one
+   complete-set session, chain-authoritative resolution/void handling,
+   explicit SDK redeem, finalized rediscovery, claim sweep dry path,
+   restartable state, and exact payout/gas reconciliation. No rollover.
 7. Successor rediscovery.
 8. Operator dashboard (design-skill) wired to real engine state, four states on every async action.
 9. Demo path + optional disclosed taker.
@@ -83,3 +86,14 @@ cut cadence/asset/UI chrome, not the governor or pure planner boundaries.
 - Connecting fair value to order control before the deterministic governor exists
 - Treating the Phase 3 quote plan as proof that a SELL, fill, mint, or settlement path has been verified
 - Treating one bounded quote cycle as permission to start an always-on writer
+- Treating `burnSet` as settlement redemption or starting successor rollover
+
+## Phase 5A settlement boundary
+
+The settlement milestone stops at:
+
+`mint complete set → hold → observe terminal chain state → redeem → reconcile → stop`.
+
+It does not resolve/void, fill, quote, cancel, claim an unrelated market,
+start a second wallet, or enter a successor window. The operator-facing claim
+sweep is read-only and uses the SDK/indexer `Finalized` historical path.

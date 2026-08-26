@@ -87,3 +87,9 @@ clock offset is reported, not used as a substitute for chain time.
 | Risk governor | `villa-risk-v1` | ALLOW / REDUCE_ONLY / HALT |
 | Quote planner | `villa-quote-v1` | Adaptive raw bid/ask intention |
 | Execution adapter | `villa-execution-v1` | Bounded write, reconciliation, cleanup |
+
+Settlement is intentionally outside this writer. Phase 5A's
+`src/settlement/` module never consumes quote targets, places/cancels orders,
+or treats `burnSet` as a redeem. It observes terminal chain state, redeems by
+`marketId` and explicit outcome index, and reconciles payout and gas before
+stopping.

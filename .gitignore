@@ -34,6 +34,9 @@ broadcast/
 # local clones / scratch (not part of the product)
 .scratch/
 
+# restartable local lifecycle state; never commit runtime wallet/session data
+runtime/state/*.json
+
 # os / editor
 .DS_Store
 Thumbs.db

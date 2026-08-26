@@ -207,7 +207,31 @@ not blindly subtract the same commitment twice. A complete set keeps
 filled SELL_YES can break that set.
 
 `burnSet` is a pre-settlement pair burn. Settlement `redeem` remains a
-separate future lifecycle phase.
+separate lifecycle phase implemented by `src/settlement/`. It never reuses
+`burnSet` as a settlement substitute.
+
+## Phase 5A settlement boundary
+
+`src/settlement/index.mjs` is pure `villa-settlement-v1` state classification,
+explicit YES/NO redemption planning, payout-vector arithmetic, idempotency, and
+raw-value reconciliation. `src/settlement/live.mjs` and
+`scripts/verify-settlement.mjs` are the bounded chain adapter:
+
+```
+current Trading market + one complete-set mint
+  -> chain-time watch through expiry
+  -> on-chain Resolved or Voided state
+  -> explicit SDK redeem by marketId + outcomeIdx
+  -> per-leg receipt/balance evidence
+  -> payout and separate STT-gas reconciliation
+```
+
+The adapter uses `listBinaryMarkets({ status: "Finalized" })` for historical
+rediscovery and claim sweeps because normal `loadMarkets()` is not a reliable
+settled-market source. Resolved losers are not submitted as redeems; their
+zero-value residual is labelled explicitly. Voided markets plan both outcome
+legs. A bounded timeout records `SETTLEMENT_PENDING` and preserves the pair.
+There is no successor-market selection or rollover in Phase 5A.
 
 ## Phase 4B bounded execution boundary
 

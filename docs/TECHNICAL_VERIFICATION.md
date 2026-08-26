@@ -363,3 +363,84 @@ invariants, exact escrow, post-only crossings, inventory/collateral gates,
 session tracking, serialized writes, partial/full/unknown reconciliation,
 exact cancellation, and paired-burn refusal. The repository suite passed
 `212/212`.
+
+## Phase 5A settlement lifecycle implementation
+
+The settlement implementation is in `src/settlement/` and
+`scripts/verify-settlement.mjs`. Its pure suite contains 30 deterministic
+tests covering non-redeemable states, resolved YES/NO, voided markets,
+complete-set mint accounting, explicit outcome indices, payout vectors,
+zero/already-cleared balances, finalized rediscovery, restart state, secret
+exclusion, and separate gas/payout ledgers. The full repository suite is 242
+tests.
+
+The first read-only live check ran `npm run verify:settlement:dry` against
+Shannon:
+
+- finalized sweep: 200 BTC rows scanned, zero claimable operator balances and
+  zero scan errors;
+- current selection: BTC 5m, on-chain `Trading (1)`, with 196 seconds of
+  chain-time headroom at selection;
+- reference: explicit nonzero strike resolved by the existing reference
+  resolver;
+- baseline: tUSDC `100000000` raw, YES `0`, NO `0`, and no operator orders;
+- no order book was read and no transaction was sent.
+
+The bounded wet proof is recorded in the Phase 5A section below after a
+successful mint, expiry observation, explicit SDK redemption, finalized
+rediscovery, and exact payout reconciliation. A normal `loadMarkets()`
+disappearance is diagnostic; `listBinaryMarkets({ status: "Finalized" })` is
+the historical source.
+
+## Phase 5A bounded wet proof (2026-08-26)
+
+The bounded command passed on one live BTC 5m Event Contract. The selected
+market was `marketId` ending `a00b`; its chain status was `Trading (1)` before
+mint, and the chain resolved it to YES (`winningOutcome: 0`) at expiry. The
+session used no book read, no fill, no second wallet, and no order-control
+call.
+
+Pre-mint and mint evidence:
+
+- baseline: tUSDC `100000000` raw, YES `0`, NO `0`, and no active orders;
+- minimum complete set: `1000` raw;
+- after mint: collateral debit exactly `1000`, YES `+1000`, NO `+1000`,
+  directional delta `0`;
+- mint transaction: `0x3bda1c14eeb3cc1c55989e7ad5f43ef1d9e44184c6c069153145628532cb52c1`;
+- mint receipt gas: `3525630000000000` wei.
+
+Settlement evidence:
+
+- observed terminal chain status: `Resolved (4)`;
+- authoritative payout vector: `[10000000, 0]` with denominator `10000000`;
+- plan: redeem YES with explicit `outcomeIdx: 0`, skip NO as
+  `LOSING_OUTCOME_ZERO_PAYOUT`;
+- redemption transaction: `0x2d276be38f646e6a93ef93ba9ddca82ddf0a219dd94728e3791e32bae2812090`;
+- redemption receipt gas: `2836242000000000` wei;
+- actual collateral payout: `1000` raw, expected `1000` raw, difference `0`;
+- winning YES balance after redeem: `0`; residual NO `1000` is the known
+  zero-value losing position that the current SDK does not claim;
+- final collateral: `100000000` raw; final active orders: `0`.
+
+The current SDK had no pre-existing ERC-6909 module operator approval, so it
+sent one one-time setup transaction before redemption. A read-only receipt
+attribution recorded this separately as
+`0x0d0fd33bb2b98d705e431cc8844b83ef841aadb9862f92f4e532544d2f0669cc`, gas
+`1562514000000000` wei. The earlier mint allowance setup was also separate:
+`0x644cde2d458b334da8178d14acd243cf51ce4a63eadb37e015e769d0fba6f69a`, gas
+`1558470000000000` wei. Thus the complete wallet STT delta was
+`-9482856000000000` wei, equal to the four measured receipt gas amounts; the
+two setup approvals are not settlement payout.
+
+The normal `loadMarkets()` check returned `found: false`. Finalized history
+rediscovered the exact `marketId` before and after redemption on the first
+attempt. The structured event sequence was:
+
+`SETTLEMENT_SESSION_STARTED`, `COMPLETE_SET_MINTED`, `MARKET_RESOLVED`,
+`REDEEM_PLANNED`, `REDEEM_SUBMITTED`, `REDEEM_CONFIRMED`,
+`PAYOUT_RECONCILED`, `SETTLEMENT_SESSION_CLEAN`.
+
+The final read-only claim sweep scanned 200 finalized BTC rows and reported no
+claimable outcome; it identified only this known losing-side residual. No
+transaction was sent by the final claim sweep or by any inherited dry-run
+gate.

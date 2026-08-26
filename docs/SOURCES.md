@@ -127,3 +127,14 @@ https://github.com/somnia-chain/dreamdex-bot-kit
 | Binary side semantics | Installed SDK `src/trade.ts` and `src/tradeAbi.ts`: `BUY_YES`, `SELL_YES`, `BUY_NO`, `SELL_NO` |
 | Deterministic risk policy and exposure math | This repository: `src/risk-governor/config.mjs`, `exposure.mjs`, `governor.mjs`, and `governor.test.mjs` |
 | Live read-only risk output | This repository: `scripts/risk-snapshot.mjs`; no signer and no write call |
+
+## Settlement lifecycle sources
+
+| Claim | Source |
+| --- | --- |
+| On-chain binary states and post-finalization fields | Installed SDK 0.28.1: `node_modules/@somnia-chain/markets-sdk/src/store.ts`, `src/markets.ts` |
+| Explicit SDK redeem signature and YES/NO mapping | Installed SDK 0.28.1: `node_modules/@somnia-chain/markets-sdk/src/trade.ts` (`RedeemParams`, `Trader.redeem`) |
+| Binary settlement ABI and payout vector | Installed SDK 0.28.1: `node_modules/@somnia-chain/markets-sdk/src/readsAbi.ts`, `src/tradeAbi.ts` |
+| SDK payout and claimable semantics | Installed SDK 0.28.1: `node_modules/@somnia-chain/markets-sdk/src/derivedReads.ts`, `src/binary/settlement.ts` |
+| Finalized rediscovery and resolved/void claim behavior | Gitignored official reference clone: `.scratch/dreamdex-bot-kit/packages/ec-core/src/settlement.ts`, `src/claim.ts`, `docs/event-contracts.md` |
+| VILLA settlement decisions and live adapter | This repository: `src/settlement/index.mjs`, `src/settlement/live.mjs`, `scripts/verify-settlement.mjs` |

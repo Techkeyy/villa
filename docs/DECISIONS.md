@@ -294,3 +294,39 @@ indexer can lag or classify a recycled pool incorrectly.
 fields strengthen the evidence. Contradictions are `UNKNOWN`, retried only in
 a bounded window, and block any burn that would require guessing. Cleanup
 enumerates only this session's recorded IDs.
+
+## D35. Settlement truth is the on-chain payout vector, not the question or indexer label
+
+**Why:** The installed SDK 0.28.1 models on-chain `Listed → Trading → Locked →
+Settling → Resolved/Voided`. `Finalized` is an indexer-derived historical label.
+The deployed market stores `payoutNumerators`; a question string and an
+indexer winner can be stale or unavailable.
+
+**Consequence:** VILLA waits for `isResolved`/`isVoided` and reads the deployed
+payout vector. A `Finalized` row is used for rediscovery and claim sweeps, not
+as a standalone winner decision. Contradictory state fails closed.
+
+## D36. Redeem explicit outcome indices through the current SDK
+
+**Why:** SDK 0.28.1 exposes `trader.redeem({ marketId, market,
+outcomeToken, outcomeIdx, amount })`, where outcome index `0` is YES and `1` is
+NO. `burnSet` is the pre-settlement equal-pair burn and is not a settlement
+claim. The official `ec-core` settlement helper also skips resolved losers and
+redeems both sides of a void.
+
+**Consequence:** VILLA submits only a held winning side for a resolved market,
+both held sides for a void, and records every redeem leg independently. A
+resolved loser may remain as a known zero-value ERC-6909 residual; VILLA does
+not invent a losing-token payout or brute-force an unsupported redeem.
+
+## D37. Claim sweeps are read-only first and sessions are restartable
+
+**Why:** Settled markets can disappear from normal `loadMarkets()` while value
+remains claimable. A process can also stop between mint, resolution, and claim.
+Repeating a redeem without a balance read is unsafe.
+
+**Consequence:** `verify:settlement:dry` scans `Finalized` by `marketId` and
+reports nonzero claimable holdings without sending. Wet sessions persist only
+non-secret state after each boundary under ignored `runtime/state/`; restart
+reads the same market and skips zero/already-cleared legs. No cached pool is
+used as market identity and no rollover is started in Phase 5A.

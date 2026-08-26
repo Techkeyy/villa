@@ -151,3 +151,10 @@ uses the live planner's unchanged price with a one-lot quantity cap, and burns
 only the controlled paired increment after every session order is gone. An
 unexpected fill never triggers a compensating trade: a complete remaining pair
 may be burned, while unmatched YES/NO is preserved for later operator review.
+
+## Settlement handoff
+
+`burnSet` is the controlled pre-settlement cleanup operation. It does not
+consult a payout vector and must never be substituted for a settled-market
+redeem. Phase 5A implements that separate path in
+`docs/SETTLEMENT_LIFECYCLE.md`.
