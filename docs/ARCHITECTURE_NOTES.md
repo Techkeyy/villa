@@ -189,3 +189,22 @@ Always `marketId` (and the on-chain snapshot taken for that pass). Never persist
 - Post-only price safety — raw integer tick arithmetic keeps BUY_YES at least
   one tick below best ask and SELL_YES at least one tick above best bid; an
   impossible side is disabled rather than crossed
+
+## Phase 4A complete-set inventory boundary
+
+`src/inventory-lifecycle/index.mjs` is pure `villa-inventory-v1` arithmetic.
+`scripts/verify-inventory-lifecycle.mjs` is the separate I/O adapter that
+discovers a clean Trading market, reads ERC-6909/tUSDC/STT/open-order state,
+and performs one bounded mint → SELL_YES rest → exact cancel → burnSet
+verification. The quote planner remains a plan-only layer; this verifier is not
+a live quoting loop and does not consume planner output.
+
+The Shannon observation showed that a resting SELL_YES escrowed its tokens out
+of the visible ERC-6909 balance. The execution adapter must reconcile visible
+free balance and pending commitments according to the live venue semantics,
+not blindly subtract the same commitment twice. A complete set keeps
+`D = YES - NO = 0`; the governor's pending SELL stress still matters because a
+filled SELL_YES can break that set.
+
+`burnSet` is a pre-settlement pair burn. Settlement `redeem` remains a
+separate future lifecycle phase.

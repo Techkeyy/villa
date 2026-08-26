@@ -80,12 +80,13 @@ a required model input.
 | Capability | Status | Evidence | Test | Conclusion | Implementation consequence |
 | --- | --- | --- | --- | --- | --- |
 | Read order book | VERIFIED | 1m BTC YES: bids 0.259/0.249/0.239, asks 0.286/0.296/0.306, sizes 200–460 | `fetchOrderBook` | Books are not universally empty today | Inventory-aware quoting still required; empty-book fallback still needed |
-| `trader.placeOrder` post-only BUY | VERIFIED | Wet rest on BTC 24h, 0 fills. Unified `createOrder` still unused (no expire field) | `npm run verify:write` | BUY escrow path works on Shannon 6dp | SELL / mint still unproven |
+| `trader.placeOrder` post-only BUY | VERIFIED | Wet rest on BTC 24h, 0 fills. Unified `createOrder` still unused (no expire field) | `npm run verify:write` | BUY escrow path works on Shannon 6dp | SELL path is separately verified in Phase 4A |
+| `trader.placeOrder` post-only SELL_YES | VERIFIED WITH CONDITIONS | Wet rest on BTC 24h, 0 fills; exact `isBid=false`, owner, price, quantity matched on-chain and indexer | `npm run verify:inventory` | A held YES can rest as a post-only ask and be cancelled exactly | One minimum-size controlled sequence; no fill claim |
 | Cancel | VERIFIED | Wet cancel of that order id; on-chain gone | same | Works for our resting BUY | Do not cancel unrelated orders |
 | Order expiry | VERIFIED | ABI requires `expireTimestampNs`; gotcha #5: `0` reverts | ABI + docs | Dead-man switch is mandatory | Set just past requote interval, cap at market expiry |
-| Mint complete set | VERIFIED WITH CONDITIONS | SDK `mintSet` → pool `mintSet(yesTo,noTo,amount)`; kit `seedInventory` | Source. No write here | Exists; kit asserts receipt | Needed for **sell** inventory. Two buy-sides can quote with zero inventory (market-structure docs) |
-| Burn complete set | VERIFIED WITH CONDITIONS | SDK `burnSet` | Source only | Exists | Unwind unused pairs |
-| Outcome balances | VERIFIED WITH CONDITIONS | `getOutcomeBalance({outcomeToken, account, id})`; on-chain sample returned `yesId`/`noId` | Source + on-chain shape | ERC-6909 ids, not ERC-20 | Key by marketId + ids from the **same** on-chain snapshot |
+| Mint complete set | VERIFIED WITH CONDITIONS | SDK `mintSet` → pool `mintSet(yesTo,noTo,amount)`; live 0.001 mint increased YES and NO by exactly 1000 raw and debited exactly 1000 raw tUSDC | `npm run verify:inventory` | Complete-set mint works on Shannon 6dp | One minimum-size Trading market; SDK auto-approval path is version-specific |
+| Burn complete set | VERIFIED WITH CONDITIONS | Live `burnSet` of the exact paired 1000 raw YES+NO restored tUSDC and both outcome balances to baseline | `npm run verify:inventory` | Unused pre-settlement pairs can be unwound | Not settlement `redeem`; no finalized claim proven |
+| Outcome balances | VERIFIED | `getOutcomeBalance({outcomeToken, account, id})`; live mint/rest/cancel/burn observed ERC-6909 balances and token escrow semantics | Source + `npm run verify:inventory` | ERC-6909 ids, not ERC-20; resting SELL escrowed YES out of visible balance | Key by marketId + ids from the same on-chain snapshot; do not double-reserve escrowed SELLs |
 | Fill detection | VERIFIED WITH CONDITIONS | `fetchMyTrades`; order-book events ABI; kit says indexer lags seconds | Source + docs | Do not trust a single indexer read | Poll + on-chain balances as truth |
 | Settlement detection | VERIFIED WITH CONDITIONS | `getMarketOnchain` `isResolved`/`isVoided`; `listBinaryMarkets({status:"Finalized"})` returned rows | discover finalized sample | Detectable without watching 15 minutes if we scan Finalized | Dashboard can show claims without a live expiry |
 | Redeem / claim | VERIFIED WITH CONDITIONS | SDK `redeem` via module; kit `claim.ts`; official recipes; kit test report 2026-08-06 claimed 205 YES on BTC 60s **on older SDK 0.22** | Source + third-party kit report | Path exists. **This repo has not redeemed.** | Implement from 0.28.1 `trader.redeem`, void both sides at 0.5 |
@@ -101,11 +102,11 @@ a required model input.
 | Step | Status |
 | --- | --- |
 | Operator connects/configures | NOT YET VERIFIED (no wallet, no UI) |
-| Allocates capital (tUSDC faucet; mint still untested) | tUSDC faucet **VERIFIED**; `mintSet` still **VERIFIED WITH CONDITIONS** |
+| Allocates capital (tUSDC faucet; complete-set mint) | tUSDC faucet **VERIFIED**; minimum `mintSet` **VERIFIED WITH CONDITIONS** |
 | Discover supported Event Contract | VERIFIED |
 | Independent fair value | VERIFIED WITH CONDITIONS (pure model + live read-only snapshot) |
 | Permitted quotes (governor) | NOT YET VERIFIED (rules not coded; data for rules exists) |
-| Quote enters DreamDEX | **VERIFIED** for one tiny post-only BUY_YES on one BTC 24h window. Not proven: SELL, other cadences, inventory skew |
+| Quote/order enters DreamDEX | **VERIFIED WITH CONDITIONS** for one tiny post-only BUY_YES and one controlled SELL_YES rest/cancel on BTC 24h. Not proven: fills, other cadences, inventory skew |
 | Fill changes inventory | VERIFIED WITH CONDITIONS (balances+trades APIs; thin organic flow) |
 | Observe change | VERIFIED WITH CONDITIONS |
 | Risk logic changes behaviour | NOT YET VERIFIED |
@@ -126,7 +127,10 @@ capital (tUSDC)
   → next marketId (new symbol; possibly recycled pool)
 ```
 
-Each arrow has an SDK method. **BUY-side escrow → rest → cancel → collateral returned** is VERIFIED on one Shannon BTC 24h market. mintSet, fills, redeem, and roll remain **NEEDS LIVE TESTING**.
+Each arrow has an SDK method. **BUY-side escrow → rest → cancel → collateral
+returned** and **mintSet → SELL_YES rest → exact cancel → burnSet** are verified
+with conditions on one Shannon BTC 24h market. Fills, redeem, and roll remain
+**NEEDS LIVE TESTING**.
 
 ## Wet write-path evidence (2026-08-24)
 
@@ -224,6 +228,42 @@ full suite passed 117/117. The live read-only recheck found:
 
 No live order was created, filled, cancelled, or otherwise changed by this
 corrective patch.
+
+## Phase 4A complete-set inventory + SELL verification (2026-08-26)
+
+The installed SDK and official `ec-core` SELL path were re-read before adding
+the verifier. `Trader.mintSet` deposits collateral and mints equal YES+NO;
+the SDK's binary set helper auto-approves collateral to the pool when needed.
+`Trader.burnSet` surrenders equal YES+NO and auto-ensures the pool's operator
+approval on the outcome-token singleton. `SELL_YES` is the verified binary ask
+side and `ORDER_TYPE.POST_ONLY` is used for the controlled rest.
+
+`npm run verify:inventory:dry` first passed against Shannon. It scanned current
+BTC Trading pools, found zero active operator orders, selected BTC 24h with
+substantial headroom, read the 6-decimal `1000/1000/1000` tick/lot/min grid,
+and planned the minimum `0.001` SELL_YES without a signer write.
+
+The wet run then proved the full bounded lifecycle on one current BTC 24h
+market:
+
+- baseline: tUSDC `100000000` raw, YES `0`, NO `0`, zero open orders;
+- mint: `0.001` collateral → YES `1000` + NO `1000`, exact collateral debit,
+  D=0, complete-set exposure only;
+- SELL_YES: raw price `535000`, raw quantity `1000`, `isBid=false`, exact owner,
+  zero fills, on-chain and indexer-visible resting order;
+- cancel: exact order disappeared from active chain and reconciled open-order
+  reads, balances returned to the post-mint pair, zero fills;
+- burnSet: exact pair destroyed, final YES/NO returned to zero, tUSDC returned
+  exactly to `100000000`, and target open orders remained zero.
+
+The live balance observation is material: while SELL_YES rested, visible YES
+was `0` while the order committed `1000`; cancellation restored visible YES to
+`1000`. The future writer must not double-subtract committed SELL quantity
+when the venue has already escrowed it. `burnSet` here was pre-settlement pair
+burn, not settlement redemption.
+
+No intentional fill occurred. No dashboard, quote loop, settlement, or redeem
+path was added.
 
 ## Phase 3 quote-planner verification (2026-08-26)
 

@@ -47,6 +47,9 @@ Path: `node_modules/@somnia-chain/markets-sdk/` version **0.28.1**.
 | Wet cancel | Shannon tx `0x2f6e566147e1da78d0d81dee308bbf631444a82c2f4cf99b1f61cda7a0ee673b` |
 | tUSDC faucet 100 | Shannon tx `0xe87717702926bbeabf97b8fdac68079bebcbb329f8318da6c9fa749ae8c1be9a` |
 | `getBinaryBookParams` tick/lot/min | `src/orders.ts` |
+| Complete-set mint / burn approval behavior | `src/binary/sets.ts`, `src/trade.ts` (`MintSetParams`, `BurnSetParams`) |
+| ERC-6909 visible outcome balance semantics | `src/binary/portfolio.ts`, live Phase 4A verifier |
+| Exact binary SELL order fields and active-order reads | `src/orders.ts`, `src/trade.ts` |
 | Price feed types; 1m/1h/1d candles | `src/priceFeed/types.ts` |
 | `LivePrice`/`PricePoint` fields, freshness metadata, `fetchPriceHistory` | `src/priceFeed/types.ts`, `src/priceFeed/query.ts`, `src/somniaMarketsClient.ts` |
 | Testnet addresses + `SOMNIA_TESTNET_PRICE_FEED` | `src/addresses.ts`, `src/config.ts` |
@@ -63,6 +66,16 @@ Path: `node_modules/@somnia-chain/markets-sdk/` version **0.28.1**.
 | Pending signed order stress and reduce-only caps | VILLA `src/risk-governor/exposure.mjs`, Phase 2B corrective evidence |
 | Pure adaptive quote formula and limits | VILLA `src/quote-planner/config.mjs`, `planner.mjs`, and `docs/QUOTE_PLANNER.md` |
 | Live read-only assembly | VILLA `scripts/quote-snapshot.mjs`; it imports no signer or write path |
+
+## Phase 4A inventory implementation evidence
+
+| Claim | Source |
+| --- | --- |
+| Pure complete-set, sell-capacity, post-only, expiry, and burn arithmetic | VILLA `src/inventory-lifecycle/index.mjs` and `index.test.mjs` |
+| Bounded mint → SELL_YES rest → exact cancel → burnSet adapter | VILLA `scripts/verify-inventory-lifecycle.mjs` |
+| SDK mint auto-approval and burn operator approval | Installed SDK `src/binary/sets.ts` |
+| SELL_YES reference plumbing and held-outcome check | `.scratch/dreamdex-bot-kit/packages/ec-core/src/orders.ts` |
+| Live Shannon receipts and final zero-state re-read | `docs/INVENTORY_LIFECYCLE.md`, Phase 4A command output |
 
 Upstream: https://www.npmjs.com/package/@somnia-chain/markets-sdk
 

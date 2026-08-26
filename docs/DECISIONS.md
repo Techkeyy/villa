@@ -92,7 +92,12 @@ Only decisions that change the build. Each one has a why and a source.
 
 **Why:** 2026-08-24 wet run placed BUY_YES 0.001 @ 0.774 on BTC 24h, saw it on-chain, cancelled it, escrow returned. Indexer listed the open order on the first poll (0ms) in this instance.
 
-**Consequence:** Quote engine can start from this place/cancel path. Do **not** treat SELL, mint, fills, or other intervals as verified. `loadMarkets()` remains slow (~3 min) and the SDK process can hang after the last write — later architecture should use a bounded client lifetime, not assume clean process exit.
+**Consequence:** The original quote-engine gate was BUY-only. Phase 4A now
+separately verifies one minimum complete-set mint, a resting/cancelled
+`SELL_YES`, and exact `burnSet`; fills, settlement, and other intervals remain
+unverified. `loadMarkets()` remains slow (~3 min) and the SDK process can hang
+after the last write — later architecture should use a bounded client
+lifespan, not assume clean process exit.
 
 ## D17. tUSDC faucet amount is explicit and small
 
@@ -213,3 +218,28 @@ reintroduce that safety flaw.
 orders through `calculateBinaryExposureWithAdditionalOrder`; a two-sided plan
 is checked with both proposed orders without optimistic netting. Sell
 inventory is separately reserved against existing YES asks.
+
+## D28. Complete-set mint and SELL lifecycle is a separate bounded adapter
+
+**Why:** Phase 3 proves a pure plan, not that VILLA owns outcome inventory or
+that a SELL can rest and be cancelled. The official kit already has SELL
+plumbing, but VILLA needs verified complete-set accounting and cleanup before
+any quote execution is allowed.
+
+**Consequence:** `villa-inventory-v1` owns raw mint-size, complete-set,
+committed-sell, post-only-ask, chain-time-expiry, and exact-burn helpers. The
+live verifier performs only one minimum-size sequence and refuses an unclean
+wallet, ambiguous read, unsafe price, fill, or incomplete pair. It never
+connects planner output to live order control.
+
+## D29. Use observed venue balance semantics, not a double reservation
+
+**Why:** On Shannon, the controlled resting `SELL_YES` reduced the visible
+ERC-6909 YES balance from 1000 raw to 0 while its on-chain order retained 1000
+raw. Cancellation restored the balance. The token was escrowed by the venue.
+
+**Consequence:** A future execution adapter passes the visible/free YES balance
+to the planner when it already excludes committed SELL quantity. It subtracts
+reconciled open SELL quantity only for a venue state where committed tokens
+remain visible. The risk governor still includes the pending SELL's signed
+directional stress independently.

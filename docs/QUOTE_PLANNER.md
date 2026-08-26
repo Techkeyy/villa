@@ -156,6 +156,14 @@ An ask is capped by real `YES` inventory after existing `SELL_YES` orders have
 reserved their remaining quantity. The planner never treats pending BUYs as
 already-held inventory and never invents a mint.
 
+Phase 4A verified the live balance contract: a resting `SELL_YES` escrowed its
+remaining YES out of the visible ERC-6909 balance until cancellation. The
+future execution adapter must therefore pass the actual free/visible YES
+balance as `yesAvailableRaw` for this venue and must not subtract a commitment a
+second time when the chain has already escrowed it. If a venue or future SDK
+version keeps committed tokens visible instead, the adapter must explicitly
+subtract reconciled open SELL quantity before calling the planner.
+
 For every candidate, the planner calls the Phase 2B exposure accounting with
 the existing pending orders plus the candidate. For two-sided output, it also
 checks the combined bid and ask without netting them. A pending BUY can fill

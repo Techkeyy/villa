@@ -56,13 +56,18 @@ decision → explanation. It does not quote, cancel, or transact.
 3. **DONE:** pure `villa-quote-v1` adaptive YES bid/ask planner, exact raw
 tick/lot/minimum handling, pending-order projection, and read-only live quote
 snapshot. No writer or transaction path is connected.
-4. Next: a bounded quote-execution adapter against one live window, only after
-explicit order expiry/reconciliation and lifecycle gates are designed.
-5. Claim sweep on Finalized holdings (may be zero first day — prove the scan).
-6. Successor rediscovery.
-7. Operator dashboard (design-skill) wired to real engine state, four states on every async action.
-8. Demo path + optional disclosed taker.
-9. perfect-readme, Audit-skill, project-edge, submit.
+4. **DONE:** Phase 4A complete-set inventory + SELL-path verification: one
+   minimum mint, one resting/cancelled post-only SELL_YES, exact pair burn, and
+   final zero-state re-read. The future writer must consume observed escrow
+   semantics and remain separate from the pure planner.
+5. Next: a bounded quote-execution adapter against one live window, only after
+   explicit order expiry/reconciliation, inventory-capacity, and lifecycle
+   gates are designed.
+6. Claim sweep on Finalized holdings (may be zero first day — prove the scan).
+7. Successor rediscovery.
+8. Operator dashboard (design-skill) wired to real engine state, four states on every async action.
+9. Demo path + optional disclosed taker.
+10. perfect-readme, Audit-skill, project-edge, submit.
 
 Halfway checkpoint: if the future execution step is not quoting a real book,
 cut cadence/asset/UI chrome, not the governor or pure planner boundaries.

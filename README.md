@@ -4,9 +4,10 @@ Autonomous liquidity manager for DreamDEX Event Contracts.
 
 Operator-facing. Not a prediction market. Not a retail Up/Down app. Ordinary traders meet VILLA only as orders on DreamDEX.
 
-This repository is in **Phase 2B**. The independent `villa-fv-v1` fair-value
-engine, deterministic `villa-risk-v1` governor, and read-only live BTC
-snapshots are present. There is no product UI or quoting loop yet.
+This repository is in **Phase 4A**. The independent `villa-fv-v1` fair-value
+engine, deterministic `villa-risk-v1` governor, pure `villa-quote-v1` planner,
+and bounded complete-set SELL lifecycle verifier are present. There is no
+product UI or continuous quoting loop yet.
 
 ## Repo
 
@@ -14,7 +15,10 @@ snapshots are present. There is no product UI or quoting loop yet.
 
 ## Status
 
-Shannon reads work. **Wet write-path passed** for one tiny post-only BUY rest+cancel on a live BTC Event Contract (see `docs/TECHNICAL_VERIFICATION.md`). That does not yet prove SELL, fills, or settlement.
+Shannon reads work. **Wet lifecycle verification passed** for one minimum
+complete set: mint, post-only `SELL_YES` rest, exact cancel, and `burnSet` on a
+live BTC Event Contract (see `docs/INVENTORY_LIFECYCLE.md`). It does not prove
+fills or settlement redemption.
 
 ```bash
 npm install
@@ -22,11 +26,17 @@ npm test
 npm run doctor
 npm run fair-value
 npm run risk
+npm run quote
 npm run verify:write:dry
+npm run verify:inventory:dry
 npm run verify:write
 ```
 
 `verify:write` sends one tiny post-only BUY and cancels it. It needs `OPERATOR_PRIVATE_KEY` in gitignored `.env`, STT for gas, and tUSDC (`npm run fund:tusdc` after STT arrives).
+
+`verify:inventory` sends one bounded mint / post-only `SELL_YES` / exact cancel /
+`burnSet` sequence. Use the dry run first; it does not create a quote loop or
+exercise settlement.
 
 ## Docs
 
@@ -39,6 +49,7 @@ npm run verify:write
 | `docs/DECISIONS.md` | Choices and why |
 | `docs/SOURCES.md` | Claim → URL/file |
 | `docs/BUILD_PLAN.md` | MVP, stretch, order of work |
+| `docs/INVENTORY_LIFECYCLE.md` | Complete-set mint, SELL escrow, exact cancel, and burn evidence |
 | `docs/FAIR_VALUE_MODEL.md` | Independent fair-value formula, units, and validation |
 | `docs/RISK_GOVERNOR.md` | Deterministic risk states, exposure math, policy, and refusal boundary |
 | `docs/INCOMING-BRIEF.md` | Directing-agent spec as received |
