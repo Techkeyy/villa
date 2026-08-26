@@ -700,3 +700,37 @@ Accounting exposes `PNL_UNAVAILABLE` and never fabricates realized PnL.
 The ignored wallet hygiene journal is `runtime/state/wallet-hygiene-v1.json`.
 No private key or secret was written. The backend-freeze handoff is
 `docs/BACKEND_FREEZE.md`.
+
+## Phase 6B operator cockpit (2026-08-27)
+
+The frontend is a single-page vanilla HTML/CSS/ESM cockpit. It consumes the
+existing `villa-dashboard-v1` contract and keeps the backend trading layers
+feature-frozen. `scripts/dashboard-server.mjs` exposes a server-side live
+read-only adapter and a separate `REPLAY` adapter. The browser receives no
+environment variables, private key, signer, writer queue, or transaction
+function.
+
+The replay scenes use exact recorded facts from the Phase 4B quote-cycle
+verification, Phase 5B rollover verification, and the Phase 6A plus Phase 6A.1
+fill and redemption evidence. The quote scene shows the exact recorded
+DreamDEX midpoint `71.65%` as comparison-only and leaves individual best levels
+unavailable because the verification record did not retain them. The rollover
+scene shows exact B market facts ending `a17d`, including `55.0108%` fair UP,
+`57s` remaining, book levels `541000` and `571000`, and `NO_QUOTE`. The
+settlement scene shows the real A/B organic fill order ids and the exact three
+redeem transaction hashes. No synthetic continuous event timestamps are added.
+
+Focused dashboard tests pass `30/30`; the full repository suite is run after
+the frontend checks. Dashboard build output is generated under ignored
+`dist/dashboard`. No transaction is required by any dashboard command.
+
+Final local checks for this handoff: `npm test` passed `402/402`,
+`npm run dashboard:build` passed, `audit_ui_text.py dashboard` reported zero
+long-dash errors and zero small-text warnings, and `git diff --check` passed.
+The replay server returned HTTP 200 for the page, assets, scene list, and all
+three recorded scenes. The in-app browser runner could not initialize its
+kernel assets, and the fallback browser runner was denied VM access, so no
+rendered screenshot claim is made. `npm run doctor`, `npm run fair-value`, and
+the live dashboard endpoint were attempted but Shannon/indexer access returned
+`fetch failed`; those read-only failures did not cause a code or backend
+change.

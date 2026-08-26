@@ -485,3 +485,20 @@ zero active orders and zero unknown inventory before declaring the wallet
 clean. `src/dashboard/contract.mjs` is the stable frontend boundary; it uses
 `PNL_UNAVAILABLE` rather than inventing realized PnL. Backend trading features
 are frozen for the hackathon.
+
+## D50. The Phase 6B cockpit is one read-only page
+
+**Decision:** Build one desktop-first operator cockpit over
+`villa-dashboard-v1`, with a server-side live read adapter and clearly labelled
+replay scenes. Do not add dashboard order controls or another frontend state
+machine.
+
+**Why:** The direct VILLA user supervises one autonomous liquidity desk. The
+important decision is whether the desk is allowed to quote and why, not a set of
+consumer market routes. A single page keeps fair value, venue comparison,
+quotes, risk, inventory, lifecycle, settlement, and activity in one scan.
+
+**Consequence:** Browser code has no signer or write capability. `REPLAY` uses
+only recorded verification facts, avoids invented book levels and timestamps,
+and keeps `PNL_UNAVAILABLE` visible. The server-side live adapter uses existing
+read-only collectors and closes the SDK client after each snapshot.

@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#0c1215">
+    <title>VILLA Operator Cockpit</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <a class="brand" href="/" aria-label="VILLA operator cockpit">
+          <span class="brand-mark" aria-hidden="true">V</span>
+          <span>
+            <strong>VILLA</strong>
+            <small>operator cockpit</small>
+          </span>
+        </a>
+        <div class="topbar-context" aria-label="Current system context">
+          <span class="network-dot" aria-hidden="true"></span>
+          <span>Somnia Shannon</span>
+          <span class="topbar-separator">/</span>
+          <span data-field="series">BTC 5m</span>
+        </div>
+        <div class="topbar-actions">
+          <span class="mode-badge" data-field="mode">REPLAY</span>
+          <div class="scene-switcher" data-field="scenes" hidden></div>
+          <button class="mode-button" data-action="mode" type="button" aria-pressed="false">Use live read</button>
+        </div>
+      </header>
+
+      <main class="cockpit" id="cockpit">
+        <div class="loading-state" data-state="loading" role="status">
+          <span class="loader" aria-hidden="true"></span>
+          <span>Reading VILLA state...</span>
+        </div>
+
+        <div class="error-state" data-state="error" role="alert" hidden>
+          <strong>Dashboard read unavailable</strong>
+          <span data-field="error">The read-only adapter could not return a snapshot.</span>
+          <button class="secondary-button" data-action="retry" type="button">Try again</button>
+        </div>
+
+        <div class="dashboard-content" data-state="content" hidden>
+          <section class="system-strip" aria-label="System status">
+            <div>
+              <span class="eyebrow">SYSTEM STATE</span>
+              <span class="state-badge" data-field="state">WATCHING</span>
+            </div>
+            <div class="system-fact"><span class="eyebrow">MARKET</span><strong data-field="market-id">Unavailable</strong></div>
+            <div class="system-fact"><span class="eyebrow">LIFECYCLE</span><strong data-field="lifecycle-state">Unavailable</strong></div>
+            <div class="system-fact wallet-fact"><span class="eyebrow">OPERATOR WALLET</span><strong class="mono" data-field="wallet">Unavailable</strong></div>
+            <div class="system-fact version-fact"><span class="eyebrow">CONTRACT</span><strong class="mono" data-field="contract">villa-dashboard-v1</strong></div>
+          </section>
+
+          <section class="hero-layout" aria-labelledby="market-title">
+            <div class="hero-copy">
+              <div class="eyebrow accent-text">AUTONOMOUS LIQUIDITY / <span data-field="mode-copy">RECORDED PROOF</span></div>
+              <h1 id="market-title"><span data-field="market-label">BTC 5m</span><span class="hero-subtitle">Event Contract</span></h1>
+              <p class="hero-description">VILLA watches the underlying market, forms its own probability, and lets deterministic safety rules decide whether a quote can exist.</p>
+              <div class="hero-meta">
+                <span>Reference <strong data-field="reference">Unavailable</strong></span>
+                <span>Time left <strong data-field="time-left">Unavailable</strong></span>
+                <span>Status <strong data-field="market-status">Unavailable</strong></span>
+              </div>
+            </div>
+            <div class="price-readout" aria-label="Underlying price">
+              <span class="eyebrow">UNDERLYING NOW</span>
+              <strong data-field="underlying">Unavailable</strong>
+              <span>BTC / USDC</span>
+            </div>
+            <div class="value-compare" aria-label="VILLA fair value compared with DreamDEX">
+              <div class="compare-heading"><span class="eyebrow">INDEPENDENT VALUE</span><span class="comparison-note">DreamDEX is comparison only</span></div>
+              <div class="compare-values">
+                <div class="villa-value"><span>VILLA fair</span><strong data-field="villa-fair">Unavailable</strong><small>UP probability</small></div>
+                <div class="compare-divider" aria-hidden="true"></div>
+                <div class="dex-value"><span>DreamDEX</span><strong data-field="dex-mid">Unavailable</strong><small>book midpoint</small></div>
+              </div>
+              <div class="difference-row"><span>Difference</span><strong data-field="difference">Unavailable</strong><span class="comparison-note">not a model input</span></div>
+            </div>
+          </section>
+
+          <section class="primary-grid" aria-label="Decision and quotes">
+            <article class="panel fair-panel">
+              <div class="panel-heading">
+                <div><span class="eyebrow">FAIR VALUE</span><h2>VILLA's view</h2></div>
+                <span class="version-chip mono" data-field="model-version">villa-fv-v1</span>
+              </div>
+              <div class="probability-display">
+                <div class="probability-number"><strong data-field="p-up">Unavailable</strong><span>UP</span></div>
+                <div class="probability-number down"><strong data-field="p-down">Unavailable</strong><span>DOWN</span></div>
+              </div>
+              <div class="probability-bar" role="img" aria-label="UP and DOWN probability split"><span data-field="probability-fill"></span></div>
+              <div class="bar-legend"><span><i class="dot up-dot"></i>UP</span><span><i class="dot down-dot"></i>DOWN</span></div>
+              <div class="metric-grid">
+                <div><span>Data quality</span><strong data-field="confidence">Unavailable</strong></div>
+                <div><span>Volatility</span><strong class="mono" data-field="volatility">Unavailable</strong></div>
+                <div><span>Distance</span><strong data-field="distance">Unavailable</strong></div>
+                <div><span>Normalized distance</span><strong class="mono" data-field="z-score">Unavailable</strong></div>
+              </div>
+              <p class="panel-footnote">Confidence describes input quality. It is separate from VILLA's UP probability.</p>
+            </article>
+
+            <article class="panel quotes-panel">
+              <div class="panel-heading">
+                <div><span class="eyebrow">LIQUIDITY</span><h2>Quote posture</h2></div>
+                <span class="quiet-label">post-only</span>
+              </div>
+              <div class="quote-table" role="table" aria-label="VILLA quote state">
+                <div class="quote-row quote-header" role="row"><span>Side</span><span>Price</span><span>Qty</span><span>State</span></div>
+                <div class="quote-row" role="row"><strong>VILLA bid</strong><strong data-field="bid-price">Unavailable</strong><span class="mono" data-field="bid-qty">Unavailable</span><span class="quote-state" data-field="bid-state">NO QUOTE</span></div>
+                <div class="quote-row" role="row"><strong>VILLA ask</strong><strong data-field="ask-price">Unavailable</strong><span class="mono" data-field="ask-qty">Unavailable</span><span class="quote-state" data-field="ask-state">NO QUOTE</span></div>
+              </div>
+              <div class="book-nearby">
+                <div><span class="eyebrow">DREAMDEX YES BOOK</span><strong><span data-field="best-bid">Unavailable</span> <small>bid</small></strong></div>
+                <div><strong><span data-field="best-ask">Unavailable</span> <small>ask</small></strong></div>
+              </div>
+              <div class="quote-explainer"><span class="status-dot" data-field="quote-dot"></span><span data-field="quote-summary">No active quote</span></div>
+            </article>
+
+            <article class="panel risk-panel" data-field="risk-panel">
+              <div class="panel-heading">
+                <div><span class="eyebrow">RISK GOVERNOR</span><h2>Permission to quote</h2></div>
+                <span class="governor-badge" data-field="risk-action">Unavailable</span>
+              </div>
+              <div class="risk-reason"><span class="eyebrow">PRIMARY REASON</span><strong class="mono" data-field="risk-reason-code">NONE</strong><p data-field="risk-reason-text">No decision available.</p></div>
+              <div class="risk-checks" data-field="risk-checks"></div>
+              <p class="panel-footnote">ALLOW permits new risk. REDUCE ONLY protects neutral. HALT stops quoting.</p>
+            </article>
+          </section>
+
+          <section class="secondary-grid" aria-label="Inventory and lifecycle">
+            <article class="panel inventory-panel">
+              <div class="panel-heading"><div><span class="eyebrow">INVENTORY / EXPOSURE</span><h2>Current market only</h2></div><span class="quiet-label" data-field="inventory-class">No residuals included</span></div>
+              <div class="inventory-numbers">
+                <div><span>YES</span><strong data-field="yes-inventory">Unavailable</strong></div>
+                <div><span>NO</span><strong data-field="no-inventory">Unavailable</strong></div>
+                <div><span>Complete sets</span><strong data-field="complete-sets">Unavailable</strong></div>
+              </div>
+              <div class="exposure-rail" aria-label="Directional exposure from DOWN to UP">
+                <span class="rail-label left">DOWN</span><span class="rail-line"><i data-field="exposure-marker"></i><b></b></span><span class="rail-label right">UP</span>
+              </div>
+              <div class="exposure-caption"><strong data-field="exposure-direction">NEUTRAL</strong><span data-field="exposure-value">0</span></div>
+              <p class="panel-footnote">Settled historical tokens stay in lifecycle history, never active capacity.</p>
+            </article>
+
+            <article class="panel why-panel">
+              <div class="panel-heading"><div><span class="eyebrow">DECISION TRACE</span><h2>Why VILLA moved</h2></div><span class="quiet-label">deterministic</span></div>
+              <div class="why-list" data-field="why-list"></div>
+            </article>
+
+            <article class="panel lifecycle-panel">
+              <div class="panel-heading"><div><span class="eyebrow">LIFECYCLE</span><h2>Market handoff</h2></div><span class="quiet-label" data-field="lifecycle-label">Unavailable</span></div>
+              <div class="lifecycle-track">
+                <div class="lifecycle-node previous"><span class="eyebrow">PREVIOUS</span><strong data-field="previous-market">None</strong><small data-field="previous-state">Settled or not recorded</small></div>
+                <span class="track-arrow" aria-hidden="true">→</span>
+                <div class="lifecycle-node current"><span class="eyebrow">CURRENT</span><strong data-field="current-market">Unavailable</strong><small data-field="current-state">Unavailable</small></div>
+                <span class="track-arrow" aria-hidden="true">→</span>
+                <div class="lifecycle-node next"><span class="eyebrow">NEXT</span><strong data-field="next-market">Waiting</strong><small>Rediscovered by marketId</small></div>
+              </div>
+            </article>
+          </section>
+
+          <section class="bottom-grid" aria-label="Activity and accounting">
+            <article class="panel activity-panel">
+              <div class="panel-heading"><div><span class="eyebrow">STRUCTURED EVENTS</span><h2>Recent activity</h2></div><span class="quiet-label">selected signal</span></div>
+              <div class="timeline" data-field="timeline"></div>
+            </article>
+
+            <article class="panel settlement-panel">
+              <div class="panel-heading"><div><span class="eyebrow">SETTLEMENT</span><h2>Capital recovery</h2></div><span class="quiet-label">chain evidence</span></div>
+              <div class="settlement-list" data-field="settlement"></div>
+            </article>
+
+            <article class="panel accounting-panel">
+              <div class="panel-heading"><div><span class="eyebrow">ACCOUNTING</span><h2>Known balances</h2></div><span class="quiet-label">factual only</span></div>
+              <div class="balance-list">
+                <div><span>tUSDC</span><strong data-field="tusdc">Unavailable</strong></div>
+                <div><span>STT</span><strong data-field="stt">Unavailable</strong></div>
+              </div>
+              <div class="pnl-warning"><span class="warning-symbol">!</span><div><strong>Realized PnL</strong><span data-field="pnl-state">PNL_UNAVAILABLE</span></div></div>
+              <p class="panel-footnote">Complete maker proceeds, fees, and cash flows are not yet accounted.</p>
+            </article>
+          </section>
+
+          <section class="evidence-panel" data-field="evidence-panel" hidden>
+            <div class="evidence-heading"><div><span class="eyebrow">VERIFIED RECORD</span><h2 data-field="evidence-title">Recorded evidence</h2></div><span class="quiet-label">inspectable</span></div>
+            <p data-field="evidence-note"></p>
+            <div class="evidence-columns"><div data-field="evidence-facts"></div><div data-field="evidence-fills"></div><div data-field="evidence-txs"></div></div>
+          </section>
+
+          <footer class="dashboard-footer"><span>Source: <strong data-field="source">dashboard contract</strong></span><span>Midpoint input to VILLA fair value: <strong>NO</strong></span><span>Read-only surface, no transactions</span></footer>
+        </div>
+      </main>
+    </div>
+    <div class="sr-only" aria-live="polite" data-field="announcer"></div>
+    <script type="module" src="/app.mjs"></script>
+  </body>
+</html>

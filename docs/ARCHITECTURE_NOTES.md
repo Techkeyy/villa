@@ -1,11 +1,12 @@
 # Architecture notes
 
-Based only on verified capabilities. No frontend. No invented SDK methods.
+Based only on verified capabilities. The Phase 6B frontend is a read-only
+surface over the stable dashboard contract. No invented SDK methods.
 
 ## Layers
 
 ```
-Operator dashboard (not built)
+Operator dashboard (Phase 6B, read-only)
   -> villa engine (our code; Phase 2B, no writer yet)
        collector | fair-value | governor | quoting | lifecycle
     -> @somnia-chain/markets-sdk 0.28.1  (installed)
@@ -18,6 +19,14 @@ Operator dashboard (not built)
          trader:  raw bigint place/redeem/faucet
       -> Shannon RPC + indexer GraphQL + price-feed GraphQL
         -> BinaryMarketsModule / BinaryPool / OutcomeToken6909 / BinarySettlement / OracleHub
+```
+
+The browser path is intentionally separated from the writer path:
+
+```text
+server-side SDK reads -> villa-dashboard-v1 -> pure presenter -> browser
+                                                     |
+                                                     +-> no signer, no writes
 ```
 
 Spot HTTP API, CCXT, Bot Builder, and `@dreamdex-bot-kit/core` (spot) are **out of this diagram**.
@@ -74,7 +83,20 @@ Above that plumbing:
 | quote-planner | permission + pUp + inventory + pending orders + raw grid | adaptive YES bid/ask plan | pure |
 | execution (future) | approved quote plan + fresh book | post-only orders / cancels | SDK writes |
 | lifecycle | Finalized list + holdings | redeems + new marketId | SDK writes/reads |
-| dashboard | all of the above | operator view | later |
+| dashboard | `villa-dashboard-v1` snapshot | operator cockpit | read-only server adapter + static browser |
+
+## Phase 6B dashboard boundary
+
+`src/dashboard/contract.mjs` remains the backend-owned mapping. The dashboard
+server may use the existing read-only risk collector and pure quote planner to
+assemble a live snapshot, but it never imports a writer, signer, queue, or
+transaction function. `src/dashboard/presenter.mjs` only formats state and
+selects concise structured events; it never changes fair value, risk, quote,
+inventory, settlement, or rollover logic.
+
+Replay scenes are labelled `REPLAY` and are built from exact Phase 4B, Phase 5B,
+Phase 6A, and Phase 6A.1 evidence. Replay is not live state and does not merge
+facts into a fabricated continuous session. Unknown values remain unavailable.
 
 Load-bearing risky module to prove first: **collector + one real post-only round-trip**, then a **pure fair-value + governor** with fixtures (no network).
 

@@ -119,6 +119,15 @@ zero-value residual classification, unknown-inventory fail-closed checks,
 dashboard data-contract definition, and backend-freeze manifest. No new order,
 mint, autonomous run, strategy change, or frontend work was introduced.
 
+## Phase 6B operator cockpit
+
+Phase 6B adds the single-page read-only cockpit in `dashboard/`, a server-side
+live adapter in `scripts/dashboard-server.mjs`, the pure presenter in
+`src/dashboard/presenter.mjs`, and labelled recorded scenes in
+`src/dashboard/replay.mjs`. The backend trading layers remain feature-frozen.
+The next decision after this phase is whether the UI and demo surface are
+approved before any submission README or recording work begins.
+
 ## Phase 5B rollover boundary
 
 The successor milestone stops at:

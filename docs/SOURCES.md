@@ -178,3 +178,13 @@ https://github.com/somnia-chain/dreamdex-bot-kit
 | Exact a3cf read-only audit, owner order/fill provenance, serialized redeem, payout reconciliation, and final wallet scan | `scripts/wallet-hygiene-audit.mjs`, `runtime/state/wallet-hygiene-v1.json` (ignored runtime evidence) |
 | Stable frontend-facing structures and explicit `PNL_UNAVAILABLE` accounting state | `src/dashboard/contract.mjs`, `src/dashboard/contract.test.mjs` |
 | Final backend capability status, wallet balances, residual registry, and freeze limitations | `docs/BACKEND_FREEZE.md`, `docs/TECHNICAL_VERIFICATION.md`, Phase 6A.2 section |
+
+## Phase 6B operator cockpit evidence
+
+| Claim | Source |
+| --- | --- |
+| Read-only server boundary, live adapter, replay routes, and public response shape | `scripts/dashboard-server.mjs` |
+| Deterministic operator projection, status semantics, formatting, and explanation facts | `src/dashboard/presenter.mjs`, `src/dashboard/presenter.test.mjs` |
+| One-page cockpit surface, responsive layout, and browser-side rendering | `dashboard/index.html`, `dashboard/styles.css`, `dashboard/app.mjs` |
+| Exact recorded quote, rollover, fill, settlement, and wallet-hygiene scenes | `src/dashboard/replay.mjs`, `docs/DASHBOARD.md` |
+| Static dashboard build and local commands | `scripts/dashboard-build.mjs`, `package.json` |

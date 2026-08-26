@@ -1,8 +1,9 @@
 # VILLA backend freeze
 
-Phase 6A.2 is the final wallet-state hygiene checkpoint before frontend work.
-The backend is feature-frozen for the hackathon: future changes require a
-concrete bug or hackathon-critical need.
+Phase 6A.2 was the final wallet-state hygiene checkpoint before frontend work.
+The backend remains feature-frozen for the hackathon: future changes require a
+concrete bug or hackathon-critical need. Phase 6B adds only a read-only cockpit
+over the stable contract documented below.
 
 ## VILLA backend status
 
@@ -23,13 +24,14 @@ concrete bug or hackathon-critical need.
 | Restart journal | VERIFIED WITH BOUNDED SCOPE |
 | Full production PnL accounting | NOT IMPLEMENTED |
 | Production indefinite daemon | NOT IMPLEMENTED / NOT REQUIRED FOR CURRENT HACKATHON MVP |
-| Frontend | NOT STARTED |
+| Frontend | PHASE 6B READ-ONLY COCKPIT |
 
 The backend baseline before this freeze was commit
 `ccf61a6a529e9eefeed01666d1aad72d573eee46`. The final freeze commit is the
 commit containing this manifest and is reported by the handoff.
 
-The complete test suite is `376/376` passing.
+The backend freeze baseline passed `376/376` tests. The current repository
+suite, including the Phase 6B dashboard tests, is reported by the handoff.
 
 ## Final wallet state
 
@@ -78,6 +80,12 @@ The stable pure mapping is `villa-dashboard-v1` in
 Accounting always exposes `pnlState: PNL_UNAVAILABLE` and `pnl: null`. The
 dashboard must not invent a zero or estimated PnL while complete maker
 proceeds, fees, and all cash-flow components are unavailable.
+
+The Phase 6B cockpit is implemented in `dashboard/`, with a server-side
+read-only adapter in `scripts/dashboard-server.mjs`, a pure projection layer in
+`src/dashboard/presenter.mjs`, and recorded evidence scenes in
+`src/dashboard/replay.mjs`. It has no signer, transaction, order-control, or
+dashboard write path.
 
 ## Known limitations
 
