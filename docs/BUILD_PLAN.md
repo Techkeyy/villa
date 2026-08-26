@@ -72,9 +72,15 @@ snapshot. No writer or transaction path is connected.
    chain-time A stop, same-series B verification, explicit scope reset, fresh
    B fair-value/risk/quote context, residual registry, and zero-write live
    proof. It is not a continuous loop and does not execute B quotes.
-8. Operator dashboard (design-skill) wired to real engine state, four states on every async action.
-9. Demo path + optional disclosed taker.
-10. perfect-readme, Audit-skill, project-edge, submit.
+8. **DONE:** Phase 6A bounded autonomous orchestration:
+   exact BTC 5m series, repeated fair-value/risk/quote cycles, capped
+   post-only writes through one queue, reconciliation, expiry cleanup,
+   settlement overlap, and verified same-series successor continuation.
+   Final dry and wet proofs passed on 2026-08-26; see
+   `docs/TECHNICAL_VERIFICATION.md`.
+9. Operator dashboard (design-skill) wired to real engine state, four states on every async action.
+10. Demo path + optional disclosed taker.
+11. perfect-readme, Audit-skill, project-edge, submit.
 
 Halfway checkpoint: if the future execution step is not quoting a real book,
 cut cadence/asset/UI chrome, not the governor or pure planner boundaries.
@@ -90,6 +96,7 @@ cut cadence/asset/UI chrome, not the governor or pure planner boundaries.
 - Treating the Phase 3 quote plan as proof that a SELL, fill, mint, or settlement path has been verified
 - Treating one bounded quote cycle as permission to start an always-on writer
 - Treating `burnSet` as settlement redemption or treating one rollover as permission for continuous execution
+- Treating the Phase 6A bounded runner as an always-on daemon; the next milestone must be explicitly approved
 
 ## Phase 5A settlement boundary
 

@@ -499,3 +499,86 @@ but does not claim or alter A's terminal balances. The existing Phase 5A
 settlement lifecycle remains responsible for settlement claims. A B HALT or
 NO_QUOTE is a valid bounded rollover outcome, not a reason to select a third
 market. This milestone is not a continuous writer.
+
+## Phase 6A bounded autonomous market-making run (2026-08-26)
+
+Phase 6A adds the bounded `villa-loop-v1` orchestrator. It combines fresh
+`villa-fv-v1` -> `villa-risk-v1` -> `villa-quote-v1` decisions with the
+verified binary execution, inventory, settlement, and rollover boundaries.
+The default policy is exact `BINARY:BTC:300`, at most three initialized
+markets, 720 chain seconds, two simultaneous resting orders, 30 runner-counted
+transaction actions, two replacements, one minimum complete-set lot per
+market, `0.002` tUSDC committed collateral, and `0.001` tUSDC directional
+exposure. The final wet proof used an effective `--max-markets=2` cap.
+
+The full dry run used:
+
+```text
+npm run villa:bounded:dry -- --max-markets=2
+```
+
+It initialized two exact BTC 5m windows, exercised virtual inventory and
+orders, produced `NO_QUOTE` and lifecycle cleanup paths, completed successor
+handoff, sent zero transactions, and ended with zero active orders.
+
+The final wet invocation used the existing disposable Shannon wallet:
+
+```text
+npm run villa:bounded -- --max-markets=2
+```
+
+It returned `RESULT: PASS` with `orchestratorVersion: villa-loop-v1`,
+`transactionCount: 12` runner-counted actions, `orderReplacements: 0`,
+`finalActiveOrders: 0`, and a clean session. The runner's transaction budget
+is a logical bounded writer-operation counter; SDK auto-approval writes, when
+needed by the SDK, remain inside the same SDK trader and serialized writer
+boundary. A post-run nonce check reported equal latest and pending nonce.
+
+| Fact | Evidence |
+| --- | --- |
+| Exact series | `BINARY:BTC:300` only; no cadence or asset fallback |
+| Market A | `0x000000000000000000000000000000000000000000000000000000000000a3dd`; expiry `1787759700`; terminal/resolved |
+| Market B | `0x000000000000000000000000000000000000000000000000000000000000a3e9`; expiry `1787760000`; terminal/resolved |
+| Market continuation | A stopped and cleaned before later same-series B initialization; one rollover |
+| A fair-value samples | approximately `6.0%` to `48.3%` pUp during the live window |
+| B fair-value samples | approximately `48.6%` to `93.4%` pUp during the live window |
+| Governor | `ALLOW` throughout most cycles; one recoverable `HALT` for `MODEL_CONFIDENCE_LOW`, then resumed safely |
+| Quote behavior | `NO_QUOTE` on post-only-crossing/minimum-grid conditions; no taker fallback |
+| Complete-set mints | 2, `2000` raw total |
+| Submitted orders | 3 `SELL_YES` asks and 2 `BUY_YES` bids; both sides rested simultaneously in each market |
+| Replacements/cancellations | 0 replacements; 3 exact cancellations |
+| Organic fills | 2 full `SELL_YES` fills, `1000` raw each; no intentional fill and no second wallet |
+| Post-fill state | Each market retained exactly `YES 0 / NO 1000` raw as an explicit old-market settlement residual |
+| Settlement/claim path | A and B were tracked through terminal resolution; redeem writes `0`; read-only finalized claim sweep found their known winning NO residuals claimable and sent no write |
+| Final active state | both wet markets resolved with zero active order ids; final configured-series scan empty |
+| STT | initial `49890097214000000000` raw; final `49851275504000000000` raw |
+| tUSDC collateral | initial `99999310` raw; final `99997954` raw |
+| Gas | `38821710000000000` wei recorded by the runner |
+| Prior residual | market ending `a00b`, `NO 1000` raw, `KNOWN_ZERO_VALUE_SETTLED_RESIDUAL`, no claimable balance |
+| Event stream | 573 deterministic lifecycle events observed; the journal stores the secret-free summary and reconciliation state |
+
+The final public reconciliation independently read both market ids as status
+`4` (`Resolved`), `isResolved: true`, `isVoided: false`, `YES 0`, `NO 1000`,
+and zero active order ids. The read-only finalized claim sweep scanned 200
+rows and reported the A and B `NO 1000` balances as claimable winning
+residuals, plus a pre-existing `a3cf` `YES 1000` claim candidate. The known
+prior `a00b` loser remained a zero-value non-claimable residual. The runner
+sent no redeem or claim transaction. No pending transaction remained.
+
+The two fills were natural full fills of the resting YES asks. The runner
+recorded the resulting NO residuals under their exact old market ids, reran
+fresh model/risk/quote logic after each fill, and never used those residuals as
+successor inventory. The wet run therefore proves bounded autonomous
+continuation and cleanup, not profitability, guaranteed fills, complete P&L,
+or an always-on service.
+
+During implementation, two operational edges were made explicit: nested SDK
+write calls are all routed through one queue without queue self-deadlock, and
+short-lived indexer lag is accepted only when chain state matches known
+session order ids and expected raw prices. Unknown or contradictory orders
+still fail closed. The midpoint was collected for comparison only and did not
+enter fair value, governor, or quote-centre inputs.
+
+The Phase 6A pure suite adds 60 deterministic tests. The final repository
+suite is 347/347, preserving the inherited 287 tests. No frontend or Phase 6B
+work was started.

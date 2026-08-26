@@ -112,7 +112,7 @@ function sameIds(a, b) {
  * pool's raw order struct exposes only bid/ask, so the indexer BinarySide is
  * used only after every active id is confirmed on-chain and the two sets match.
  */
-export async function readOpenOrders(exchange, onchain, owner, marketId, decimals) {
+export async function readOpenOrders(exchange, onchain, owner, marketId, decimals, options = {}) {
   const [chainIds, indexedRows] = await Promise.all([
     exchange.client.getOwnOpenOrdersOnchain(onchain.pool, owner),
     exchange.client.getOpenOrders(owner, { pool: onchain.pool, limit: 1000 }),
@@ -120,6 +120,45 @@ export async function readOpenOrders(exchange, onchain, owner, marketId, decimal
   const matchingRows = indexedRows.filter((row) => String(row.market).toLowerCase() === String(marketId).toLowerCase());
   if (chainIds.length === 0 && matchingRows.length === 0) return { status: "VERIFIED", orders: [], indexedCount: 0, chainCount: 0 };
   if (!sameIds(chainIds, matchingRows.map((row) => row.orderId))) {
+    // Chain truth wins when a known session order has expired or been
+    // cancelled but the indexer still reports its stale open row. This
+    // exception requires the exact current-session ids and never hides an
+    // unmanaged indexed order.
+    const known = new Set((options.knownOrderIds ?? []).map(String));
+    const knownOrders = new Map((options.knownOrders ?? []).map((order) => [String(order.orderId), order]));
+    const allKnown = known.size > 0
+      && chainIds.every((id) => known.has(String(id)))
+      && matchingRows.every((row) => known.has(String(row.orderId)));
+    if (allKnown && chainIds.length === 0) {
+      return {
+        status: "VERIFIED",
+        orders: [],
+        indexedCount: matchingRows.length,
+        chainCount: 0,
+        warning: "INDEXER_STALE_CHAIN_EMPTY_KNOWN_SESSION",
+      };
+    }
+    if (allKnown && knownOrders.size > 0 && chainIds.length > 0) {
+      const chainOrders = await Promise.all(chainIds.map((id) => exchange.client.getOrderOnchain(onchain.pool, id)));
+      if (chainOrders.some((order) => order === null)) {
+        return { status: "AMBIGUOUS", orders: [], indexedCount: matchingRows.length, chainCount: chainIds.length, warning: "OPEN_ORDER_RACE_DURING_READ" };
+      }
+      const orders = [];
+      for (const chainOrder of chainOrders) {
+        const expected = knownOrders.get(String(chainOrder.orderId));
+        if (!expected || String(chainOrder.price) !== String(expected.priceRaw)) {
+          return { status: "AMBIGUOUS", orders: [], indexedCount: matchingRows.length, chainCount: chainIds.length, warning: "KNOWN_ORDER_CHAIN_FIELDS_CHANGED" };
+        }
+        const action = String(expected.action);
+        const parsed = /^(BUY|SELL)_(YES|NO)$/.exec(action);
+        const remainingQty = rawToHuman(chainOrder.quantityRemaining, decimals);
+        if (!parsed || !Number.isFinite(remainingQty) || remainingQty < 0) {
+          return { status: "AMBIGUOUS", orders: [], indexedCount: matchingRows.length, chainCount: chainIds.length, warning: "KNOWN_ORDER_CHAIN_FIELDS_INVALID" };
+        }
+        orders.push({ id: String(chainOrder.orderId), outcome: parsed[2], side: parsed[1], remainingQty, priceYes: rawToHuman(chainOrder.price, decimals) });
+      }
+      return { status: "VERIFIED", orders, indexedCount: matchingRows.length, chainCount: chainIds.length, warning: "INDEXER_STALE_KNOWN_SESSION_CHAIN_AUTHORITATIVE" };
+    }
     return { status: "AMBIGUOUS", orders: [], indexedCount: matchingRows.length, chainCount: chainIds.length, warning: "OPEN_ORDER_INDEXER_CHAIN_MISMATCH" };
   }
 
@@ -191,7 +230,7 @@ export async function collectRiskSnapshot(exchange, options = {}) {
     exchange.client.getOutcomeBalance({ outcomeToken: onchain.outcomeToken, account: owner, id: onchain.noId }),
     exchange.client.getErc20Balance(onchain.collateral, owner),
     exchange.client.getViemClient().getBalance({ address: owner }),
-    readOpenOrders(exchange, onchain, owner, marketId, decimals),
+    readOpenOrders(exchange, onchain, owner, marketId, decimals, { knownOrderIds: options.knownOrderIds, knownOrders: options.knownOrders }),
   ]);
 
   const inventory = { yes: rawToHuman(yesRaw, decimals), no: rawToHuman(noRaw, decimals) };

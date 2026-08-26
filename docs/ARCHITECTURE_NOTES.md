@@ -284,3 +284,42 @@ or NO_QUOTE on B is retained as a structured result; the verifier does not
 switch to an unrelated market. The bounded verifier has no signer, writer,
 order, settlement-claim, or continuous-loop path. A may remain under
 settlement tracking while B is the active decision context.
+
+## Phase 6A autonomous orchestration boundary
+
+`src/orchestrator/index.mjs` is the pure `villa-loop-v1` coordination policy.
+It owns lifecycle state, exact-series binding, bounded caps, cycle decisions,
+requote hysteresis, chain-time expiry, market-scoped order/inventory records,
+structured events, accounting facts, journal shape, and restart truth
+precedence. It does not reimplement fair-value, risk, quote, exposure,
+inventory, settlement, or rollover math and has no SDK/wallet/write dependency.
+
+`src/orchestrator/live.mjs` adapts live reads and the existing binary Phase 5B
+collector to the Phase 6A runner. `scripts/villa-bounded.mjs` coordinates the
+sequence and is the only bounded scheduler. Its wet writes reuse
+`villa-execution-v1` preflight and one `createSerializedWriteQueue` instance.
+The exact data/action boundary is:
+
+```text
+configured BTC 5m discovery
+  -> fresh market/account/order/feed reads
+  -> villa-fv-v1 -> villa-risk-v1 -> villa-quote-v1
+  -> minimum complete-set provision when required
+  -> post-only preflight and serialized write
+  -> chain/indexer reconciliation
+  -> expiry cleanup -> settlement tracking -> Phase 5B successor
+```
+
+The default run is capped at three initialized windows, 720 chain seconds,
+two resting orders, 30 transactions, two replacements, and one minimum lot of
+temporary provisioning per market. It operates only on `BINARY:BTC:300`; an
+unavailable series enters an explicit waiting/refusal path rather than
+falling back to another interval or asset. The book midpoint is comparison
+data only and never enters fair value, governor, or quote-centre inputs.
+
+Each cycle re-collects state. A `NO_QUOTE` plan waits on the same market;
+`HALT` places no new order and cancels only tracked orders where safe. At
+expiry headroom the runner stops quoting, cancels and reconciles exact ids,
+burns only paired inventory, records any directional residual under the old
+market, and observes terminal state before same-series rediscovery. Older
+settlement records coexist with the new market context.

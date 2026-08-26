@@ -101,3 +101,30 @@ market-scope checks that a future writer must honor: a quote plan must carry
 the active marketId, and an execution session must be bound to that same id.
 trackCreatedOrder() rejects a supplied order whose market differs from the
 session. A plan or session from A therefore cannot mutate B after a rollover.
+
+## Phase 6A orchestration binding
+
+The Phase 6A runner in `scripts/villa-bounded.mjs` is the first caller that
+combines this one-shot writer with repeated fresh decisions. It remains
+bounded and uses only `BINARY:BTC:300`. `src/orchestrator/live.mjs` reuses the
+verified binary-book Phase 5B collector, not the CCXT-style spot/order-book
+assembler. This keeps `marketId`, strike-zero opening-price fallback,
+binary token ids, and raw grid values aligned with the live Event Contract
+shape.
+
+Before every wet placement the runner reads chain time, market status/expiry,
+feed freshness, the current book, account, and current-session orders again;
+then `villa-risk-v1`, `villa-quote-v1`, and `preflightOrder` must all allow the
+planner-derived target. A one-lot verification cap is applied only at the
+execution boundary. `ORDER_TYPE.POST_ONLY` and explicit chain-time
+`expireTimestampNs` are mandatory. A post-only crossing error is a bounded
+retry/no-quote outcome, never a taker fallback.
+
+The two-sided path is deliberately sequential: the minimum complete set is
+minted only when the fresh plan requires a YES ask, then the state is
+recollected and replanned before the ask and bid are considered. Tracked
+orders are reconciled on every cycle. Partial fills cancel/reconcile the
+remainder and feed actual account state back through governor and planner.
+At stop headroom, exact current-session orders are cancelled, safe pairs are
+burned, residuals are recorded for settlement, and an active-order scan must
+be empty. The journal is secret-free and ignored under `runtime/state/`.

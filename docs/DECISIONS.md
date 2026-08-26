@@ -378,3 +378,76 @@ complete.
 **Consequence:** The verifier may end in SUCCESSOR_READY or a structured
 HALTED/NO_QUOTE context, but sends no transaction and does not select a
 fallback market. The existing Phase 5A settlement path remains separate.
+
+## D42. Phase 6A is a bounded orchestrator above verified layers
+
+**Why:** Phase 5B proved fresh successor context but deliberately stopped
+before order control. The product edge is the composed lifecycle, not a fork
+of `ec-maker` or a giant replacement for the existing pure modules.
+
+**Consequence:** `villa-loop-v1` coordinates fresh collection → fair value →
+risk → quote → execution preflight → reconciliation → cleanup → rollover.
+The orchestrator owns scheduling and state, while `villa-fv-v1`,
+`villa-risk-v1`, `villa-quote-v1`, inventory, settlement, and rollover remain
+separate reusable boundaries.
+
+## D43. The bounded runner is exact-series and chain-time controlled
+
+**Why:** A verification run must prove autonomous window changes without
+silently changing the risk surface. Live discovery previously showed multiple
+cadences and recycled pools, and local time is not authoritative on Shannon.
+
+**Consequence:** The runner accepts only `BINARY:BTC:300`, requires live
+Trading status/headroom, keys every context by `marketId`, and uses chain time
+for stop, expiry, terminal observation, and successor selection. Missing BTC
+5m enters waiting/refusal; it never falls back to 1m, 15m, ETH, or another
+venue.
+
+## D44. Minimal verification caps are hard policy
+
+**Why:** Drawdown/P&L accounting is not yet a production-grade loss model.
+Small maker actions, bounded markets, and strict exposure/collateral/transaction
+limits are the honest safety envelope for a live proof.
+
+**Consequence:** The default session permits at most three windows, 720 chain
+seconds, two resting orders, 30 transactions, two replacements, one minimum
+complete set per market, `0.002` tUSDC committed collateral, and `0.001`
+tUSDC directional exposure. The one-lot execution cap can only reduce a quote
+planner quantity. These are verification limits, not production risk claims.
+
+## D45. Requote only on material or safety-relevant change
+
+**Why:** Cancelling and replacing on every ten-second read would create
+avoidable queue churn and gas use while making a stale quote harder to audit.
+
+**Consequence:** `villa-loop-v1` suppresses changes below two raw ticks or 25%
+size difference, but immediately responds to inventory/fill, governor or side
+validity changes, order age, and expiry headroom. All writes use fresh reads
+and existing post-only execution gates.
+
+## D46. One serialized writer queue and failure cleanup
+
+**Why:** A single EOA must not race nonce-bearing mint, place, cancel, burn, or
+future redeem calls. A failed process must not silently leave its own quote or
+temporary pair behind.
+
+**Consequence:** Wet orchestration creates exactly one queue and routes every
+write through it. Cleanup cancels exact tracked ids, verifies chain/indexer
+state, burns only the paired controlled increment, scans for active configured
+series orders, and fails closed on unknown state. Dry mode has no signer and no
+write path.
+
+## D47. Phase 6A remains a bounded proof, not a daemon
+
+**Why:** Repeated live writes need an explicit stop boundary, fresh
+reconciliation, and successor isolation before any persistent service is
+considered safe.
+
+**Consequence:** `villa-loop-v1` may initialize only the configured BTC 5m
+series inside strict market, time, order, transaction, collateral, and
+directional caps. It records old-market settlement residuals separately,
+requires terminal cleanup before successor handoff, and exits cleanly. The
+wet proof's order-book midpoint is comparison-only; it never influences
+`pUp`, governor state, or quote-centre selection. SDK raw-write transport is
+kept inside the existing SDK Trader and one serialized queue, with the
+official Shannon HTTP fallback used for the final bounded proof.

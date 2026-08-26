@@ -271,7 +271,7 @@ function buildPlannerInput({ snapshot, decision, book, params, context }) {
 }
 
 /** Assemble a fresh B snapshot, book comparison, governor, and quote plan. */
-export async function assembleSuccessorPipeline(exchange, selected, chainTime, owner = exchange.walletAddress) {
+export async function assembleSuccessorPipeline(exchange, selected, chainTime, owner = exchange.walletAddress, options = {}) {
   const collectorMarket = toCollectorMarket(selected.market, selected.onchain);
   let collected;
   try {
@@ -279,6 +279,8 @@ export async function assembleSuccessorPipeline(exchange, selected, chainTime, o
       chainTime,
       market: { market: collectorMarket, onchain: selected.onchain },
       owner,
+      knownOrderIds: options.knownOrderIds,
+      knownOrders: options.knownOrders,
     });
   } catch (error) {
     throw new Error(`B risk snapshot read failed: ${error?.message || error}`);

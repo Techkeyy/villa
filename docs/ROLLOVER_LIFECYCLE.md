@@ -174,3 +174,20 @@ settlement claims to the existing Phase 5A lifecycle and leaves live order
 control to a future bounded execution decision. A future runner must persist
 and recover this state from fresh chain/indexer reads before any trading
 action.
+
+## Phase 6A continuation
+
+The bounded `villa-loop-v1` runner now consumes this rollover boundary after
+its current market has stopped, cleaned, and reached a terminal chain state.
+It passes the closed A `marketId` into the existing same-series selector and
+accepts only a later `BINARY:BTC:300` successor. It does not derive an id from
+the pool, reuse A's reference/token ids, or fall back to another cadence. If
+no valid B exists inside the session bound, the state is
+`WAITING_FOR_SUCCESSOR`.
+
+After B is selected, the orchestrator reassembles B's reference, underlying
+history, fair value, governor, quote plan, book/grid, account, and order set.
+The B context starts with empty tracked orders and fresh market-scoped
+inventory; A's settlement/residual records remain in the session ledger. The
+single wet writer queue is shared across any future order, burn, or settlement
+write. This milestone proves bounded continuation, not an always-on service.

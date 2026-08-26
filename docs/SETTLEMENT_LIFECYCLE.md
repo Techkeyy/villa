@@ -165,3 +165,18 @@ A's balances; it only labels the known historical losing residual and proves
 that its token id is excluded from B's 0/0 inventory. Settlement can therefore
 be completed by this lifecycle without allowing an A residual to be treated as
 B inventory.
+
+## Phase 6A settlement overlap
+
+The bounded autonomous runner calls the existing read-only finalized-market
+and known-residual check during each configured BTC 5m cycle. A historical
+losing residual is recorded as a zero-value settlement fact and never enters
+the active market's inventory or directional exposure. If an unmatched
+current-market balance remains after order cleanup, it is registered under
+that exact old `marketId` before successor initialization.
+
+The runner does not convert a claim check into an unbounded claim loop. Any
+future redeem write must use the same serialized queue as mint/place/cancel/
+burn and the existing explicit settlement guards. A may therefore remain in
+settlement tracking while B is Trading, with no scope leakage between their
+outcome ids, references, balances, or quote plans.

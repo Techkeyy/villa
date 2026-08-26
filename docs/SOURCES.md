@@ -149,3 +149,14 @@ https://github.com/somnia-chain/dreamdex-bot-kit
 | Same-series live window cadence and recycled-pool behavior | Installed SDK `src/markets.ts`, `src/somniaMarketsClient.ts`; live `client.listLiveBinaryMarkets` proof on 2026-08-26 |
 | Official respawn/reload guidance | `.scratch/dreamdex-bot-kit/packages/ec-core/src/markets.ts`, `strategies/ec-maker/src/index.ts`, and `docs/event-contracts.md` |
 | Phase 5B live hashes, chain times, zero orders, residual classification, and no-transaction evidence | `docs/TECHNICAL_VERIFICATION.md`, Phase 5B section |
+
+## Phase 6A bounded orchestrator evidence
+
+| Claim | Source |
+| --- | --- |
+| Pure `villa-loop-v1` lifecycle policy, caps, hysteresis, chain-time expiry, journal, and restart rules | VILLA `src/orchestrator/index.mjs` and `src/orchestrator/index.test.mjs` |
+| Live exact-series discovery, binary-book collection, account reads, and post-only write adapter | VILLA `src/orchestrator/live.mjs` |
+| One queue, bounded scheduler, mint/place/cancel/burn sequencing, reconciliation, cleanup, and structured output | VILLA `scripts/villa-bounded.mjs`, `src/execution/write-queue.mjs` |
+| Existing fair value → risk → quote composition | VILLA `src/fair-value/`, `src/risk-governor/`, `src/quote-planner/` |
+| Successor selection and market-scope reset | VILLA `src/rollover/live.mjs`, `src/rollover/index.mjs` |
+| Phase 6A live command output, transaction counts, market ids, balances, and final scans | `docs/TECHNICAL_VERIFICATION.md`, Phase 6A section |
