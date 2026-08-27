@@ -188,9 +188,10 @@ export function createProductionOperatorServer(env = process.env) {
 
 if (process.argv[1] && process.argv[1].endsWith("operator-api.mjs")) {
   const port = Number(process.env.PORT || 8787);
+  const host = process.env.VILLA_BIND_HOST || "0.0.0.0";
   const server = createProductionOperatorServer();
-  server.listen(port, "0.0.0.0", () => {
-    console.log(`VILLA private operator API listening on port ${port}`);
+  server.listen(port, host, () => {
+    console.log(`VILLA private operator API listening on ${host}:${port}`);
     console.log("Execution signer remains inside this private engine process.");
   });
   const shutdown = () => server.close(() => process.exit(0));

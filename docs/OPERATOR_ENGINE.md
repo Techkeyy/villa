@@ -29,7 +29,8 @@ access control in front of it. Allow the Vercel origin exactly, with no wildcard
 origin:
 
 ```text
-PORT=8787
+PORT=8782
+VILLA_BIND_HOST=127.0.0.1
 VILLA_ALLOWED_ORIGINS=https://villa-ten-ashen.vercel.app
 VILLA_EXECUTION_ENABLED=false
 OPERATOR_ADDRESS=<authorized wallet address>
