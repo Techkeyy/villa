@@ -7,8 +7,9 @@ Map claims to where they came from. Prefer current official implementation over 
 | Claim | Source |
 | --- | --- |
 | Name, $5,000 USDso, virtual, repo+video required, testnet prototype, judging weights | https://dorahacks.io/hackathon/event-contracts/detail |
-| Displayed deadline 2026-09-08 18:00, submission 2026-08-25 00:00 | same, plus listing https://dorahacks.io/hackathon/event-contracts |
-| TZ conflict | Eventbrite https://www.eventbrite.com/e/event-contracts-hackathon-tickets-1998344868295 (secondary) |
+| DoraHacks current browser display: status Upcoming / 12 days left; pre-registration 2026-08-18 01:00, submission 2026-08-25 01:00, deadline 2026-09-08 19:00 in the Africa/Lagos browser session | https://dorahacks.io/hackathon/event-contracts/detail, browser capture `.scratch/phase-7b-dora-deadline.png`, read 2026-08-27 |
+| DoraHacks does not state a timezone; UTC conversion intentionally unknown | same current browser page; `TIMEZONE_NOT_EXPLICIT` |
+| Eventbrite event window is a secondary, non-authoritative schedule | https://www.eventbrite.com/e/event-contracts-hackathon-tickets-1998344868295 (secondary; do not use as Dora deadline) |
 | Telegram / STT pointer | DoraHacks Contact Us |
 | STT faucet (interactive) | https://cloud.google.com/application/web3/faucet/somnia/shannon and https://testnet.somnia.network/ |
 | Bot kit / docs / bot builder links | DoraHacks Developer Resources |

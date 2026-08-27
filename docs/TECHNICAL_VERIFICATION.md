@@ -791,3 +791,30 @@ result and compared it separately with the DreamDEX midpoint. Organic-fill
 recovery refused safely on one transient RPC balance timeout in its 200-row
 sweep; it sent no transaction. The complete findings and final GO/NO-GO
 decision are in `docs/FINAL_AUDIT.md`.
+
+## Phase 7B submission preparation (2026-08-27)
+
+This preparation added no trading feature and sent no transaction. The current
+DoraHacks detail page was opened in an actual browser and captured in the
+ignored `.scratch/phase-7b-dora-deadline.png`. It displayed `Upcoming`, `12
+days left for submission`, and a deadline of `2026/09/08 19:00` in the
+Africa/Lagos browser session. No timezone label was present, so the project
+records `TIMEZONE_NOT_EXPLICIT` and does not invent a UTC conversion. The page
+lists a working testnet prototype, repository link, and 2 to 3 minute demo as
+required; a deck and SDK/documentation feedback are optional. Team/member form
+fields were not exposed without entering the authenticated submission flow.
+
+The current read-only dashboard preparation added a deployment-safe `npm start`,
+`HOST` binding support, and favicon coverage in the dashboard build check. A
+local `HOST=0.0.0.0` smoke test returned HTTP 200 for the page, scene list,
+quote snapshot, and favicon. The UI-only design checkpoint then passed all four
+required local viewports, 30/30 dashboard tests, the UI text audit, and the
+dashboard build. The full repository suite passed 404/404.
+
+Read-only Shannon checks passed for `npm run doctor`, `npm run fair-value`,
+`npm run risk`, `npm run quote`, the dry write/inventory/quote-cycle/settlement/
+wallet-hygiene paths, and `npm run verify:rollover`. The live snapshots observed
+zero active orders and reported `Transactions sent: NO`; no wet command was
+run. `npm audit --omit=dev` reported zero vulnerabilities. Public repository
+and hosting publication were not possible in this checkpoint because the
+installed GitHub CLI token was invalid and no remote was configured.

@@ -1,94 +1,279 @@
 # VILLA
 
-Autonomous liquidity manager for DreamDEX Event Contracts.
+Independent liquidity intelligence for DreamDEX Event Contracts.
 
-Operator-facing. Not a prediction market. Not a retail Up/Down app. Ordinary traders meet VILLA only as orders on DreamDEX.
+VILLA is an operator-facing liquidity engine for Somnia Shannon Event
+Contracts. It forms its own fair value, applies deterministic risk rules,
+plans adaptive post-only quotes, reconciles inventory and fills, recovers
+settled value, and follows the next market window.
 
-This repository is in **Phase 7A final pre-submission audit**. The independent
-`villa-fv-v1` fair-value engine, deterministic `villa-risk-v1` governor, pure
-`villa-quote-v1` planner, complete-set inventory lifecycle, bounded quote
-execution, settlement/redeem recovery, successor rollover, and bounded
-autonomous runner are present. Phase 6B.1 added a read-only operator cockpit.
-The backend and UI are feature frozen; there is no production indefinite daemon
-or dashboard write/control path, and PnL remains explicitly unavailable.
+VILLA is for the liquidity provider, not the retail bettor. DreamDEX remains
+the venue. Ordinary traders meet VILLA only as liquidity on the DreamDEX book.
 
-## Repo
+**Public demo:** deployment pending authenticated publication. The replay
+cockpit is locally available with `npm run dashboard:replay`.
 
-`C:\Users\HomePC\Desktop\villa`
+**Demo video:** to be recorded by the operator after the rehearsal below.
 
-## Status
+**Network:** Somnia Shannon testnet, chain ID 50312.
 
-Shannon reads work. **Wet lifecycle verification passed** for one minimum
-complete set: mint, post-only `SELL_YES` rest, exact cancel, and `burnSet` on a
-live BTC Event Contract (see `docs/INVENTORY_LIFECYCLE.md`). It does not prove
-fills or settlement redemption.
+[Hackathon](https://dorahacks.io/hackathon/event-contracts/detail) | [DreamDEX Event Contracts docs](https://docs.dreamdex.io/developers/event-contracts) | [DreamDEX bot kit](https://github.com/somnia-chain/dreamdex-bot-kit) | [License](LICENSE)
+
+## The problem
+
+Event Contract books need liquidity. A basic maker can place orders, but a
+useful autonomous liquidity desk must answer more than "what is the last
+midpoint?":
+
+- What is the contract actually worth?
+- How should inventory change the quote?
+- When should quoting stop?
+- What happens when an order fills?
+- How does capital get claimed after settlement?
+- Which market should receive the next bounded allocation?
+
+The stock DreamDEX maker plumbing is valuable, but its fair price can be the
+book midpoint, or `0.5` when the book is empty. That is useful execution
+plumbing, not an independent view of the underlying market.
+
+## What VILLA does
+
+VILLA turns verified BTC and Event Contract data into a bounded operator
+decision:
+
+```text
+BTC price feed + Event Contract reference
+              |
+              v
+        villa-fv-v1
+              |
+              v
+        villa-risk-v1
+              |
+              v
+        villa-quote-v1
+              |
+              v
+     bounded execution adapter
+              |
+              v
+        DreamDEX binary CLOB
+
+inventory -> fills -> settlement -> claim -> successor rollover
+
+                 villa-dashboard-v1
+                         |
+                         v
+                 operator cockpit
+```
+
+The fair-value core answers "what do we think UP is worth?" The Risk Governor
+answers "are we allowed to take more risk?" Those are separate boundaries.
+The cockpit is read-only and observational.
+
+## Why DreamDEX Event Contracts
+
+DreamDEX supplies binary UP/DOWN markets with fixed expiry and on-chain
+settlement. That creates a real liquidity-operator problem: quotes must be
+independent, inventory-aware, time-aware, post-only safe, and able to survive
+the full capital lifecycle. VILLA uses the official
+`@somnia-chain/markets-sdk` Event Contract surface on Shannon, not the
+spot-only HTTP path.
+
+## Why VILLA is different from `ec-maker`
+
+VILLA builds above the official bot kit rather than replacing it or wrapping it
+with a dashboard. The differentiating layer is:
+
+| Capability | VILLA contribution |
+| --- | --- |
+| Value | `villa-fv-v1` derives UP probability from underlying price, reference, time, and realized log-return volatility. The DreamDEX midpoint is comparison only. |
+| Quality | Freshness, history coverage, spacing, stability, and extrapolation produce a separate data-quality assessment. Broken inputs refuse closed. |
+| Risk | `villa-risk-v1` produces deterministic `ALLOW`, `REDUCE_ONLY`, or `HALT` decisions with named reasons. |
+| Exposure | Worst-case stress includes every signed pending binary order delta. Opposing orders are not netted optimistically. |
+| Quotes | `villa-quote-v1` adapts spread, inventory skew, size, collateral, expiry, confidence, and exact tick/lot/minimum rules. |
+| Lifecycle | Bounded execution, fill reconciliation, complete-set inventory, explicit redemption, wallet hygiene, and same-series successor rollover. |
+| UX | A single cockpit explains fair value, venue comparison, quote posture, risk, inventory, lifecycle, evidence, and `PNL_UNAVAILABLE`. |
+
+## Verified on Shannon
+
+These are bounded testnet proofs, not claims of profitability or production
+readiness.
+
+| Evidence | Result |
+| --- | --- |
+| Live Event Contract write path | A tiny post-only `BUY_YES` rested on chain and was cancelled exactly. |
+| Complete-set inventory | Minimum mint, post-only `SELL_YES` rest, exact cancel, and `burnSet` passed with a clean final state. |
+| Two-sided liquidity | A bounded quote checkpoint rested and reconciled both post-only sides. |
+| Organic fills | Two genuine external `SELL_YES` fills were recovered under their exact market IDs. |
+| Settlement | Winning residuals were redeemed through the SDK and payout amounts reconciled. Known zero-value losing residuals remained labelled, not hidden. |
+| Rollover | A terminal BTC window was closed and a later same-series successor was rediscovered without mixing market scope. |
+| Wallet hygiene | Final audit ended with zero active orders and zero unknown inventory. |
+| Local audit | 404/404 total tests and 30/30 dashboard tests passed in the Phase 7A audit. |
+
+Detailed evidence, hashes, conditions, and limitations are in
+[`docs/TECHNICAL_VERIFICATION.md`](docs/TECHNICAL_VERIFICATION.md),
+[`docs/FINAL_AUDIT.md`](docs/FINAL_AUDIT.md), and
+[`docs/BACKEND_FREEZE.md`](docs/BACKEND_FREEZE.md).
+
+## Run the replay cockpit
+
+Requires Node.js 20 or newer.
 
 ```bash
 npm install
-npm test
+npm run dashboard:replay
+```
+
+Open [http://127.0.0.1:4173](http://127.0.0.1:4173). The cockpit is replay-first
+and has three labelled scenes:
+
+- Quote proof: recorded two-sided post-only liquidity.
+- Rollover proof: terminal market, successor discovery, and an honest `NO QUOTE`.
+- Settlement proof: organic fills, redemptions, payout reconciliation, and wallet hygiene.
+
+Replay is built from verified facts and does not send transactions. It does not
+pretend that recorded events are happening live.
+
+## Read-only live mode
+
+To run the server-side Shannon adapter locally, provide the required names in a
+gitignored `.env` and run:
+
+```bash
+npm run dashboard:live
+```
+
+The browser receives no environment variables, signer, private key, or writer
+queue. If the live adapter cannot read a safe snapshot, the UI shows a `LIVE`
+and `READ ONLY` error and does not silently fall back to replay.
+
+Other read-only commands:
+
+```bash
 npm run doctor
 npm run fair-value
 npm run risk
 npm run quote
+```
+
+`npm start` is the hosted replay command. The deployment configuration uses
+only `HOST=0.0.0.0`; it must never receive `OPERATOR_PRIVATE_KEY` or any other
+signing material. See [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
+
+## Verify the project
+
+```bash
+npm test
+npm run dashboard:test
+npm run dashboard:build
+```
+
+The audited baseline is 404 passing tests, including 30 dashboard tests. The
+production dependency audit reported zero vulnerabilities. The dashboard build
+checks the static assets, favicon, replay markers, and unavailable-PnL marker.
+
+Write-capable scripts exist only for bounded local testnet verification and
+require explicit confirmation where applicable. Do not run them casually or
+on a wallet that holds real value:
+
+```bash
 npm run verify:write:dry
 npm run verify:inventory:dry
 npm run verify:quote-cycle:dry
 npm run verify:settlement:dry
-npm run verify:organic-redeem:dry
-npm run verify:wallet-hygiene:dry
 npm run verify:rollover
 npm run villa:bounded:dry
-npm run dashboard:replay
-npm run dashboard:live
-npm run dashboard:build
-npm run dashboard:test
-npm run verify:quote-cycle -- --confirm
-npm run verify:settlement
 ```
 
-`verify:write` sends one tiny post-only BUY and cancels it. It needs `OPERATOR_PRIVATE_KEY` in gitignored `.env`, STT for gas, and tUSDC (`npm run fund:tusdc` after STT arrives).
+Wet write, mint, fill, redeem, and autonomous-run verification is not part of
+normal dashboard use. No new transaction is required for the replay cockpit.
 
-`verify:inventory` sends one bounded mint / post-only `SELL_YES` / exact cancel /
-`burnSet` sequence. Use the dry run first; it does not create a quote loop or
-exercise settlement.
+## Honest limitations
 
-`verify:quote-cycle:dry` exercises live acquisition and the full model → risk →
-quote → execution preflight without a signer. The wet command requires the
-explicit `--confirm` flag and is limited to one BTC market, one minimum lot,
-two post-only orders, exact cancellation, and temporary complete-set cleanup.
+- This is a bounded Somnia Shannon testnet proof, not an indefinite production daemon.
+- Complete realized maker PnL and all cash-flow components are unavailable; the UI says `PNL_UNAVAILABLE`.
+- Restart recovery is bounded and explicit.
+- Event Contract session-key/operator authorization is not verified for VILLA's MVP.
+- Organic fills are market-dependent and are not manufactured for a demo.
+- The zero-drift fair-value baseline is a correctness-first model, not a claim of predictive edge.
+- Hosted mode is replay-first and signer-free. Live read-only mode may be unavailable when public RPC/indexer access is not safe or reliable.
 
-`verify:settlement:dry` scans recent Finalized BTC markets for claimable
-outcome balances and reads one current short BTC market without writes. The
-wet settlement command requires explicit confirmation and is limited to one
-minimum complete-set mint, expiry/resolution observation, explicit SDK
-redemption, and exact payout reconciliation. It never uses the order book or
-places/cancels orders. A pending session can be resumed from its gitignored
-`runtime/state/settlement-session-*.json` record.
+## How I tried to break it
 
-## Docs
-
-| File | Role |
+| Adversarial case | Behavior |
 | --- | --- |
-| `docs/HACKATHON.md` | Rules, judging, build requirements |
-| `docs/PROJECT_UNDERSTANDING.md` | What VILLA is |
-| `docs/TECHNICAL_VERIFICATION.md` | Capability matrix |
-| `docs/ARCHITECTURE_NOTES.md` | Layers from verified APIs |
-| `docs/DECISIONS.md` | Choices and why |
-| `docs/SOURCES.md` | Claim → URL/file |
-| `docs/BUILD_PLAN.md` | MVP, stretch, order of work |
-| `docs/INVENTORY_LIFECYCLE.md` | Complete-set mint, SELL escrow, exact cancel, and burn evidence |
-| `docs/EXECUTION_ADAPTER.md` | Bounded quote execution, reconciliation, and cleanup boundary |
-| `docs/SETTLEMENT_LIFECYCLE.md` | Finalization, explicit redeem, claim sweep, and payout reconciliation |
-| `docs/FAIR_VALUE_MODEL.md` | Independent fair-value formula, units, and validation |
-| `docs/RISK_GOVERNOR.md` | Deterministic risk states, exposure math, policy, and refusal boundary |
-| `docs/DASHBOARD.md` | Read-only operator cockpit and replay/live contract |
-| `docs/AUTONOMOUS_LOOP.md` | Bounded autonomous session and lifecycle evidence |
-| `docs/BACKEND_FREEZE.md` | Frozen backend capability and limitation record |
-| `docs/INCOMING-BRIEF.md` | Directing-agent spec as received |
+| Missing, invalid, stale, future, or non-monotonic price | Refuses or halts with a structured reason; never returns neutral `0.5` as an error sentinel. |
+| Missing, zero, ambiguous, or unsupported reference scaling | Refuses closed. Explicit strike and opening-price fallback are resolved separately. |
+| Gapped or insufficient volatility history | Refuses fair value or lowers data quality according to the documented boundary. |
+| Expired or non-Trading market | Refuses new risk and distinguishes terminal lifecycle state. |
+| Large inventory or pending orders | Stresses signed order deltas and enters `REDUCE_ONLY` or `HALT` as configured. |
+| Post-only crossing or venue minimum failure | Clips or refuses the affected side; it does not cross the book. |
+| Indexer and chain disagreement | Reconciles with chain authority and fails closed on unknown state. |
+| Missing PnL accounting | Exposes `PNL_UNAVAILABLE`; no zero-profit fiction is created. |
+| Live dashboard failure | Shows an explicit live read error; it does not substitute replay content. |
 
-## Secrets
+## Architecture and trust boundary
 
-Disposable testnet wallet only. `.env` is gitignored. `.env.example` has names, not values.
+| Layer | Job |
+| --- | --- |
+| SDK and read adapters | Discover `marketId`, on-chain status, reference, price feed, book, balances, and chain time. |
+| Fair value | Pure `villa-fv-v1` calculation with no RPC, wallet, book, or environment dependency. |
+| Governor | Pure `villa-risk-v1` safety policy with exposure and pending-order stress. |
+| Quote planner | Pure `villa-quote-v1` value-centred adaptive quote planning. |
+| Execution | Bounded, serialized, post-only write adapter with reconciliation and cleanup. |
+| Lifecycle | Inventory, settlement, claim recovery, wallet hygiene, and successor scope. |
+| Dashboard | Read-only server adapter, replay envelope, pure presenter, and browser cockpit. |
 
-`npm run risk` is read-only. It prints the governor state and a comparison-only
-DreamDEX midpoint; it does not cancel orders or send any transaction.
+The operator EOA is the current custody boundary for local testnet proofs. The
+public cockpit is not a wallet and cannot write to DreamDEX.
+
+## Hackathon fit
+
+| DoraHacks criterion | VILLA evidence |
+| --- | --- |
+| Technical Implementation, 25% | Real DreamDEX Event Contract SDK integration on Shannon, verified post-only writes, inventory, settlement, and reconciliation. |
+| Innovation and Originality, 20% | Independent underlying-based value, deterministic governor, pending exposure, lifecycle recycling, and operator workflow above `ec-maker`. |
+| User Experience and Design, 20% | Readable one-page cockpit with replay/live honesty, named risk reasons, quote comparison, lifecycle evidence, and responsive UI. |
+| Business and Ecosystem Impact, 20% | Software for the liquidity operator that can help keep Event Contract books usable for ordinary DreamDEX traders. |
+| Presentation and Demo, 15% | Stable replay of real quote, fill, rollover, and settlement evidence, with a prepared 2 to 3 minute script. |
+
+The current DoraHacks page displays a deadline of 2026/09/08 19:00 in the
+Africa/Lagos browser session but does not state a timezone. This is recorded as
+`TIMEZONE_NOT_EXPLICIT`; UTC is not guessed. See [`docs/HACKATHON.md`](docs/HACKATHON.md).
+
+## SDK and documentation feedback
+
+The useful feedback from implementation is constructive:
+
+- current SDK and older bot-kit examples can differ;
+- live venue IDs move, so discovery should provide the active value;
+- recycled pools require `marketId` identity;
+- `strike = 0` requires a documented opening-price path;
+- chain time matters for expiry, freshness, and local clock offsets;
+- finalized losing token residuals need explicit classification;
+- exact tick, lot, and minimum helpers would reduce repeated integration errors.
+
+## Demo and submission preparation
+
+- Demo rehearsal: [`docs/DEMO_SCRIPT.md`](docs/DEMO_SCRIPT.md)
+- Submission copy: [`docs/SUBMISSION.md`](docs/SUBMISSION.md)
+- Deployment/security boundary: [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md)
+- Skills checkpoint: [`docs/SKILLS_COMPLIANCE.md`](docs/SKILLS_COMPLIANCE.md)
+
+The public repository and deployed demo links are inserted only after the
+operator authenticates the chosen services. The final video is not recorded or
+uploaded automatically, and DoraHacks submission is not performed by this
+repository workflow.
+
+## Project records
+
+- [`docs/PROJECT_UNDERSTANDING.md`](docs/PROJECT_UNDERSTANDING.md)
+- [`docs/ARCHITECTURE_NOTES.md`](docs/ARCHITECTURE_NOTES.md)
+- [`docs/DECISIONS.md`](docs/DECISIONS.md)
+- [`docs/BUILD_PLAN.md`](docs/BUILD_PLAN.md)
+- [`docs/FAIR_VALUE_MODEL.md`](docs/FAIR_VALUE_MODEL.md)
+- [`docs/RISK_GOVERNOR.md`](docs/RISK_GOVERNOR.md)
+- [`docs/QUOTE_PLANNER.md`](docs/QUOTE_PLANNER.md)
+- [`docs/AUTONOMOUS_LOOP.md`](docs/AUTONOMOUS_LOOP.md)
+- [`docs/FINAL_AUDIT.md`](docs/FINAL_AUDIT.md)

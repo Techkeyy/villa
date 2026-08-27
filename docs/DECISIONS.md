@@ -502,3 +502,17 @@ quotes, risk, inventory, lifecycle, settlement, and activity in one scan.
 only recorded verification facts, avoids invented book levels and timestamps,
 and keeps `PNL_UNAVAILABLE` visible. The server-side live adapter uses existing
 read-only collectors and closes the SDK client after each snapshot.
+
+## D51. Public cockpit deployment is replay-first and signer-free
+
+**Decision:** Prepare one native Node dashboard service for public hosting with
+replay as the default mode. Hosted configuration may contain only non-secret
+read-only settings such as `HOST` and `PORT`.
+
+**Why:** The hackathon demo must survive RPC/indexer outages, and the browser
+must never receive operator custody or a wallet writer. A public deployment is
+an observational product surface, not a hosted trading process.
+
+**Consequence:** `npm start` serves the existing replay routes. Live mode is
+opt-in and must report unavailable rather than silently showing replay. Wet
+commands remain local CLI paths and are not part of hosting.

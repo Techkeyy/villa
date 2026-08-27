@@ -1,0 +1,9 @@
+services:
+  - type: web
+    name: villa
+    runtime: node
+    buildCommand: npm ci --omit=dev
+    startCommand: npm start
+    envVars:
+      - key: HOST
+        value: 0.0.0.0

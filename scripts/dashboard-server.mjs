@@ -12,6 +12,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const dashboardRoot = path.join(root, "dashboard");
 const portArg = process.argv.find((arg) => arg.startsWith("--port="));
 const port = Number(portArg?.slice("--port=".length) || process.env.PORT || 4173);
+const host = process.env.HOST || "127.0.0.1";
 const defaultMode = process.argv.includes("--replay") ? "replay" : process.argv.includes("--live") ? "live" : "replay";
 
 const CONTENT_TYPES = Object.freeze({
@@ -152,7 +153,7 @@ const server = http.createServer(async (request, response) => {
   return serveStatic(response, url.pathname);
 });
 
-server.listen(port, "127.0.0.1", () => {
-  console.log(`VILLA dashboard listening at http://127.0.0.1:${port}`);
+server.listen(port, host, () => {
+  console.log(`VILLA dashboard listening at http://${host}:${port}`);
   console.log(`Default mode: ${defaultMode.toUpperCase()}; live mode is read-only`);
 });

@@ -1,9 +1,9 @@
 # Build plan
 
-Current status: Phase 7A final pre-submission audit of the feature-frozen
-backend and Phase 6B.1 read-only cockpit. The sections below retain the
-chronological build plan and milestone history; deployment, final submission
-README work, and recording are intentionally outside this audit.
+Current status: Phase 7B submission preparation for the feature-frozen backend
+and read-only cockpit. The sections below retain the chronological build plan
+and milestone history; public publication is pending authenticated repository
+and hosting destinations, and recording/submission remain human actions.
 
 Skill: `Desktop/skill/build-process`. Do not start the product until the directing agent says so.
 
@@ -142,3 +142,12 @@ B -> initialize B -> reference -> fair value -> governor -> quote plan -> stop.
 
 It does not place/cancel orders, mint/burn outcome sets, claim settlement
 value, parse questions, derive a successor from a pool, or run continuously.
+
+## Phase 7B preparation boundary
+
+The current submission preparation adds no trading behavior. It verifies the
+current DoraHacks page, prepares a single Node replay service for hosted use,
+keeps the browser signer-free, finalizes public-facing explanation, and
+rehearses the demo from recorded evidence. Public URLs, authenticated repo
+publication, the final video, and the DoraHacks submission are separate human
+actions and are not claimed until verified.

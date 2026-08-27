@@ -1,6 +1,6 @@
 # Hackathon — build requirements
 
-Source of truth: [DoraHacks Event Contracts Hackathon](https://dorahacks.io/hackathon/event-contracts/detail), read 2026-08-24.
+Source of truth: [DoraHacks Event Contracts Hackathon](https://dorahacks.io/hackathon/event-contracts/detail), browser-verified 2026-08-27.
 
 This file is the judging-facing constraint list. Implementation is planned backwards from it.
 
@@ -11,10 +11,11 @@ This file is the judging-facing constraint list. Implementation is planned backw
 | Name | Somnia × DreamDEX Event Contracts Hackathon | Confirmed |
 | Organizers | Somnia, DreamDEX; platform DoraHacks | Confirmed |
 | Format | Virtual | Confirmed |
-| Pre-registration | 2026-08-18 00:00 on DoraHacks | Time confirmed, **timezone unlabelled** |
-| Submission opens | 2026-08-25 00:00 on DoraHacks | Time confirmed, TZ unlabelled |
-| Deadline display | 2026-09-08 18:00 on DoraHacks | Time confirmed, **timezone Unknown** |
-| Eventbrite mirror | 25 Aug 15:00 UTC → 9 Sep 09:00 UTC | Confirmed as Eventbrite; **conflicts** with DoraHacks clock. Do not prefer Eventbrite. |
+| Current page status | Upcoming; page says 12 days left for submission | Browser-verified 2026-08-27 |
+| Pre-registration | 2026-08-18 01:00 in the browser display | Browser local Africa/Lagos; timezone not stated |
+| Submission opens | 2026-08-25 01:00 in the browser display | Browser local Africa/Lagos; timezone not stated |
+| Deadline display | 2026-09-08 19:00 in the browser display | Time confirmed; **TIMEZONE_NOT_EXPLICIT**. The page gives no timezone label. Browser local timezone was Africa/Lagos. UTC is therefore **Unknown**. |
+| Eventbrite mirror | 25 Aug 15:00 UTC → 9 Sep 09:00 UTC | Confirmed as Eventbrite; **not the Dora submission deadline**. Do not substitute it for DoraHacks. |
 | Prize | $5,000 USDso, split unpublished | Confirmed pool / Unknown split |
 | Eligibility | Worldwide, individual or team | Confirmed |
 | Team cap | Unstated | Unknown |
@@ -72,4 +73,19 @@ Empty books are the venue's bottleneck. A maker that actually rests liquidity is
 
 ## Deadline risk
 
-Timezone on DoraHacks is unlabelled. Treat **2026-09-08 18:00** as the displayed cut and assume the earlier interpretation if unsure. Confirm in Telegram before the last day. A guessed timezone is the one mistake that voids the build.
+The current DoraHacks browser page displays **2026-09-08 19:00** while the machine is in Africa/Lagos, but it does not state a timezone. Record this as **TIMEZONE_NOT_EXPLICIT**, not as a UTC conversion. UTC remains unknown until Dora confirms the timezone. Finish and submit at least 24 hours early where possible, and confirm the timezone in the official builder community before the last day. Do not use Eventbrite's event-end time as the submission deadline.
+
+## Current browser-verified submission checklist
+
+The official page currently lists:
+
+- required: a working prototype on testnet;
+- required: GitHub, GitLab, or Bitbucket repository link;
+- required: 2 to 3 minute demo video;
+- optional: presentation deck;
+- optional: SDK and documentation feedback report.
+
+The page also shows the project form entry point as **Submit BUIDL**. Team/member
+form fields were not exposed without entering the submission flow, so they
+remain **Unknown** until the operator opens the authenticated form. No
+submission action was taken.

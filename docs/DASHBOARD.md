@@ -130,6 +130,11 @@ npm run dashboard:test      # dashboard contract and presenter tests
 The dashboard server listens on `http://127.0.0.1:4173` by default. A different
 port can be supplied with `--port=PORT`.
 
+Hosted deployments should set `HOST=0.0.0.0` and keep the service in replay
+mode unless a read-only Shannon configuration is deliberately provided. The
+browser never receives signer material. `npm start` is the deployment-safe
+replay command.
+
 ## Known limitations
 
 - Live mode currently reads one current BTC market and does not attach the
