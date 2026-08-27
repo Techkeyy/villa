@@ -10,8 +10,14 @@ settled value, and follows the next market window.
 VILLA is for the liquidity provider, not the retail bettor. DreamDEX remains
 the venue. Ordinary traders meet VILLA only as liquidity on the DreamDEX book.
 
-**Public demo:** deployment pending authenticated publication. The replay
-cockpit is locally available with `npm run dashboard:replay`.
+**Primary public cockpit:** [villa-ten-ashen.vercel.app](https://villa-ten-ashen.vercel.app/)
+— a replay-first, read-only cockpit. The local replay command is
+`npm run dashboard:replay`.
+
+**Legacy replay service:** [villa-yhzx.onrender.com](https://villa-yhzx.onrender.com)
+remains available as a replay-only fallback; it is not the primary VILLA UI.
+
+**Public repository:** [github.com/Techkeyy/villa](https://github.com/Techkeyy/villa)
 
 **Demo video:** to be recorded by the operator after the rehearsal below.
 
@@ -261,10 +267,9 @@ The useful feedback from implementation is constructive:
 - Deployment/security boundary: [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md)
 - Skills checkpoint: [`docs/SKILLS_COMPLIANCE.md`](docs/SKILLS_COMPLIANCE.md)
 
-The public repository and deployed demo links are inserted only after the
-operator authenticates the chosen services. The final video is not recorded or
-uploaded automatically, and DoraHacks submission is not performed by this
-repository workflow.
+The public repository and deployed replay demo are published for inspection.
+The final video is not recorded or uploaded automatically, and DoraHacks
+submission is not performed by this repository workflow.
 
 ## Project records
 

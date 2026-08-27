@@ -1,8 +1,8 @@
 # VILLA DoraHacks submission draft
 
-Status: prepared, not submitted. Public URLs and the video link remain
-placeholders until the operator completes authenticated publication and
-recording.
+Status: prepared, not submitted. The public repository and replay demo are
+verified; the video link remains a placeholder until the operator records and
+uploads the final demonstration.
 
 ## Project fields
 
@@ -10,8 +10,8 @@ recording.
 | --- | --- |
 | Project name | VILLA |
 | Tagline | Independent liquidity intelligence for DreamDEX Event Contracts |
-| Public repository | `PENDING_PUBLIC_REPOSITORY_URL` |
-| Working prototype / demo | `PENDING_PUBLIC_DEPLOYMENT_URL` |
+| Public repository | https://github.com/Techkeyy/villa |
+| Working prototype / demo | https://villa-ten-ashen.vercel.app/ |
 | Demo video | `PENDING_2_TO_3_MINUTE_VIDEO_URL` |
 | Network | Somnia Shannon testnet, chain ID 50312 |
 | Team/member fields | Complete in the authenticated DoraHacks form; not exposed on the public detail page |
@@ -98,9 +98,9 @@ examples in the Event Contract documentation.
 
 ## Submission checklist
 
-- [ ] Public repository URL inserted and opens without login.
-- [ ] Public HTTPS replay URL inserted and opens without login.
-- [ ] Optional live read checked; if unavailable, the page reports it honestly.
+- [x] Public repository URL inserted and opens without login.
+- [x] Public HTTPS replay URL inserted and opens without login.
+- [x] Optional live read checked; if unavailable, the page reports it honestly.
 - [ ] 2 to 3 minute video recorded and uploaded by the operator.
 - [ ] Team/member fields completed in DoraHacks.
 - [ ] Optional SDK/docs feedback attached or pasted.

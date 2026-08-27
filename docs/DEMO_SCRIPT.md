@@ -5,11 +5,12 @@ performed by this task.
 
 Target runtime: 2:40 to 2:50.
 
-The public URL is inserted after authenticated deployment. Until then, use the
-local replay command or the deployed URL recorded in the final submission
-package. Every quote, fill, rollover, and settlement scene below is labelled
-REPLAY in the cockpit and must be described as a replay of a real Shannon
-verification session.
+Use the primary public cockpit, [villa-ten-ashen.vercel.app](https://villa-ten-ashen.vercel.app/),
+or the local replay command. The legacy Render replay URL,
+[villa-yhzx.onrender.com](https://villa-yhzx.onrender.com), is a fallback only.
+Every quote, fill, rollover, and settlement scene below is labelled REPLAY in
+the cockpit and must be described as a replay of a real Shannon verification
+session.
 
 ## Run of show
 
@@ -42,4 +43,4 @@ verification session.
   and Phase 6A.1.
 - Successor rollover: `docs/TECHNICAL_VERIFICATION.md`, Phase 5B and Phase 6A.
 - Final wallet hygiene: `docs/BACKEND_FREEZE.md` and Phase 6A.2 evidence.
-- Public URL: pending authenticated deployment.
+- Primary public URL: https://villa-ten-ashen.vercel.app/
