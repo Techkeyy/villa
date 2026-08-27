@@ -53,6 +53,16 @@ function statusClass(value) {
   return String(value ?? "").toLowerCase().replaceAll(" ", "_");
 }
 
+function updateModeChrome() {
+  setField("mode", mode === "live" ? "LIVE" : "REPLAY");
+  setField("mode-copy", mode === "live" ? "READ ONLY" : "RECORDED PROOF");
+  const modeButton = document.querySelector('[data-action="mode"]');
+  if (modeButton) {
+    modeButton.textContent = mode === "live" ? "Use replay" : "Use live read";
+    modeButton.setAttribute("aria-pressed", String(mode === "live"));
+  }
+}
+
 function renderRisk(view) {
   const risk = view.risk;
   const badge = field("risk-action");
@@ -177,10 +187,14 @@ function render(view, envelope) {
   setField("market-status", market.status ?? "Unavailable");
   setField("villa-fair", formatProbability(fair.pUp));
   setField("dex-mid", formatProbability(view.midpoint));
+  document.querySelector('[data-field="villa-fair"]')?.classList.toggle("unavailable", fair.pUp === null);
+  document.querySelector('[data-field="dex-mid"]')?.classList.toggle("unavailable", view.midpoint === null);
   const difference = fair.pUp !== null && view.midpoint !== null ? (fair.pUp - view.midpoint) * 100 : null;
   setField("difference", difference === null ? "Unavailable" : `${difference >= 0 ? "+" : ""}${difference.toFixed(1)} pp`);
   setField("p-up", formatProbability(fair.pUp));
   setField("p-down", formatProbability(fair.pDown));
+  document.querySelector('[data-probability="up"]')?.classList.toggle("unavailable", fair.pUp === null);
+  document.querySelector('[data-probability="down"]')?.classList.toggle("unavailable", fair.pDown === null);
   const probabilityFill = field("probability-fill");
   if (probabilityFill) probabilityFill.style.width = `${fair.pUp === null ? 50 : Math.min(100, Math.max(0, fair.pUp * 100))}%`;
   setField("confidence", fair.confidence === null ? "Unavailable" : `${(fair.confidence * 100).toFixed(1)}%`);
@@ -218,6 +232,7 @@ function render(view, envelope) {
 }
 
 async function load() {
+  updateModeChrome();
   loading.hidden = false;
   errorState.hidden = true;
   content.hidden = true;
@@ -232,6 +247,7 @@ async function load() {
     content.hidden = false;
     announcer.textContent = `${view.modeLabel} dashboard ready. ${view.state.label}.`;
   } catch (error) {
+    updateModeChrome();
     loading.hidden = true;
     errorState.hidden = false;
     errorText.textContent = error?.message ?? "The dashboard read failed.";

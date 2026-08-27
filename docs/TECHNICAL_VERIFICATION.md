@@ -734,3 +734,31 @@ rendered screenshot claim is made. `npm run doctor`, `npm run fair-value`, and
 the live dashboard endpoint were attempted but Shannon/indexer access returned
 `fetch failed`; those read-only failures did not cause a code or backend
 change.
+
+## Phase 6B.1 rendered UI QA (2026-08-27)
+
+Rendered pixels were inspected with the already installed Chrome executable
+through the bundled Playwright runtime. The local replay server was the real
+application, not a mock or screenshot-only replacement. The QA matrix covered
+the quote, rollover, and settlement scenes at `1440x900`, `1366x768`,
+`1024x768`, and `390x844`. All scenes rendered with the content state visible,
+all required viewports had `scrollWidth === clientWidth`, and the replay matrix
+reported no console errors, page errors, failed requests, or HTTP error
+responses. Screenshots are retained in the ignored evidence directory
+`.scratch/phase-6b1-qa/pw/`.
+
+The quote, rollover, and settlement views were visually inspected for hierarchy,
+quote state, lifecycle, settlement evidence, zero-value residual separation,
+PnL handling, wrapping, and readable long identifiers. A deterministic
+`REDUCE_ONLY` QA fixture was also rendered at `1440x900`; it showed one-sided
+intentional liquidity and a distinct amber Risk Governor state. It is labelled
+as a QA fixture and is not recorded evidence.
+
+The live page was rendered against the actual live endpoint while Shannon access
+was unavailable. It showed a `LIVE` badge, `READ ONLY` label, `Use replay`
+control, a clear dashboard-read error, and no replay content. The expected API
+503 produced a browser resource warning, but the application handled it without
+an uncaught frontend exception or silent mode switch.
+
+The cockpit is now UI-frozen. No trading backend, fair-value, governor, quote,
+execution, settlement, or rollover logic was changed by this gate.

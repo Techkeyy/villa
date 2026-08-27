@@ -1,5 +1,11 @@
 # VILLA operator cockpit
 
+**UI STATUS: FEATURE FROZEN**
+
+Phase 6B.1 rendered QA passed across the recorded scenes and required desktop
+and narrow viewports. Future UI changes require a concrete demo usability issue
+or an audit-found bug.
+
 ## What it is
 
 The VILLA cockpit is a single operator screen for supervising autonomous

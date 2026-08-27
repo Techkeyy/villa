@@ -80,8 +80,10 @@ button:focus-visible, a:focus-visible { outline: 3px solid var(--accent); outlin
 .compare-heading, .difference-row, .panel-heading { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
 .comparison-note { color: var(--muted); font-size: 12px; }
 .compare-values { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 18px; margin: 20px 0 18px; }
+.compare-values > div { min-width: 0; }
 .compare-values span { color: var(--text-soft); font-size: 13px; }
-.compare-values strong { display: block; margin-top: 3px; color: var(--accent-soft); font-size: 33px; letter-spacing: -.05em; }
+.compare-values strong { display: block; margin-top: 3px; overflow: hidden; color: var(--accent-soft); font-size: 33px; letter-spacing: -.05em; text-overflow: ellipsis; white-space: nowrap; }
+.compare-values strong.unavailable { font-size: clamp(21px, 2.4vw, 30px); letter-spacing: -.04em; }
 .dex-value strong { color: var(--text); }
 .compare-values small { color: var(--muted); font-size: 12px; }
 .compare-divider { height: 45px; width: 1px; background: var(--line-strong); }
@@ -97,6 +99,7 @@ button:focus-visible, a:focus-visible { outline: 3px solid var(--accent); outlin
 .panel-footnote { color: var(--muted); font-size: 12px; line-height: 1.45; margin: 16px 0 0; }
 .probability-display { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin: 29px 0 18px; }
 .probability-number strong { display: block; font-size: clamp(36px, 4.2vw, 58px); letter-spacing: -.07em; line-height: .9; color: var(--up); }
+.probability-number.unavailable strong { font-size: clamp(20px, 2.4vw, 30px); letter-spacing: -.05em; line-height: 1; }
 .probability-number.down strong { color: var(--text-soft); }
 .probability-number span { display: block; color: var(--muted); font-size: 12px; font-weight: 700; letter-spacing: .13em; margin-top: 9px; }
 .probability-bar { height: 11px; border-radius: 99px; background: var(--down); overflow: hidden; }
@@ -209,11 +212,11 @@ button:focus-visible, a:focus-visible { outline: 3px solid var(--accent); outlin
   .lifecycle-panel, .accounting-panel { grid-column: span 2; }
 }
 @media (max-width: 760px) {
-  .topbar { height: auto; min-height: 72px; padding: 12px 5vw; flex-wrap: wrap; gap: 10px 18px; }
+  .topbar { height: auto; min-height: 72px; padding: 12px 5vw; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, .95fr); gap: 10px 14px; }
   .brand { min-width: 0; }
-  .topbar-context { order: 3; width: 100%; font-size: 13px; }
-  .topbar-actions { margin-left: auto; }
-  .scene-switcher { order: 4; width: 100%; overflow-x: auto; }
+  .topbar-context { grid-column: 1 / -1; width: auto; min-width: 0; font-size: 13px; }
+  .topbar-actions { min-width: 0; width: 100%; margin-left: 0; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+  .scene-switcher { order: 3; flex: 1 0 100%; width: auto; min-width: 0; overflow-x: auto; }
   .scene-button { padding: 8px 9px; }
   .cockpit { width: min(92vw, 620px); padding-top: 24px; }
   .system-strip { grid-template-columns: 1fr 1fr; gap: 17px 14px; padding: 16px 0; }
