@@ -3,7 +3,10 @@
 Phase 6A.2 was the final wallet-state hygiene checkpoint before frontend work.
 The backend remains feature-frozen for the hackathon: future changes require a
 concrete bug or hackathon-critical need. Phase 6B adds only a read-only cockpit
-over the stable contract documented below.
+over the stable contract documented below. Phase 7A made only two narrowly
+scoped audit fixes: safety-sensitive legacy write-path time now comes from the
+chain, and refreshed chain time is propagated consistently through live
+fair-value/risk/rollover assembly. No strategy or product surface changed.
 
 ## VILLA backend status
 
@@ -30,8 +33,9 @@ The backend baseline before this freeze was commit
 `ccf61a6a529e9eefeed01666d1aad72d573eee46`. The final freeze commit is the
 commit containing this manifest and is reported by the handoff.
 
-The backend freeze baseline passed `376/376` tests. The current repository
-suite, including the Phase 6B dashboard tests, is reported by the handoff.
+The backend freeze baseline passed `376/376` tests. The Phase 7A audit rerun
+passes `404/404`, including the added chain-clock regression checks and the
+Phase 6B dashboard tests.
 
 ## Final wallet state
 

@@ -16,6 +16,7 @@ import {
 } from "@somnia-chain/markets-sdk";
 import { somniaShannon } from "@somnia-chain/markets-sdk/chains";
 import { createPublicClient, formatEther, http } from "viem";
+import { readChainTime } from "../src/risk-governor/live.mjs";
 import {
   WritePathError,
   toRaw,
@@ -112,7 +113,8 @@ process.on("SIGINT", async () => {
 try {
   log("loadMarkets");
   const loaded = Object.values(await exchange.loadMarkets(true));
-  const nowSec = Math.floor(Date.now() / 1000);
+  const chainTime = await readChainTime(exchange);
+  const nowSec = chainTime.chainNowSec;
   const binary = loaded.filter((m) => m.type === "binary" && isBinaryMarket(m.info) && m.info.asset === "BTC");
 
   /** @type {any[]} */
@@ -200,6 +202,8 @@ try {
     lotSize: String(bookParams.lotSize),
     minQuantity: String(bookParams.minQuantity),
     decimals,
+    chainTimeSec: chainTime.chainNowSec,
+    clockOffsetSec: chainTime.clockOffsetSec,
     bestBid: bestBidH ?? null,
     bestAsk: bestAskH ?? null,
   }));

@@ -92,7 +92,7 @@ The score is a deterministic weighted combination of:
 
 `HIGH` is a score of at least 0.80, `MEDIUM` is at least 0.60, and lower values are `LOW`. Warnings such as `VOLATILITY_OUTLIER`, `SHORT_VOL_COVERAGE`, and `LONG_HORIZON_EXTRAPOLATION` remain attached to the result even when the core can still calculate.
 
-The price-feed's oracle write timestamp is used for freshness, and a source-data age over 60 seconds is refused. Shannon's chain clock was observed ahead of the workstation clock during the live check; the snapshot uses the latest chain timestamp for history/expiry math and reports the offset as a warning rather than misclassifying a fresh observation as stale.
+The price-feed's oracle write timestamp is used for freshness, and a source-data age over 60 seconds is refused. Shannon's chain clock was observed ahead of the workstation clock during the live check; the snapshot uses the latest chain timestamp for history/expiry math and reports the offset as a warning rather than misclassifying a fresh observation as stale. When history is fetched from the indexer, the live adapter refreshes the chain head after that fetch so a slightly newer valid history tick is not compared with an older RPC block read.
 
 ## Structured output
 

@@ -75,7 +75,6 @@ export async function findLiveBtcMarket(exchange, chainNowSec, minHeadroomSec = 
   const candidates = loaded
     .filter((m) => m.type === "binary" && isBinaryMarket(m.info))
     .filter((m) => m.info.asset === "BTC")
-    .filter((m) => asFiniteNumber(m.info.expiry, "expiry") - chainNowSec >= minHeadroomSec)
     .sort(candidateRank);
 
   const rejected = [];
@@ -84,6 +83,11 @@ export async function findLiveBtcMarket(exchange, chainNowSec, minHeadroomSec = 
       const onchain = await exchange.client.getMarketOnchain(market.info.marketId);
       if (Number(onchain.status) !== 1 || onchain.isResolved || onchain.isVoided) {
         rejected.push(`${market.symbol}: status ${onchain.status}`);
+        continue;
+      }
+      const expirySec = asFiniteNumber(onchain.expiry ?? market.info.expiry, "on-chain expiry");
+      if (expirySec - chainNowSec < minHeadroomSec) {
+        rejected.push(`${market.symbol}: only ${Math.floor(expirySec - chainNowSec)}s headroom`);
         continue;
       }
       return { market, onchain };
@@ -201,18 +205,26 @@ export async function collectRiskSnapshot(exchange, options = {}) {
   const chainTime = options.chainTime ?? await readChainTime(exchange);
   const spot = await fetchSpot(exchange, "BTC", { nowSec: chainTime.chainNowSec });
   const { market, onchain } = options.market ?? await findLiveBtcMarket(exchange, chainTime.chainNowSec, options.minHeadroomSec ?? RISK_SNAPSHOT_MIN_HEADROOM_SEC);
-  const marketId = market.info.marketId;
-  const expirySec = asFiniteNumber(market.info.expiry, "market expiry");
+  const collectorMarket = {
+    ...market,
+    info: { ...market.info, expiry: String(onchain.expiry ?? market.info.expiry) },
+  };
+  const marketId = collectorMarket.info.marketId;
+  const expirySec = asFiniteNumber(onchain.expiry ?? market.info.expiry, "market expiry");
   const resolvedReference = await fetchReference(exchange, { marketId, strike: market.info.strike, spot: spot.price });
   const volatility = await fetchVolFromPriceHistory(exchange, "BTC", {
     nowSec: chainTime.chainNowSec,
+    refreshChainTime: true,
     limit: 240,
     minReturns: 12,
     minElapsedSec: 60,
     maxAgeSec: 180,
     maxGapSec: 180,
   });
-  const timeRemainingSec = expirySec - chainTime.chainNowSec;
+  const effectiveChainTime = volatility.chainNowSec !== undefined && volatility.chainNowSec > chainTime.chainNowSec
+    ? { ...chainTime, chainNowSec: volatility.chainNowSec, blockNumber: volatility.chainBlockNumber }
+    : chainTime;
+  const timeRemainingSec = expirySec - effectiveChainTime.chainNowSec;
   const fairValue = estimateFairValue({
     currentUnderlyingPrice: spot.price,
     referencePrice: resolvedReference.price,
@@ -223,7 +235,7 @@ export async function collectRiskSnapshot(exchange, options = {}) {
 
   const owner = options.owner ?? exchange.walletAddress;
   if (!owner || !isAddress(owner)) throw new Error("read-only risk collection needs a valid operator address");
-  const decimals = asFiniteNumber(market.info.baseDecimals ?? market.info.quoteDecimals, "market decimals");
+  const decimals = asFiniteNumber(collectorMarket.info.baseDecimals ?? collectorMarket.info.quoteDecimals, "market decimals");
   if (!Number.isInteger(decimals) || decimals < 0 || decimals > 18) throw new Error(`unsupported market decimals ${decimals}`);
   const [yesRaw, noRaw, collateralRaw, gasRaw, openOrderRead] = await Promise.all([
     exchange.client.getOutcomeBalance({ outcomeToken: onchain.outcomeToken, account: owner, id: onchain.yesId }),
@@ -241,7 +253,7 @@ export async function collectRiskSnapshot(exchange, options = {}) {
   return {
     snapshot: {
       fairValue,
-      chainTime,
+      chainTime: effectiveChainTime,
       feed: {
         price: spot.price,
         timestampSec: spot.tSec,
@@ -268,7 +280,7 @@ export async function collectRiskSnapshot(exchange, options = {}) {
       drawdown: { status: "UNAVAILABLE" },
     },
     context: {
-      market,
+      market: collectorMarket,
       onchain,
       marketId,
       owner,

@@ -254,7 +254,7 @@ export async function assembleOrchestratorPipeline(exchange, selected, owner, { 
     selected: normalized,
     market: { market: assembled.collectorMarket, onchain: normalized.onchain },
     capturedAtMs: Date.now(),
-    chainTime,
+    chainTime: assembled.chainTime ?? chainTime,
     midpoint: assembled.bookSummary?.midpoint ?? null,
   };
   pipeline.rawState = await readAccount(exchange, pipeline, owner);

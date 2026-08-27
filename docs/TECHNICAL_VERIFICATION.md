@@ -1,6 +1,6 @@
 # Technical verification
 
-Statuses used below: **VERIFIED** | **VERIFIED WITH CONDITIONS** | **NOT YET VERIFIED** | **UNSUPPORTED** | **NEEDS LIVE TESTING**.
+Statuses used below: **VERIFIED** | **VERIFIED WITH CONDITIONS** | **NOT YET VERIFIED** | **UNSUPPORTED** | **NEEDS LIVE TESTING**. The capability table is current as of the Phase 7A audit; dated sections below preserve earlier milestone evidence and its original scope.
 
 Evidence is from this repo's installed SDK (`node_modules/@somnia-chain/markets-sdk@0.28.1` source), official docs fetched 2026-08-24, the cloned bot kit at `.scratch/dreamdex-bot-kit` (gitignored), RPC, and `npm run doctor` / `node scripts/discover.mjs`.
 
@@ -101,16 +101,16 @@ a required model input.
 
 | Step | Status |
 | --- | --- |
-| Operator connects/configures | NOT YET VERIFIED (no wallet, no UI) |
+| Operator connects/configures | VERIFIED WITH CONDITIONS (CLI/env setup; frozen cockpit is observational) |
 | Allocates capital (tUSDC faucet; complete-set mint) | tUSDC faucet **VERIFIED**; minimum `mintSet` **VERIFIED WITH CONDITIONS** |
 | Discover supported Event Contract | VERIFIED |
 | Independent fair value | VERIFIED WITH CONDITIONS (pure model + live read-only snapshot) |
-| Permitted quotes (governor) | NOT YET VERIFIED (rules not coded; data for rules exists) |
+| Permitted quotes (governor) | VERIFIED WITH CONDITIONS (pure governor/planner plus bounded execution preflight) |
 | Quote/order enters DreamDEX | **VERIFIED WITH CONDITIONS** for one tiny post-only BUY_YES and one controlled SELL_YES rest/cancel on BTC 24h. Not proven: fills, other cadences, inventory skew |
 | Fill changes inventory | VERIFIED WITH CONDITIONS (balances+trades APIs; thin organic flow) |
 | Observe change | VERIFIED WITH CONDITIONS |
-| Risk logic changes behaviour | NOT YET VERIFIED |
-| Dashboard explains | NOT YET VERIFIED (UI later) |
+| Risk logic changes behaviour | VERIFIED WITH CONDITIONS (bounded HALT / REDUCE_ONLY / NO_QUOTE evidence) |
+| Dashboard explains | VERIFIED (Phase 6B.1 rendered read-only QA) |
 | Expiry/settlement detected | VERIFIED WITH CONDITIONS |
 | Claims handled | VERIFIED WITH CONDITIONS |
 | Successor followed | VERIFIED WITH CONDITIONS (rediscover; not reactivity) |
@@ -129,8 +129,9 @@ capital (tUSDC)
 
 Each arrow has an SDK method. **BUY-side escrow → rest → cancel → collateral
 returned** and **mintSet → SELL_YES rest → exact cancel → burnSet** are verified
-with conditions on one Shannon BTC 24h market. Fills, redeem, and roll remain
-**NEEDS LIVE TESTING**.
+with conditions on one Shannon BTC 24h market. Fill, redeem, rollover, and
+bounded autonomous evidence are recorded in the later Phase 5B/6A sections;
+none of those records claim profitability or an indefinite production service.
 
 ## Wet write-path evidence (2026-08-24)
 
@@ -724,7 +725,7 @@ Focused dashboard tests pass `30/30`; the full repository suite is run after
 the frontend checks. Dashboard build output is generated under ignored
 `dist/dashboard`. No transaction is required by any dashboard command.
 
-Final local checks for this handoff: `npm test` passed `402/402`,
+Final local checks for the Phase 6B handoff: `npm test` passed `402/402`,
 `npm run dashboard:build` passed, `audit_ui_text.py dashboard` reported zero
 long-dash errors and zero small-text warnings, and `git diff --check` passed.
 The replay server returned HTTP 200 for the page, assets, scene list, and all
@@ -762,3 +763,31 @@ an uncaught frontend exception or silent mode switch.
 
 The cockpit is now UI-frozen. No trading backend, fair-value, governor, quote,
 execution, settlement, or rollover logic was changed by this gate.
+
+## Phase 7A final pre-submission audit (2026-08-27)
+
+The Phase 7A audit began from commit `ca5c38d5824d14f90d685028603abd0d3e93422c`
+on `master` with a clean worktree. The feature-frozen backend and cockpit were
+audited against the Desktop Audit skill, required project docs, installed SDK
+source, write-capable scripts, browser boundary, tests, and live read-only
+checks. No wet command, transaction, deployment, recording, or final
+submission README work was performed.
+
+Two concrete safety/readiness issues were fixed without changing strategy:
+the legacy signer-enabled `verify-write-path` now uses the authoritative
+Shannon block clock for market selection and order expiry, and the live
+history adapter refreshes/propagates chain time after history reads so risk,
+execution, and rollover do not mix clocks. A structural regression test and a
+mocked history/chain-clock test cover those boundaries.
+
+The post-fix suite passed `404/404`; dashboard tests passed `30/30`; the
+dashboard build and UI text audit passed; `npm audit --omit=dev` reported zero
+production vulnerabilities. Live fair-value, risk, quote, inventory,
+quote-cycle, settlement, wallet-hygiene, and rollover reads were attempted
+without writes. The final rollover read observed a current-market close,
+same-series successor, and `SUCCESSOR_READY` pipeline with zero active orders
+and zero transactions. The fair-value snapshot produced a live `villa-fv-v1`
+result and compared it separately with the DreamDEX midpoint. Organic-fill
+recovery refused safely on one transient RPC balance timeout in its 200-row
+sweep; it sent no transaction. The complete findings and final GO/NO-GO
+decision are in `docs/FINAL_AUDIT.md`.

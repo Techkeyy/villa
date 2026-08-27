@@ -1,5 +1,10 @@
 # Build plan
 
+Current status: Phase 7A final pre-submission audit of the feature-frozen
+backend and Phase 6B.1 read-only cockpit. The sections below retain the
+chronological build plan and milestone history; deployment, final submission
+README work, and recording are intentionally outside this audit.
+
 Skill: `Desktop/skill/build-process`. Do not start the product until the directing agent says so.
 
 Priority ladder: prove the risky assumption → core loop → operator journey → reproducible → verify integrations → edges → polish.

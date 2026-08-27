@@ -1,6 +1,6 @@
 # Project understanding — VILLA
 
-Skill: `Desktop/skill/project-understanding`. Product locked by the directing agent. Phase 2A selected `villa-fv-v1`: a zero-drift log-return digital baseline with a separate data-quality score.
+Skill: `Desktop/skill/project-understanding`. Product locked by the directing agent. Current status is Phase 7A final pre-submission audit; the backend and Phase 6B.1 read-only cockpit are feature frozen. Phase 2A selected `villa-fv-v1`: a zero-drift log-return digital baseline with a separate data-quality score. Later implementation evidence is recorded in `docs/TECHNICAL_VERIFICATION.md` and the phase-specific lifecycle docs.
 
 ## One sentence
 
@@ -40,7 +40,7 @@ If the after is indistinguishable from `npm start -w ec-maker`, we failed origin
 
 ## Operator journey
 
-Arrival → see a desk not a casino → set limits / fund → VILLA discovers a live window → shows value vs market → posts quotes or refuses with a reason → fills move inventory and quotes → halt if a rule fires → window ends → claim → next window.
+Arrival → see a desk not a casino → configure/fund outside the observational cockpit → VILLA discovers a live window → shows value vs market → posts quotes or refuses with a reason → fills move inventory and quotes → halt if a rule fires → window ends → claim → next window. The frozen Phase 6B screen observes this journey; it does not accept signer input or perform writes.
 
 Magic moment: **the underlying ticks, fair value moves, quotes move, one English line explains it, and a halt is visible when rules say no.**
 
@@ -48,7 +48,7 @@ Magic moment: **the underlying ticks, fair value moves, quotes move, one English
 
 | Job | Likely tech (second) |
 | --- | --- |
-| Dashboard | later, design-skill |
+| Dashboard | Phase 6B.1 read-only operator cockpit |
 | Collector | markets-sdk + priceFeed + RPC |
 | Fair value | deterministic TypeScript `villa-fv-v1` zero-drift log-return digital model |
 | Adaptive quoting | post-only via SDK/raw trader |
@@ -72,7 +72,7 @@ Default custody: **operator EOA**. Holding other people's money is a different p
 
 On Shannon, sdk 0.28.1, one disposable wallet can discover a live binary, read spot + reference, rest a post-only quote, see inventory change, redeem a finalized market, and find the next window.
 
-Discovery/read half: **verified this session**. Write/redeem half: **needs live testing**.
+Discovery/read, bounded write/redeem, inventory, settlement, successor, and autonomous-loop paths are **verified with the conditions recorded in the current evidence docs**. This does not claim a production daemon, profitability, or unrestricted unattended operation.
 
 ## Smallest real MVP
 

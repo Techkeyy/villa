@@ -7,7 +7,7 @@ surface over the stable dashboard contract. No invented SDK methods.
 
 ```
 Operator dashboard (Phase 6B, read-only)
-  -> villa engine (our code; Phase 2B, no writer yet)
+  -> villa engine (our code; Phase 2B–6A, bounded writer)
        collector | fair-value | governor | quoting | lifecycle
     -> @somnia-chain/markets-sdk 0.28.1  (installed)
          unified: loadMarkets, fetchOrderBook, fetchPrice, fetchPriceOHLCV,
@@ -81,7 +81,7 @@ Above that plumbing:
 | fair-value | current price + reference + τ + realized-vol stats + freshness | `{ pUp, pDown, confidence, dataQuality, inputsUsed }` | pure |
 | governor | normalized snapshot + limits | `{ state, permissions, reasons, exposure budgets }` | pure |
 | quote-planner | permission + pUp + inventory + pending orders + raw grid | adaptive YES bid/ask plan | pure |
-| execution (future) | approved quote plan + fresh book | post-only orders / cancels | SDK writes |
+| execution (bounded) | approved quote plan + fresh book | post-only orders / cancels | SDK writes |
 | lifecycle | Finalized list + holdings | redeems + new marketId | SDK writes/reads |
 | dashboard | `villa-dashboard-v1` snapshot | operator cockpit | read-only server adapter + static browser |
 

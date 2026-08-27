@@ -100,6 +100,7 @@ export async function assembleLivePipeline(exchange, { selected, owner, publicCl
   const onchain = await exchange.client.getMarketOnchain(selected.market.info.marketId);
   const current = { market: selected.market, onchain };
   const { snapshot, context } = await collectRiskSnapshot(exchange, { chainTime, market: current, owner });
+  const effectiveChainTime = snapshot.chainTime ?? chainTime;
   const yesSymbol = context.market.outcomes?.find((outcome) => outcome.label === "YES")?.symbol;
   if (!yesSymbol) throw new Error("selected market has no YES outcome symbol");
   const [book, params, rawState] = await Promise.all([
@@ -113,7 +114,7 @@ export async function assembleLivePipeline(exchange, { selected, owner, publicCl
   return {
     capturedAtMs: Date.now(),
     startedAtMs,
-    chainTime,
+    chainTime: effectiveChainTime,
     market: current,
     snapshot,
     context,

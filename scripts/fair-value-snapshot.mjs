@@ -54,7 +54,6 @@ async function findLiveBtcMarket(nowSec) {
   const candidates = loaded
     .filter((m) => m.type === "binary" && isBinaryMarket(m.info))
     .filter((m) => m.info.asset === "BTC")
-    .filter((m) => asFiniteNumber(m.info.expiry, "expiry") - nowSec >= MIN_HEADROOM_SEC)
     .sort((a, b) => candidateRank(a, b, nowSec));
 
   const rejected = [];
@@ -64,6 +63,11 @@ async function findLiveBtcMarket(nowSec) {
       const onchain = await exchange.client.getMarketOnchain(marketId);
       if (Number(onchain.status) !== 1 || onchain.isResolved || onchain.isVoided) {
         rejected.push(`${market.symbol}: on-chain status ${onchain.status}`);
+        continue;
+      }
+      const expirySec = asFiniteNumber(onchain.expiry ?? market.info.expiry, "on-chain expiry");
+      if (expirySec - nowSec < MIN_HEADROOM_SEC) {
+        rejected.push(`${market.symbol}: only ${Math.floor(expirySec - nowSec)}s headroom`);
         continue;
       }
       return { market, onchain };
@@ -89,7 +93,7 @@ async function main() {
   const spot = await fetchSpot(exchange, "BTC", { nowSec: workstationNowSec });
   // The price feed gives us a chain timestamp. Use that clock for history age
   // and expiry math; the workstation clock may lag Shannon by several minutes.
-  const chainNowSec = spot.tSec;
+  let chainNowSec = spot.tSec;
   const { market, onchain } = await findLiveBtcMarket(chainNowSec);
   const resolvedReference = await fetchReference(exchange, {
     marketId: market.info.marketId,
@@ -98,13 +102,15 @@ async function main() {
   });
   const volatility = await fetchVolFromPriceHistory(exchange, "BTC", {
     nowSec: chainNowSec,
+    refreshChainTime: true,
     limit: 240,
     minReturns: 12,
     minElapsedSec: 60,
     maxAgeSec: 180,
     maxGapSec: 180,
   });
-  const expirySec = asFiniteNumber(market.info.expiry, "expiry");
+  if (volatility.chainNowSec !== undefined && volatility.chainNowSec > chainNowSec) chainNowSec = volatility.chainNowSec;
+  const expirySec = asFiniteNumber(onchain.expiry ?? market.info.expiry, "on-chain expiry");
   const timeRemainingSec = expirySec - chainNowSec;
   if (!(timeRemainingSec > 0)) throw new Error("market expired while snapshot was being assembled");
 
@@ -134,7 +140,7 @@ async function main() {
   const bookMid = midpoint(book);
   const difference = bookMid === null ? null : fair.pUp - bookMid;
   const warnings = [...fair.warnings];
-  if (spot.chainClockSkewSec > 0) warnings.push(`CHAIN_CLOCK_SKEW_${Math.round(spot.chainClockSkewSec)}S`);
+  if (spot.chainClockSkewSec > 0 && Math.round(spot.chainClockSkewSec) > 0) warnings.push(`CHAIN_CLOCK_SKEW_${Math.round(spot.chainClockSkewSec)}S`);
   if (bookWarning) warnings.push(bookWarning);
 
   console.log("VILLA FAIR VALUE SNAPSHOT");

@@ -289,8 +289,8 @@ export async function assembleSuccessorPipeline(exchange, selected, chainTime, o
     market: selected.market,
     onchain: selected.onchain,
     reference: { ...collected.context.reference, marketId: selected.marketId },
-    chainNowSec: chainTime.chainNowSec,
-    blockNumber: chainTime.blockNumber,
+    chainNowSec: collected.snapshot.chainTime.chainNowSec,
+    blockNumber: collected.snapshot.chainTime.blockNumber,
   });
   const decimals = context.decimals;
   let book = null;
@@ -322,6 +322,7 @@ export async function assembleSuccessorPipeline(exchange, selected, chainTime, o
     collectorMarket,
     context,
     snapshot: collected.snapshot,
+    chainTime: collected.snapshot.chainTime,
     collectedContext: collected.context,
     decision,
     book,

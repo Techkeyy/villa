@@ -4,12 +4,13 @@ Autonomous liquidity manager for DreamDEX Event Contracts.
 
 Operator-facing. Not a prediction market. Not a retail Up/Down app. Ordinary traders meet VILLA only as orders on DreamDEX.
 
-This repository is in **Phase 5A**. The independent `villa-fv-v1` fair-value
-engine, deterministic `villa-risk-v1` governor, pure `villa-quote-v1` planner,
-complete-set inventory lifecycle, and bounded end-to-end quote execution
-verifier are present, along with a bounded settlement/redeem lifecycle
-verifier. There is no product UI, successor rollover, or continuous quoting
-loop yet.
+This repository is in **Phase 7A final pre-submission audit**. The independent
+`villa-fv-v1` fair-value engine, deterministic `villa-risk-v1` governor, pure
+`villa-quote-v1` planner, complete-set inventory lifecycle, bounded quote
+execution, settlement/redeem recovery, successor rollover, and bounded
+autonomous runner are present. Phase 6B.1 added a read-only operator cockpit.
+The backend and UI are feature frozen; there is no production indefinite daemon
+or dashboard write/control path, and PnL remains explicitly unavailable.
 
 ## Repo
 
@@ -33,6 +34,14 @@ npm run verify:write:dry
 npm run verify:inventory:dry
 npm run verify:quote-cycle:dry
 npm run verify:settlement:dry
+npm run verify:organic-redeem:dry
+npm run verify:wallet-hygiene:dry
+npm run verify:rollover
+npm run villa:bounded:dry
+npm run dashboard:replay
+npm run dashboard:live
+npm run dashboard:build
+npm run dashboard:test
 npm run verify:quote-cycle -- --confirm
 npm run verify:settlement
 ```
@@ -72,6 +81,9 @@ places/cancels orders. A pending session can be resumed from its gitignored
 | `docs/SETTLEMENT_LIFECYCLE.md` | Finalization, explicit redeem, claim sweep, and payout reconciliation |
 | `docs/FAIR_VALUE_MODEL.md` | Independent fair-value formula, units, and validation |
 | `docs/RISK_GOVERNOR.md` | Deterministic risk states, exposure math, policy, and refusal boundary |
+| `docs/DASHBOARD.md` | Read-only operator cockpit and replay/live contract |
+| `docs/AUTONOMOUS_LOOP.md` | Bounded autonomous session and lifecycle evidence |
+| `docs/BACKEND_FREEZE.md` | Frozen backend capability and limitation record |
 | `docs/INCOMING-BRIEF.md` | Directing-agent spec as received |
 
 ## Secrets

@@ -270,6 +270,7 @@ async function main() {
     });
 
     const pipeline = await assembleSuccessorPipeline(exchange, bSelection, bChainTime, owner);
+    const effectiveBChainTime = pipeline.chainTime ?? bChainTime;
     if (pipeline.context.marketId.toLowerCase() !== bContext.marketId.toLowerCase()) throw new Error("B pipeline context is not bound to the selected market");
     print("B_PIPELINE_ASSEMBLED", { marketId: pipeline.context.marketId, openOrderStatus: pipeline.openOrderRead.status, plan: pipeline.plan.plan });
     const historicalResidual = await readKnownHistoricalResidual(exchange, owner);
@@ -296,8 +297,8 @@ async function main() {
       quotePlan: pipeline.plan,
       inventory: pipeline.inventory,
       pendingOrders: pipeline.snapshot.openOrders,
-      chainNowSec: bChainTime.chainNowSec,
-      decisionSnapshotId: `${bContext.marketId}:${bChainTime.blockNumber ?? "unknown"}`,
+      chainNowSec: effectiveBChainTime.chainNowSec,
+      decisionSnapshotId: `${bContext.marketId}:${effectiveBChainTime.blockNumber ?? "unknown"}`,
     });
     state = evaluation;
     const scope = stateScopeAudit(state);

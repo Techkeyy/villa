@@ -1,5 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import {
   toRaw,
   fromRaw,
@@ -89,6 +90,12 @@ describe("buyEscrow", () => {
 });
 
 describe("expiry / market selection", () => {
+  it("uses the authoritative chain clock in the signer-enabled verifier", () => {
+    const source = readFileSync(new URL("../verify-write-path.mjs", import.meta.url), "utf8");
+    assert.match(source, /readChainTime\(exchange\)/);
+    assert.doesNotMatch(source, /const nowSec = Math\.floor\(Date\.now\(\) \/ 1000\)/);
+  });
+
   it("rejects short intervals and thin headroom", () => {
     const now = 1_000_000;
     assert.equal(

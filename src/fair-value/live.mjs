@@ -102,10 +102,9 @@ export async function fetchReference(exchange, p) {
  *
  * @param {import("@somnia-chain/markets-sdk").SomniaMarkets} exchange
  * @param {string} asset
- * @param {{ limit?: number, nowSec?: number, maxAgeSec?: number, maxGapSec?: number, minReturns?: number, minElapsedSec?: number }} [opts]
+ * @param {{ limit?: number, nowSec?: number, refreshChainTime?: boolean, maxAgeSec?: number, maxGapSec?: number, minReturns?: number, minElapsedSec?: number }} [opts]
  */
 export async function fetchVolFromPriceHistory(exchange, asset, opts = {}) {
-  const nowSec = opts.nowSec ?? Date.now() / 1000;
   const rows = await exchange.client.fetchPriceHistory(asset, { limit: opts.limit ?? 200 });
   if (!Array.isArray(rows) || rows.length === 0) {
     throw new LiveDataError("MISSING_VOL_HISTORY", `price feed returned no ${asset} history`);
@@ -117,14 +116,30 @@ export async function fetchVolFromPriceHistory(exchange, asset, opts = {}) {
       tSec: row.blockTimestamp,
     }))
     .reverse();
+  // The history/indexer endpoint and the RPC endpoint can be a few seconds
+  // apart. When requested, read the chain head after history so freshness is
+  // checked against a current chain clock instead of an earlier block read.
+  let nowSec = opts.nowSec ?? Date.now() / 1000;
+  let chainHead = null;
+  if (opts.refreshChainTime === true) {
+    try {
+      const block = await exchange.client.getViemClient().getBlock();
+      nowSec = Number(block.timestamp);
+      if (!Number.isFinite(nowSec) || nowSec < 0) throw new Error("chain block timestamp is invalid");
+      chainHead = { chainNowSec: nowSec, blockNumber: block.number === undefined ? null : Number(block.number) };
+    } catch (error) {
+      throw new LiveDataError("CHAIN_TIME_READ_FAILED", error?.message || String(error));
+    }
+  }
   try {
-    return await realizedVolPerSqrtSec(ticks, {
+    const result = await realizedVolPerSqrtSec(ticks, {
       nowSec,
       minReturns: opts.minReturns ?? 12,
       minElapsedSec: opts.minElapsedSec ?? 60,
       maxAgeSec: opts.maxAgeSec ?? 180,
       maxGapSec: opts.maxGapSec ?? 180,
     });
+    return chainHead ? { ...result, chainNowSec: chainHead.chainNowSec, chainBlockNumber: chainHead.blockNumber } : result;
   } catch (err) {
     if (err?.name === "VolError") throw err;
     throw new LiveDataError("VOL_ESTIMATION_FAILED", String(err?.message || err));
