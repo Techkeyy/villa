@@ -54,6 +54,11 @@ const server = http.createServer(async (request, response) => {
     return;
   }
   if (url.pathname === "/api/scenes") return json(response, 200, { scenes: REPLAY_SCENES });
+  if (url.pathname === "/api/operator-config") return json(response, 200, {
+    engineApiUrl: process.env.VILLA_ENGINE_API_URL || null,
+    publicMode: "DEMO / VERIFIED REPLAY",
+    operatorMode: "single-operator testnet MVP",
+  });
   if (url.pathname === "/api/snapshot") {
     const requestedMode = (url.searchParams.get("mode") || defaultMode).toLowerCase();
     try {

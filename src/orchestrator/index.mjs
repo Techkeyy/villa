@@ -55,6 +55,8 @@ export const ORCHESTRATOR_EVENTS = Object.freeze([
   "SESSION_LIMIT_REACHED",
   "SESSION_CLEAN",
   "SESSION_HALTED",
+  "SESSION_PAUSED",
+  "SESSION_RESUMED",
 ]);
 
 export const DEFAULT_ORCHESTRATOR_CONFIG = Object.freeze({

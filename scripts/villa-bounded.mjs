@@ -73,6 +73,29 @@ const DRY = args.has("--dry-run");
 const CONFIRM = args.has("--confirm") || process.env.VILLA_CONFIRM_BOUNDED === "1";
 const JOURNAL_PATH = resolve(process.env.VILLA_JOURNAL_PATH || "runtime/state/villa-loop-v1.json");
 
+const CONTROL = {
+  stopRequested: false,
+  stopReason: null,
+  pauseRequested: false,
+  pauseApplied: false,
+};
+
+function requestStop(reason = "OPERATOR_STOP") {
+  CONTROL.stopRequested = true;
+  CONTROL.stopReason = String(reason || "OPERATOR_STOP");
+}
+
+if (typeof process.on === "function") {
+  process.on("message", (message) => {
+    if (!message || typeof message !== "object") return;
+    if (message.type === "pause") CONTROL.pauseRequested = true;
+    if (message.type === "resume") CONTROL.pauseRequested = false;
+    if (message.type === "stop") requestStop(message.reason);
+  });
+  process.on("SIGINT", () => requestStop("OPERATOR_STOP"));
+  process.on("SIGTERM", () => requestStop("OPERATOR_STOP"));
+}
+
 function boundedOverride(name, fallback) {
   const value = [...args].find((item) => item.startsWith(`--${name}=`));
   if (!value) return fallback;
@@ -85,6 +108,11 @@ const CONFIG = validateOrchestratorConfig({
   ...DEFAULT_ORCHESTRATOR_CONFIG,
   maxSessionDurationSec: Math.min(DEFAULT_ORCHESTRATOR_CONFIG.maxSessionDurationSec, Math.floor(boundedOverride("max-session-sec", DEFAULT_ORCHESTRATOR_CONFIG.maxSessionDurationSec))),
   maxMarkets: Math.min(DEFAULT_ORCHESTRATOR_CONFIG.maxMarkets, Math.floor(boundedOverride("max-markets", DEFAULT_ORCHESTRATOR_CONFIG.maxMarkets))),
+  maxRestingOrders: Math.min(DEFAULT_ORCHESTRATOR_CONFIG.maxRestingOrders, Math.floor(boundedOverride("max-orders", DEFAULT_ORCHESTRATOR_CONFIG.maxRestingOrders))),
+  maxDirectionalExposureHuman: Math.min(DEFAULT_ORCHESTRATOR_CONFIG.maxDirectionalExposureHuman, boundedOverride("max-directional", DEFAULT_ORCHESTRATOR_CONFIG.maxDirectionalExposureHuman)),
+  maxProvisionedCollateralHuman: Math.min(DEFAULT_ORCHESTRATOR_CONFIG.maxProvisionedCollateralHuman, boundedOverride("max-allocation", DEFAULT_ORCHESTRATOR_CONFIG.maxProvisionedCollateralHuman)),
+  maxCommittedCollateralHuman: Math.min(DEFAULT_ORCHESTRATOR_CONFIG.maxCommittedCollateralHuman, boundedOverride("max-allocation", DEFAULT_ORCHESTRATOR_CONFIG.maxCommittedCollateralHuman)),
+  maxTotalProvisionedCollateralHuman: Math.min(DEFAULT_ORCHESTRATOR_CONFIG.maxTotalProvisionedCollateralHuman, boundedOverride("max-allocation", DEFAULT_ORCHESTRATOR_CONFIG.maxTotalProvisionedCollateralHuman)),
 });
 
 function jsonSafe(value) {
@@ -373,6 +401,7 @@ async function main() {
 
   const waitForTerminal = async () => {
     const first = await readChainTime(exchange, { retries: CONFIG.maxReadRetries });
+    if (CONTROL.stopRequested) return { chain: first, onchain: await exchange.client.getMarketOnchain(current.selected.marketId), terminalObserved: false, sessionLimit: true };
     const remaining = Number(current?.selected?.expirySec ?? first.chainNowSec) - first.chainNowSec;
     const wallBoundMs = Math.min(CONFIG.maxSessionDurationSec * 1000, Math.max(120_000, (remaining + 30) * 1000));
     const deadline = Date.now() + wallBoundMs;
@@ -380,6 +409,7 @@ async function main() {
       const chain = await readChainTime(exchange, { retries: CONFIG.maxReadRetries });
       const onchain = await exchange.client.getMarketOnchain(current.selected.marketId);
       if (Number(onchain.status) !== 1 || onchain.isResolved || onchain.isVoided) return { chain, onchain };
+      if (CONTROL.stopRequested) return { chain, onchain, terminalObserved: false, sessionLimit: true };
       await sleep(CONFIG.pollIntervalSec * 1000);
     }
     throw new OrchestratorError("TERMINAL_TIMEOUT", "market did not leave Trading inside the bounded terminal observation");
@@ -398,6 +428,23 @@ async function main() {
       const chain = await readChainTime(exchange, { retries: CONFIG.maxReadRetries });
       const elapsed = sessionElapsed({ startedChainSec: state.startedChainSec, chainNowSec: chain.chainNowSec, config: CONFIG });
       const pipeline = await readFreshPipeline();
+      if (CONTROL.stopRequested) {
+        await cleanupCurrentMarket(pipeline, CONTROL.stopReason);
+        return { chain, onchain: pipeline.market.onchain, terminalObserved: false, sessionLimit: true };
+      }
+      if (CONTROL.pauseRequested) {
+        if (!CONTROL.pauseApplied) {
+          if (current.orders.length) await cancelAll(pipeline, "OPERATOR_PAUSE");
+          await emit("SESSION_PAUSED", { marketId: current.selected.marketId, reason: "OPERATOR_PAUSE", newQuotes: "DISABLED", restingOrders: 0 }, pipeline.chainTime.chainNowSec);
+          CONTROL.pauseApplied = true;
+        }
+        await sleep(CONFIG.pollIntervalSec * 1000);
+        continue;
+      }
+      if (CONTROL.pauseApplied) {
+        await emit("SESSION_RESUMED", { marketId: current.selected.marketId, reason: "OPERATOR_RESUME" }, pipeline.chainTime.chainNowSec);
+        CONTROL.pauseApplied = false;
+      }
       if (!DRY) await reconcileTrackedOrders(pipeline);
       const before = state;
       await adopt(recordCycle(state, { chainNowSec: pipeline.chainTime.chainNowSec, pipeline, orders: current.orders }));
@@ -470,6 +517,10 @@ async function main() {
     if (existingJournal) await emit("SESSION_STARTED", { resumed: true, chainTruthOverridesJournal: true }, firstChain.chainNowSec);
 
     while (state.marketsInitialized < CONFIG.maxMarkets) {
+      if (CONTROL.stopRequested) {
+        await adopt(setSessionLimitReached(state, CONTROL.stopReason, { operatorRequested: true }, firstChain.chainNowSec));
+        break;
+      }
       const elapsed = sessionElapsed({ startedChainSec: state.startedChainSec, chainNowSec: (await readChainTime(exchange, { retries: CONFIG.maxReadRetries })).chainNowSec, config: CONFIG });
       if (elapsed.exceeded) { await adopt(setSessionLimitReached(state, "SESSION_DURATION_CAP", { elapsedSec: elapsed.elapsedSec }, firstChain.chainNowSec)); break; }
       const chain = await readChainTime(exchange, { retries: CONFIG.maxReadRetries });
