@@ -18,7 +18,7 @@ test("operator API rejects unauthorized controls and permits an authorized sessi
   const auth = createOperatorAuth({ authorizedAddress: account.address });
   const calls = [];
   const control = {
-    async getState() { return { state: "STOPPED", controls: { canStart: true } }; },
+    async getState() { return { state: "STOPPED", executionEnabled: false, controls: { canStart: true } }; },
     getConfig() { return { config: { series: "BTC 5m" } }; },
     getActivity() { return []; },
     async start(config) { calls.push(["start", config]); return { state: "STARTING" }; },
@@ -34,6 +34,11 @@ test("operator API rejects unauthorized controls and permits an authorized sessi
   try {
     const rejected = await request(base, "/state");
     assert.equal(rejected.status, 401);
+    const invalidToken = await request(base, "/state", { token: "invalid-session-token" });
+    assert.equal(invalidToken.status, 401);
+    const health = await request(base, "/health");
+    assert.equal(health.status, 200);
+    assert.equal(health.body.execution, "disabled");
     const nonce = await request(base, "/auth/nonce", { method: "POST", body: { address: account.address } });
     const signature = await account.signMessage({ message: nonce.body.message });
     const verified = await request(base, "/auth/verify", { method: "POST", body: { ...nonce.body, signature } });
@@ -45,6 +50,28 @@ test("operator API rejects unauthorized controls and permits an authorized sessi
     assert.deepEqual(calls, [["start", { capitalAllocationHuman: 0.001 }]]);
     const originRejected = await request(base, "/health", { origin: "http://not-allowed.test" });
     assert.equal(originRejected.status, 403);
+  } finally {
+    server.close();
+  }
+});
+
+test("operator API rate limits repeated requests per client", async () => {
+  const account = privateKeyToAccount(generatePrivateKey());
+  const server = createOperatorApiServer({
+    control: { async getState() { return { state: "STOPPED", executionEnabled: false }; } },
+    auth: createOperatorAuth({ authorizedAddress: account.address }),
+    allowedOrigins: ["http://allowed.test"],
+    rateLimit: { windowMs: 60_000, maxRequests: 1 },
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const base = `http://127.0.0.1:${server.address().port}`;
+  try {
+    assert.equal((await request(base, "/health")).status, 200);
+    const limited = await request(base, "/health");
+    assert.equal(limited.status, 429);
+    assert.equal(limited.body.code, "RATE_LIMITED");
+    assert.ok(limited.headers.get("retry-after"));
   } finally {
     server.close();
   }

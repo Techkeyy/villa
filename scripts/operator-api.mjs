@@ -53,14 +53,35 @@ function authError(error) {
   return error instanceof OperatorAuthError || error instanceof OperatorControlError || error instanceof OperatorConfigError;
 }
 
+function createRateLimiter({ windowMs = 60_000, maxRequests = 120 } = {}) {
+  const window = Number.isFinite(Number(windowMs)) && Number(windowMs) > 0 ? Number(windowMs) : 60_000;
+  const maximum = Number.isFinite(Number(maxRequests)) && Number(maxRequests) > 0 ? Math.floor(Number(maxRequests)) : 120;
+  const buckets = new Map();
+  return (key) => {
+    const now = Date.now();
+    const current = buckets.get(key);
+    if (!current || now - current.startedAt >= window) {
+      buckets.set(key, { startedAt: now, count: 1 });
+      return { allowed: true, retryAfter: 0 };
+    }
+    current.count += 1;
+    return {
+      allowed: current.count <= maximum,
+      retryAfter: Math.max(1, Math.ceil((window - (now - current.startedAt)) / 1000)),
+    };
+  };
+}
+
 export function createOperatorApiServer({
   control,
   auth,
   allowedOrigins = [],
   logger = () => undefined,
+  rateLimit = {},
 } = {}) {
   if (!control || !auth) throw new TypeError("control and auth are required");
   const origins = [...new Set(allowedOrigins)];
+  const isWithinRateLimit = createRateLimiter(rateLimit);
   return http.createServer(async (request, response) => {
     const origin = request.headers.origin ?? null;
     if (!isAllowedOrigin(origin, origins)) {
@@ -81,10 +102,17 @@ export function createOperatorApiServer({
     }
 
     const url = new URL(request.url ?? "/", "http://operator.local");
+    const rate = isWithinRateLimit(request.socket?.remoteAddress ?? "unknown");
+    if (!rate.allowed) {
+      const headers = { "Retry-After": String(rate.retryAfter) };
+      response.writeHead(429, headers);
+      response.end(jsonSafe({ error: "Too many requests. Try again later.", code: "RATE_LIMITED" }));
+      return;
+    }
     try {
       if (request.method === "GET" && url.pathname === "/health") {
         const state = await control.getState();
-        send(response, 200, { ok: true, service: "villa-engine", state: state.state, execution: "private-engine-only" }, origin, origins);
+        send(response, 200, { ok: true, service: "villa-engine", state: state.state, execution: state.executionEnabled === true ? "enabled" : "disabled" }, origin, origins);
         return;
       }
 

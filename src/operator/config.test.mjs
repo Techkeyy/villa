@@ -1,6 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { DEFAULT_OPERATOR_CONFIG, OperatorConfigError, operatorConfigToRunnerArgs, validateOperatorConfig } from "./config.mjs";
+import { DEFAULT_OPERATOR_CONFIG, isExecutionEnabled, OperatorConfigError, operatorConfigToRunnerArgs, validateOperatorConfig } from "./config.mjs";
+
+test("execution is disabled unless the flag is exactly true", () => {
+  for (const value of [undefined, "", "false", "FALSE", "0", "yes", " true"]) {
+    assert.equal(isExecutionEnabled({ VILLA_EXECUTION_ENABLED: value }), false);
+  }
+  assert.equal(isExecutionEnabled({ VILLA_EXECUTION_ENABLED: "true" }), true);
+});
 
 test("safe operator defaults are the verified BTC 5m bounds", () => {
   const config = validateOperatorConfig();

@@ -2,7 +2,7 @@ import { fork } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
-import { operatorConfigToRunnerArgs, safeOperatorConfig, validateOperatorConfig } from "./config.mjs";
+import { isExecutionEnabled, operatorConfigToRunnerArgs, safeOperatorConfig, validateOperatorConfig } from "./config.mjs";
 
 export const OPERATOR_STATES = Object.freeze([
   "STOPPED",
@@ -101,6 +101,9 @@ function stateFromEvent(event, current) {
 }
 
 export function createDefaultRunner({ config, env, onRecord, onError, onExit }) {
+  if (!isExecutionEnabled(env)) {
+    throw new OperatorControlError("EXECUTION_DISABLED", "VILLA execution is disabled. No writer was started and no order can be sent.", 423);
+  }
   const child = fork(runnerScript, operatorConfigToRunnerArgs(config), {
     cwd: root,
     env: { ...env },
@@ -211,6 +214,7 @@ export function createEngineSupervisor({
       sessionId,
       updatedAt,
       config,
+      executionEnabled: isExecutionEnabled(env),
       snapshot,
       readOnly: live.snapshot,
       readOnlyError: live.error,
@@ -245,6 +249,10 @@ export function createEngineSupervisor({
       throw new OperatorControlError("SESSION_ALREADY_ACTIVE", "VILLA already has an active session.");
     }
     const nextConfig = validateOperatorConfig(input);
+    if (!isExecutionEnabled(env)) {
+      addActivity({ event: "CONTROL_START_REFUSED", facts: { reason: "EXECUTION_DISABLED" } });
+      throw new OperatorControlError("EXECUTION_DISABLED", "VILLA execution is disabled. No writer was started and no order can be sent.", 423);
+    }
     await assertStartAllowed();
     config = nextConfig;
     sessionId = `operator-${randomUUID()}`;
@@ -307,7 +315,7 @@ export function createEngineSupervisor({
   }
 
   function getConfig() {
-    return { version: config.version, series: config.series, config, safeDefaults: safeOperatorConfig() };
+    return { version: config.version, series: config.series, config, safeDefaults: safeOperatorConfig(), executionEnabled: isExecutionEnabled(env) };
   }
 
   return Object.freeze({

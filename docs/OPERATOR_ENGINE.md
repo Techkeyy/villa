@@ -31,6 +31,7 @@ origin:
 ```text
 PORT=8787
 VILLA_ALLOWED_ORIGINS=https://villa-ten-ashen.vercel.app
+VILLA_EXECUTION_ENABLED=false
 OPERATOR_ADDRESS=<authorized wallet address>
 OPERATOR_PRIVATE_KEY=<owner-supplied disposable testnet signer, VPS secret store only>
 ```
@@ -71,8 +72,15 @@ wallet-signature session for state and control routes.
 - `POST /auth/nonce` and `POST /auth/verify` implement wallet message-signature
   authentication. Signing sends no blockchain transaction.
 - `GET /state`, `/config`, and `/activity` require a bearer session.
-- `POST /session/start` launches the existing bounded runner after lower-only
-  configuration validation and a live Risk Governor preflight.
+- `POST /session/start` refuses with `EXECUTION_DISABLED` unless
+  `VILLA_EXECUTION_ENABLED` is exactly `true`. The default and the current
+  deployment phase are unarmed: no writer is spawned, no order is created, and
+  no transaction can be sent. Only an explicitly approved wet phase may set
+  the flag to the exact string `true`, after the owner has reviewed the VPS
+  custody and safety controls.
+- When explicitly enabled, `POST /session/start` launches the existing bounded
+  runner after lower-only configuration validation and a live Risk Governor
+  preflight.
 - `POST /session/pause` cancels session-owned resting orders and stops new
   quoting until an explicit resume.
 - `POST /session/resume` releases a real paused runner.

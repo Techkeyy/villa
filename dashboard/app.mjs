@@ -329,7 +329,7 @@ function readOperatorConfig() {
   };
 }
 
-function renderReview(view) {
+function renderReview(view, executionEnabled = null) {
   const snapshot = view?.snapshot ?? {};
   const halted = view?.risk?.action === "HALT";
   setField("review-available", formatRaw(snapshot.accounting?.tUSDC, 6, 4, "tUSDC"));
@@ -338,7 +338,14 @@ function renderReview(view) {
   setField("review-risk", view?.risk?.label ?? "Unavailable");
   const risk = field("review-risk");
   if (risk) risk.className = view?.risk?.action === "HALT" ? "risk-halt" : view?.risk?.action === "ALLOW" ? "risk-allow" : "";
-  if (halted) {
+  const note = field("review-note");
+  if (note) {
+    note.textContent = executionEnabled === false ? "Execution disabled" : "Safe defaults loaded";
+    note.className = `review-note${executionEnabled === false ? " execution-disabled" : ""}`;
+  }
+  if (executionEnabled === false) {
+    setStatus("control-feedback", "Execution is disabled. START will be refused safely. No writer or order can start.", "error");
+  } else if (halted) {
     setStatus("control-feedback", `Risk Governor HALT: ${view.risk.reasonText} Resolve the live safety condition before starting.`, "error");
   } else {
     setStatus("control-feedback", "", "");
@@ -356,6 +363,8 @@ function controlsForState(state) {
   for (const button of all('[data-action="emergency-cancel"]')) { button.hidden = !controls.canEmergencyCancel; button.disabled = !controls.canEmergencyCancel; }
   const copy = startBlocked
     ? "Risk Governor HALT prevents a new session. Resolve the live safety condition before starting."
+    : state?.executionEnabled === false
+      ? "Execution is disabled. START will be refused safely; no writer or order can be created."
     : stateCopy(state?.state ?? "STOPPED", true);
   setField("controls-copy", copy);
 }
@@ -424,7 +433,7 @@ async function loadOperatorState() {
   const envelope = operatorEnvelope(state);
   const view = projectDashboard(envelope.snapshot, envelope);
   renderDashboard(view, envelope);
-  renderReview(projectDashboard((state.readOnly ?? envelope).snapshot ?? {}, state.readOnly ?? envelope));
+  renderReview(projectDashboard((state.readOnly ?? envelope).snapshot ?? {}, state.readOnly ?? envelope), state.executionEnabled);
   fillOperatorConfig(state.config);
   controlsForState(state);
   updateConnection("Operator authenticated", `Wallet ${abbreviate(authSession.operatorAddress)}. Private engine state is connected.`, "success");
@@ -545,13 +554,14 @@ async function control(action) {
     operatorState = state;
     const envelope = operatorEnvelope(state);
     renderDashboard(projectDashboard(envelope.snapshot, envelope), envelope);
-    renderReview(projectDashboard((state.readOnly ?? envelope).snapshot ?? {}, state.readOnly ?? envelope));
+    renderReview(projectDashboard((state.readOnly ?? envelope).snapshot ?? {}, state.readOnly ?? envelope), state.executionEnabled);
     fillOperatorConfig(state.config);
     controlsForState(state);
     setStatus(feedback, action === "start" ? "Start accepted. VILLA is checking the market." : `${action.replaceAll("-", " ")} accepted.`, "success");
     startPolling();
   } catch (error) {
     setStatus(feedback, error?.message ?? "The control request failed. The current engine state is unchanged.", "error");
+    if (action === "start" && authSession) await loadOperatorState().catch(() => undefined);
   }
 }
 

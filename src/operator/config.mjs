@@ -5,6 +5,11 @@ import {
 
 export const OPERATOR_CONFIG_VERSION = "villa-operator-config-v1";
 
+/** Wet execution is opt-in. Every value except the literal string "true" is disabled. */
+export function isExecutionEnabled(env = process.env) {
+  return env?.VILLA_EXECUTION_ENABLED === "true";
+}
+
 export const DEFAULT_OPERATOR_CONFIG = Object.freeze({
   version: OPERATOR_CONFIG_VERSION,
   series: "BTC 5m",

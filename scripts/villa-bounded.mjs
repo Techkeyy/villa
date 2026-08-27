@@ -67,6 +67,7 @@ import {
   traderFor,
   verificationQuantity,
 } from "../src/orchestrator/live.mjs";
+import { isExecutionEnabled } from "../src/operator/config.mjs";
 
 const args = new Set(process.argv.slice(2));
 const DRY = args.has("--dry-run");
@@ -153,6 +154,7 @@ async function loadJournal() {
 
 async function main() {
   if (!DRY && !CONFIRM) throw new OrchestratorError("CONFIRM_REQUIRED", "wet bounded orchestration requires --confirm or VILLA_CONFIRM_BOUNDED=1");
+  if (!DRY && !isExecutionEnabled(process.env)) throw new OrchestratorError("EXECUTION_DISABLED", "VILLA execution is disabled; set VILLA_EXECUTION_ENABLED=true only during an explicitly approved wet phase");
   if (DRY && CONFIRM) throw new OrchestratorError("ARGUMENTS", "use either --dry-run or --confirm");
 
   const exchange = createOrchestratorExchange({ dryRun: DRY });

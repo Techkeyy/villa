@@ -30,3 +30,16 @@ test("a different wallet cannot authenticate as the operator", async () => {
   const signature = await visitor.signMessage({ message: issued.message });
   await assert.rejects(auth.verify({ ...issued, signature }), (error) => error.code === "OPERATOR_UNAUTHORIZED");
 });
+
+test("expired sessions are rejected without exposing token material", async () => {
+  const account = privateKeyToAccount(generatePrivateKey());
+  let timestamp = 1_000;
+  const auth = createOperatorAuth({ authorizedAddress: account.address, now: () => timestamp, sessionTtlMs: 100 });
+  const issued = auth.issueNonce(account.address);
+  const signature = await account.signMessage({ message: issued.message });
+  const session = await auth.verify({ ...issued, signature });
+  assert.equal(auth.authenticate(session.token).address, account.address);
+  timestamp = 1_101;
+  assert.equal(auth.authenticate(session.token), null);
+  assert.equal(JSON.stringify(session).includes("PRIVATE_KEY"), false);
+});

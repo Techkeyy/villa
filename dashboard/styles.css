@@ -51,6 +51,7 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .topbar-actions { margin-left: auto; display: flex; align-items: center; gap: 10px; }
 .access-badge, .state-badge, .data-chip, .quiet-label, .review-note { border: 1px solid var(--line-strong); border-radius: 999px; padding: 5px 10px; color: var(--text-soft); font-size: 12px; font-weight: 750; letter-spacing: .08em; text-transform: uppercase; white-space: nowrap; }
 .access-badge { color: var(--accent-soft); border-color: rgba(242, 171, 104, .5); background: rgba(242, 171, 104, .08); }
+.review-note.execution-disabled { color: var(--danger); border-color: rgba(240, 148, 126, .55); background: rgba(240, 148, 126, .12); }
 .state-badge.allow, .state-badge.quoting, .governor-badge.allow { color: var(--up); border-color: rgba(169, 223, 187, .55); background: rgba(169, 223, 187, .12); }
 .state-badge.reduce, .governor-badge.reduce { color: var(--warning); border-color: rgba(231, 189, 122, .55); background: rgba(231, 189, 122, .12); }
 .state-badge.halt, .state-badge.error, .state-badge.stopping, .governor-badge.halt, .quote-state.disabled { color: var(--danger); border-color: rgba(240, 148, 126, .55); background: rgba(240, 148, 126, .12); }
