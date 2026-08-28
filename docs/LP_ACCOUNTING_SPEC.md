@@ -24,6 +24,25 @@ For one account and market, the ledger reads these buckets separately:
 
 `availableCollateralRaw` is only the direct balance plus explicitly readable withdrawable vault credit. Locked order escrow and outcome inventory are not available collateral.
 
+## Future UI value definitions
+
+These values are derived from authoritative account, pool, order, inventory,
+and settlement reads. They are not estimates from a shared VILLA ledger.
+
+| UI value | Exact meaning | Authoritative source |
+| --- | --- | --- |
+| `ALLOCATED` | Collateral that the owner has deposited into this account and assigned to the account's bounded strategy scope | Account collateral balance plus the account's owner-approved market and cap configuration |
+| `AVAILABLE` | Direct account collateral not locked in order escrow and not represented only as a pool-vault credit | Collateral ERC-20 balance, less exact live order escrow; pool `getWithdrawableBalance(account, collateral)` is tracked separately until claimed |
+| `DEPLOYED` | Current-market collateral and outcome inventory committed to live orders or held as strategy inventory, with each bucket kept separate | Account-owned open orders, direct collateral, ERC-6909 YES/NO balances, and pool vault credit |
+| `PENDING SETTLEMENT` | Resolved or locked market inventory whose settlement state is known but whose redeemable payout has not yet been claimed | Market settlement status, payout vector, exact account outcome balances, and redemption records keyed by market ID |
+| `WITHDRAWABLE` | Collateral the owner can safely withdraw to the owner address after exact chain reconciliation | Direct account collateral plus explicitly readable pool-vault credit after open-order and inventory checks |
+| `REALIZED RESULT` | Observed redeemed collateral and recorded fees/gas for a closed market; unavailable where the protocol does not expose a complete authoritative cash-flow model | Settlement payout events, account balance deltas, vault credits, and exact transaction receipts; otherwise `PNL_UNAVAILABLE` |
+
+`ALLOCATED`, `DEPLOYED`, and `AVAILABLE` must not double-count the same raw
+collateral. Outcome inventory is reported as inventory exposure, not silently
+converted to collateral value. A known losing residual remains explicitly
+labelled and is not treated as a negative or positive realized result.
+
 ## Lifecycle accounting
 
 - Owner deposit increases `directCollateralRaw` only.
