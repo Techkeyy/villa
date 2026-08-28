@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { once } from "node:events";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import { createOperatorAuth } from "./auth.mjs";
-import { createOperatorApiServer } from "../../scripts/operator-api.mjs";
+import { createOperatorApiServer, createProductionOperatorServer } from "../../scripts/operator-api.mjs";
 
 async function request(base, path, { method = "GET", body, token, origin = "http://allowed.test" } = {}) {
   const headers = { Origin: origin };
@@ -72,6 +72,73 @@ test("operator API rate limits repeated requests per client", async () => {
     assert.equal(limited.status, 429);
     assert.equal(limited.body.code, "RATE_LIMITED");
     assert.ok(limited.headers.get("retry-after"));
+  } finally {
+    server.close();
+  }
+});
+
+test("unarmed production API boots without a private key and never reaches the writer", async () => {
+  const account = privateKeyToAccount(generatePrivateKey());
+  let privateKeyReads = 0;
+  let runnerSpawns = 0;
+  const env = new Proxy({
+    OPERATOR_ADDRESS: account.address,
+    VILLA_ALLOWED_ORIGINS: "http://allowed.test",
+    VILLA_EXECUTION_ENABLED: "false",
+  }, {
+    get(target, property, receiver) {
+      if (property === "OPERATOR_PRIVATE_KEY") {
+        privateKeyReads += 1;
+        throw new Error("OPERATOR_PRIVATE_KEY must not be read in safe mode");
+      }
+      return Reflect.get(target, property, receiver);
+    },
+  });
+  const server = createProductionOperatorServer(env, {
+    readOnlyReader: async () => ({ mode: "LIVE", snapshot: { market: { intervalSec: 300 } }, evidence: null }),
+    runnerFactory: async () => {
+      runnerSpawns += 1;
+      throw new Error("the runner must not spawn while execution is disabled");
+    },
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const base = `http://127.0.0.1:${server.address().port}`;
+  try {
+    const health = await request(base, "/health");
+    assert.equal(health.status, 200);
+    assert.equal(health.body.execution, "disabled");
+    assert.equal(health.headers.get("access-control-allow-origin"), "http://allowed.test");
+    assert.equal(health.headers.get("access-control-allow-credentials"), "true");
+    assert.notEqual(health.headers.get("access-control-allow-origin"), "*");
+
+    const unauthorized = await request(base, "/state");
+    assert.equal(unauthorized.status, 401);
+
+    const nonce = await request(base, "/auth/nonce", { method: "POST", body: { address: account.address } });
+    const signature = await account.signMessage({ message: nonce.body.message });
+    const verified = await request(base, "/auth/verify", { method: "POST", body: { ...nonce.body, signature } });
+    assert.equal(verified.status, 200);
+
+    const token = verified.body.token;
+    const config = await request(base, "/config", { token });
+    assert.equal(config.status, 200);
+    assert.equal(config.body.executionEnabled, false);
+    const activity = await request(base, "/activity", { token });
+    assert.equal(activity.status, 200);
+    assert.deepEqual(activity.body.activity, []);
+    const state = await request(base, "/state", { token });
+    assert.equal(state.status, 200);
+    assert.equal(state.body.state, "STOPPED");
+    assert.equal(state.body.executionEnabled, false);
+    assert.equal(state.body.readOnly.mode, "LIVE");
+
+    const started = await request(base, "/session/start", { method: "POST", token, body: {} });
+    assert.equal(started.status, 423);
+    assert.equal(started.body.code, "EXECUTION_DISABLED");
+    assert.equal(runnerSpawns, 0);
+    assert.equal(privateKeyReads, 0);
+    assert.equal(JSON.stringify(state.body).includes("OPERATOR_PRIVATE_KEY"), false);
   } finally {
     server.close();
   }

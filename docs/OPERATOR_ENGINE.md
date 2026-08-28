@@ -15,9 +15,11 @@ remote machine.
 - The MVP is single-operator testnet software. It is not a multi-user custody
   platform.
 
-## Private engine preparation
+## Unarmed control-plane preparation
 
-On the owner-controlled VPS, after explicit approval to place the signer there:
+For the current unarmed phase, start only the control plane on the
+owner-controlled VPS. A private key is not required while execution is
+disabled:
 
 ```text
 npm ci --omit=dev
@@ -34,7 +36,6 @@ VILLA_BIND_HOST=127.0.0.1
 VILLA_ALLOWED_ORIGINS=https://villa-ten-ashen.vercel.app
 VILLA_EXECUTION_ENABLED=false
 OPERATOR_ADDRESS=<authorized wallet address>
-OPERATOR_PRIVATE_KEY=<owner-supplied disposable testnet signer, VPS secret store only>
 ```
 
 The existing read-only network variables may also be supplied to the private
@@ -49,10 +50,15 @@ NETWORK=<private VPS value>
 VENUE_ID=<private VPS value>
 ```
 
-Do not commit these values. Do not put `OPERATOR_PRIVATE_KEY` in Vercel, the
-browser bundle, API responses, screenshots, or service logs. The private key
-must be added only by the owner after reviewing the VPS, firewall, HTTPS, and
-secret-store setup.
+Do not commit these values. Do not install `OPERATOR_PRIVATE_KEY`,
+`TAKER_PRIVATE_KEY`, a mnemonic, or a seed phrase during this phase. The API
+can boot, authenticate, and expose safe read/control-plane state without a
+signer. START remains `EXECUTION_DISABLED`, no writer is spawned, and no
+transaction can be sent.
+
+Only after a separately approved wet phase may the owner add
+`OPERATOR_PRIVATE_KEY` to a restricted VPS secret store. It must never enter
+Vercel, the browser bundle, API responses, screenshots, or service logs.
 
 ## Frontend connection
 

@@ -177,11 +177,12 @@ export function createOperatorApiServer({
   });
 }
 
-export function createProductionOperatorServer(env = process.env) {
+export function createProductionOperatorServer(env = process.env, { readOnlyReader, runnerFactory } = {}) {
   const auth = createOperatorAuth({ authorizedAddress: env.OPERATOR_ADDRESS });
   const control = createEngineSupervisor({
     env,
-    readOnlyReader: async () => (await import("../src/dashboard/live-adapter.mjs")).buildLiveEnvelope(),
+    runnerFactory,
+    readOnlyReader: readOnlyReader ?? (async () => (await import("../src/dashboard/live-adapter.mjs")).buildLiveEnvelope()),
   });
   return createOperatorApiServer({ control, auth, allowedOrigins: originsFrom(env) });
 }
