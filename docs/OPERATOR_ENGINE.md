@@ -6,8 +6,8 @@ remote machine.
 
 ## Boundary
 
-- Vercel serves the public cockpit and the small `/api/operator-config` config
-  response.
+- Vercel serves the public product overview, read-only replay surface, and the
+  small `/api/operator-config` config response.
 - The private engine runs `scripts/villa-bounded.mjs` through
   `scripts/operator-api.mjs` on an owner-controlled VPS.
 - The browser receives state and sends authenticated control requests. It never

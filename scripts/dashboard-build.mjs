@@ -12,7 +12,7 @@ for (const name of ["index.html", "styles.css", "app.mjs", "favicon.svg"]) await
 await fs.copyFile(path.join(root, "src", "dashboard", "presenter.mjs"), path.join(output, "presenter.mjs"));
 
 const html = await fs.readFile(path.join(output, "index.html"), "utf8");
-const required = ["/styles.css", "/app.mjs", "/favicon.svg", "VILLA", "REPLAY", "PNL_UNAVAILABLE"];
+const required = ["/styles.css", "/app.mjs", "/favicon.svg", "VILLA", "PRODUCT EXPLAINER", "Enter operator console", "How it works", "REPLAY", "PNL_UNAVAILABLE"];
 const missing = required.filter((needle) => !html.includes(needle));
 if (missing.length) throw new Error(`dashboard build missing required markers: ${missing.join(", ")}`);
 console.log(`Dashboard build ready: ${path.relative(root, output)}`);

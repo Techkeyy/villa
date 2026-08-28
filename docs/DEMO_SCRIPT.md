@@ -5,8 +5,9 @@ performed by this task.
 
 Target runtime: 2:40 to 2:50.
 
-Use the primary public cockpit, [villa-ten-ashen.vercel.app](https://villa-ten-ashen.vercel.app/),
-or the local replay command. The legacy Render replay URL,
+Start at the public product overview, [villa-ten-ashen.vercel.app](https://villa-ten-ashen.vercel.app/),
+then use its verified replay action for the evidence scenes. The local replay
+command is also available. The legacy Render replay URL,
 [villa-yhzx.onrender.com](https://villa-yhzx.onrender.com), is a fallback only.
 Every quote, fill, rollover, and settlement scene below is labelled REPLAY in
 the cockpit and must be described as a replay of a real Shannon verification

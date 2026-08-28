@@ -10,8 +10,9 @@ settled value, and follows the next market window.
 VILLA is for the liquidity provider, not the retail bettor. DreamDEX remains
 the venue. Ordinary traders meet VILLA only as liquidity on the DreamDEX book.
 
-**Primary public cockpit:** [villa-ten-ashen.vercel.app](https://villa-ten-ashen.vercel.app/)
-— a replay-first, read-only cockpit. The local replay command is
+**Public product overview:** [villa-ten-ashen.vercel.app](https://villa-ten-ashen.vercel.app/)
+— the default first page explains VILLA in plain language and leads into the
+read-only replay and operator surfaces. The local replay command is
 `npm run dashboard:replay`.
 
 **Legacy replay service:** [villa-yhzx.onrender.com](https://villa-yhzx.onrender.com)
@@ -131,8 +132,9 @@ npm install
 npm run dashboard:replay
 ```
 
-Open [http://127.0.0.1:4173](http://127.0.0.1:4173). The cockpit is replay-first
-and has three labelled scenes:
+Open [http://127.0.0.1:4173](http://127.0.0.1:4173). The default route is the
+public product explainer. Enter the operator console from its primary CTA, or
+use the replay action to inspect the three labelled evidence scenes:
 
 - Quote proof: recorded two-sided post-only liquidity.
 - Rollover proof: terminal market, successor discovery, and an honest `NO QUOTE`.
@@ -203,7 +205,7 @@ normal dashboard use. No new transaction is required for the replay cockpit.
 - Event Contract session-key/operator authorization is not verified for VILLA's MVP.
 - Organic fills are market-dependent and are not manufactured for a demo.
 - The zero-drift fair-value baseline is a correctness-first model, not a claim of predictive edge.
-- Hosted mode is replay-first and signer-free. Live read-only mode may be unavailable when public RPC/indexer access is not safe or reliable.
+- Hosted mode is explainer-first, read-only, and signer-free. Live read-only mode may be unavailable when public RPC/indexer access is not safe or reliable.
 
 ## How I tried to break it
 
@@ -232,7 +234,8 @@ normal dashboard use. No new transaction is required for the replay cockpit.
 | Dashboard | Read-only server adapter, replay envelope, pure presenter, and browser cockpit. |
 
 The operator EOA is the current custody boundary for local testnet proofs. The
-public cockpit is not a wallet and cannot write to DreamDEX.
+The public experience is not a wallet and cannot write to DreamDEX. Operator
+controls are a separate surface and remain behind the wallet ownership gate.
 
 ## Hackathon fit
 

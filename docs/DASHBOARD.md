@@ -1,4 +1,4 @@
-# VILLA operator cockpit
+# VILLA public experience and operator cockpit
 
 **UI STATUS: FEATURE FROZEN**
 
@@ -7,6 +7,13 @@ and narrow viewports. Future UI changes require a concrete demo usability issue
 or an audit-found bug.
 
 ## What it is
+
+The default dashboard route is a public product explainer. It gives first-time
+visitors the product context, workflow, safety posture, and verified proof before
+they enter the operator surface. The explicit operator route is `?mode=operator`;
+the public evidence route is `?mode=replay`.
+
+## Operator cockpit
 
 The VILLA cockpit is a single operator screen for supervising autonomous
 liquidity on DreamDEX Event Contracts. It answers five questions quickly:
@@ -120,7 +127,7 @@ fees, and all relevant cash flows are not yet present in the backend ledger.
 ## Commands
 
 ```text
-npm run dashboard:dev       # local replay-first cockpit
+npm run dashboard:dev       # local explainer-first dashboard
 npm run dashboard:replay    # explicit recorded-evidence mode
 npm run dashboard:live      # server-side read-only Shannon mode
 npm run dashboard:build     # static production asset check into dist/dashboard

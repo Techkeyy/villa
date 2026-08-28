@@ -15,7 +15,7 @@ const errorTitle = document.querySelector('[data-field="error-title"]');
 const errorText = document.querySelector('[data-field="error"]');
 const announcer = document.querySelector('[data-field="announcer"]');
 const params = new URLSearchParams(window.location.search);
-let mode = params.get("mode") === "operator" ? "operator" : "replay";
+let mode = params.get("mode") === "operator" ? "operator" : params.get("mode") === "replay" ? "replay" : "landing";
 let scene = params.get("scene") || "quote";
 let engineApiUrl = null;
 let authSession = null;
@@ -120,10 +120,15 @@ function operatorEnvelope(state) {
 }
 
 function setModeChrome() {
+  const landing = mode === "landing";
   const live = mode === "operator";
+  const landingPage = document.querySelector('[data-page="landing"]');
+  const cockpitPage = document.querySelector('[data-page="cockpit"]');
+  if (landingPage) landingPage.hidden = !landing;
+  if (cockpitPage) cockpitPage.hidden = landing;
+  for (const element of all("[data-landing-only]")) element.hidden = !landing;
+  for (const element of all("[data-cockpit-only]")) element.hidden = landing;
   setField("access-mode", live ? "OPERATOR" : "PUBLIC DEMO");
-  const modeButtonText = live ? "Public demo" : "Operator mode";
-  for (const button of all('[data-action="operator-open"]')) button.textContent = modeButtonText;
   for (const element of all("[data-public]")) element.hidden = live;
   const gate = document.querySelector(".operator-gate");
   if (gate) gate.hidden = !live;
@@ -412,6 +417,11 @@ async function loadPublicMode() {
   setField("announcer", `Verified replay ${scene} ready.`);
 }
 
+async function loadLandingMode() {
+  operatorState = null;
+  setField("announcer", "VILLA product overview ready.");
+}
+
 async function loadOperatorPreview() {
   const envelope = await fetchPublicSnapshot();
   const view = projectDashboard(envelope.snapshot, envelope);
@@ -447,6 +457,12 @@ async function load() {
   errorState.hidden = true;
   content.hidden = true;
   try {
+    if (mode === "landing") {
+      await loadLandingMode();
+      loading.hidden = true;
+      setModeChrome();
+      return;
+    }
     if (mode === "operator") {
       await loadEngineConfig();
       if (authSession) await loadOperatorState();
@@ -485,13 +501,26 @@ function startPolling() {
 }
 
 async function enterOperatorMode() {
-  mode = mode === "operator" ? "replay" : "operator";
-  window.history.replaceState({}, "", `${window.location.pathname}?mode=${mode}`);
-  if (mode !== "operator") {
-    authSession = null;
-    operatorState = null;
-    window.clearInterval(pollTimer);
-  }
+  mode = "operator";
+  window.history.replaceState({}, "", `${window.location.pathname}?mode=operator`);
+  await load();
+}
+
+async function enterReplayMode() {
+  mode = "replay";
+  authSession = null;
+  operatorState = null;
+  window.clearInterval(pollTimer);
+  window.history.replaceState({}, "", `${window.location.pathname}?mode=replay&scene=${encodeURIComponent(scene)}`);
+  await load();
+}
+
+async function enterLandingMode() {
+  mode = "landing";
+  authSession = null;
+  operatorState = null;
+  window.clearInterval(pollTimer);
+  window.history.replaceState({}, "", window.location.pathname);
   await load();
 }
 
@@ -568,6 +597,8 @@ async function control(action) {
 document.addEventListener("click", async (event) => {
   const action = event.target.closest("[data-action]")?.dataset.action;
   if (action === "operator-open") { await enterOperatorMode(); return; }
+  if (action === "replay-open") { await enterReplayMode(); return; }
+  if (action === "landing-open") { await enterLandingMode(); return; }
   if (action === "connect") { await connectWallet(); return; }
   if (action === "retry") { await load(); return; }
   if (action === "safe-defaults") { await safeDefaults(); return; }

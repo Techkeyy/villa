@@ -34,8 +34,9 @@ midpoint, check the Risk Governor, plan inventory-aware quotes, reconcile fills,
 redeem settled value, and rediscover the next same-series window.
 
 DreamDEX remains the venue. VILLA uses the official markets SDK on Somnia
-Shannon for Event Contract reads and bounded testnet writes. The public cockpit
-is observational and replay-first. It never receives a signer or private key.
+Shannon for Event Contract reads and bounded testnet writes. The public
+experience is explainer-first, with an observational replay surface and a
+separate operator cockpit. It never receives a signer or private key.
 
 ## Problem
 
@@ -94,7 +95,7 @@ examples in the Event Contract documentation.
 - restart recovery is bounded and explicit;
 - Event Contract session-key authorization is not verified for VILLA's MVP;
 - organic fills are market-dependent and are not manufactured;
-- public hosting must remain replay-first and signer-free.
+- public hosting must remain explainer-first, read-only, and signer-free.
 
 ## Submission checklist
 

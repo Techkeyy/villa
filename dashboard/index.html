@@ -4,31 +4,96 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="theme-color" content="#111417">
-    <title>VILLA Operator Control Room</title>
+    <title>VILLA | Liquidity for DreamDEX Event Contracts</title>
     <link rel="icon" href="/favicon.svg" type="image/svg+xml">
     <link rel="stylesheet" href="/styles.css">
   </head>
   <body>
     <div class="app-shell">
       <header class="topbar">
-        <a class="brand" href="/" aria-label="VILLA operator control room">
+        <a class="brand" href="/" aria-label="VILLA product overview">
           <span class="brand-mark" aria-hidden="true">V</span>
-          <span class="brand-copy"><strong>VILLA</strong><small>operator control room</small></span>
+          <span class="brand-copy"><strong>VILLA</strong><small>liquidity for DreamDEX</small></span>
         </a>
-        <div class="topbar-context" aria-label="Current network and market">
+        <nav class="landing-nav" data-landing-only aria-label="Product overview navigation">
+          <a href="#how-it-works">How it works</a>
+          <a href="#proof">Verified proof</a>
+          <button class="topbar-button" data-action="operator-open" type="button">Enter operator console</button>
+        </nav>
+        <div class="topbar-context cockpit-only" data-cockpit-only hidden aria-label="Current network and market">
           <span class="network-dot" aria-hidden="true"></span>
           <span>Somnia Shannon</span>
           <span class="topbar-separator">/</span>
           <span data-field="series">BTC 5m</span>
         </div>
-        <div class="topbar-actions">
+        <div class="topbar-actions cockpit-only" data-cockpit-only hidden>
           <span class="access-badge" data-field="access-mode">PUBLIC DEMO</span>
           <span class="state-badge watching" data-field="engine-state">REPLAY</span>
-          <button class="topbar-button" data-action="operator-open" type="button">Operator mode</button>
+          <button class="topbar-button" data-action="landing-open" type="button">Product overview</button>
         </div>
       </header>
 
-      <main class="workspace" id="workspace">
+      <main class="landing-page" data-page="landing" aria-labelledby="landing-title">
+        <section class="landing-hero">
+          <div class="landing-hero-copy">
+            <span class="eyebrow accent-text">PUBLIC PRODUCT EXPLAINER</span>
+            <h1 id="landing-title">VILLA keeps Event Contract markets easier to trade.</h1>
+            <p class="hero-lede">VILLA is a bounded liquidity operator for DreamDEX. It helps a liquidity provider price a BTC market, place maker quotes, manage fills, and carry the work through settlement.</p>
+            <p class="hero-audience">Built for liquidity providers and operators, not retail bettors.</p>
+            <div class="landing-actions">
+              <button class="primary-button" data-action="operator-open" type="button">Enter operator console</button>
+              <button class="quiet-button" data-action="replay-open" type="button">View verified replay</button>
+            </div>
+            <p class="landing-note">Start with the story. Enter the console when you are ready to review a bounded session.</p>
+          </div>
+          <aside class="hero-signal" aria-label="VILLA product flow">
+            <div class="signal-heading"><span class="eyebrow">VILLA IN ONE VIEW</span><span class="signal-status">READ-ONLY TODAY</span></div>
+            <div class="signal-core"><span class="signal-market">BTC 5m Event Contract</span><strong>Liquidity, checked.</strong><p>Price the market. Check risk. Quote with limits.</p></div>
+            <div class="signal-flow" aria-label="VILLA workflow summary"><span>Fair value</span><i aria-hidden="true">→</i><span>Risk</span><i aria-hidden="true">→</i><span>Quote</span><i aria-hidden="true">→</i><span>Settle</span></div>
+            <div class="signal-foot"><span>Operator view</span><strong>One place to review the whole loop.</strong></div>
+          </aside>
+        </section>
+
+        <section class="explainer-section problem-section" id="problem" aria-labelledby="problem-title">
+          <div class="section-marker"><span>01</span><span class="eyebrow">THE PROBLEM</span></div>
+          <div class="section-copy"><h2 id="problem-title">A market needs more than a price on a screen.</h2><p>DreamDEX Event Contracts need dependable maker liquidity so traders can enter and exit without waiting for a counterparty. For one operator, keeping that liquidity healthy means watching prices, exposure, fills, market windows, and settlement at the same time.</p></div>
+        </section>
+
+        <section class="explainer-section" id="what-villa-does" aria-labelledby="does-title">
+          <div class="section-marker"><span>02</span><span class="eyebrow">WHAT VILLA DOES</span></div>
+          <div class="section-main"><div class="section-intro"><h2 id="does-title">It turns a difficult market routine into one visible loop.</h2><p>Each part has a clear job. The operator can see what VILLA believes, what it is allowed to do, and what happened next.</p></div><ol class="capability-list"><li><span>01</span><div><strong>Prices the event</strong><p>Builds an independent BTC up or down estimate from the underlying market and time remaining.</p></div></li><li><span>02</span><div><strong>Checks the risk</strong><p>Tests data quality, balances, gas, exposure, and market conditions before a quote is allowed.</p></div></li><li><span>03</span><div><strong>Provides maker liquidity</strong><p>Places bounded post-only quotes when the safety checks allow it.</p></div></li><li><span>04</span><div><strong>Responds to change</strong><p>Reconciles fills, adjusts inventory, and moves safely when a market closes.</p></div></li><li><span>05</span><div><strong>Tracks the finish</strong><p>Records settlement, redemption, and the handoff to the next matching market.</p></div></li></ol></div>
+        </section>
+
+        <section class="explainer-section workflow-section" id="how-it-works" aria-labelledby="workflow-title">
+          <div class="section-marker"><span>03</span><span class="eyebrow">HOW IT WORKS</span></div>
+          <div class="section-main"><div class="section-intro"><h2 id="workflow-title">Four checks before the next quote.</h2><p>VILLA keeps the sequence understandable. A quote is an outcome of the checks, not a promise to trade.</p></div><div class="workflow-line"><article><span class="workflow-number">1</span><h3>Read</h3><p>Read the BTC market, the underlying price, and the time left.</p></article><i aria-hidden="true">→</i><article><span class="workflow-number">2</span><h3>Decide</h3><p>Calculate fair value and ask the Risk Governor what is allowed.</p></article><i aria-hidden="true">→</i><article><span class="workflow-number">3</span><h3>Quote</h3><p>Offer maker liquidity within the operator’s lower-only limits.</p></article><i aria-hidden="true">→</i><article><span class="workflow-number">4</span><h3>Close</h3><p>Reconcile fills, settle the market, and look for the next safe window.</p></article></div></div>
+        </section>
+
+        <section class="explainer-section split-section" aria-labelledby="operator-value-title">
+          <div class="split-block"><span class="eyebrow">WHY OPERATORS USE IT</span><h2 id="operator-value-title">Less manual work, more context.</h2><ul class="plain-list"><li><strong>Automation with boundaries</strong><span>Run a repeatable quoting routine without handing over unlimited control.</span></li><li><strong>One operational view</strong><span>Review fair value, risk, inventory, lifecycle, and activity together.</span></li><li><strong>Clear intervention points</strong><span>Pause, stop, or cancel session-owned orders when the situation changes.</span></li></ul></div>
+          <div class="split-block benefit-block"><span class="eyebrow">WHY DREAMDEX BENEFITS</span><h2>More continuity for the people trading the market.</h2><ul class="plain-list"><li><strong>Tighter market access</strong><span>Maker quotes give traders a clearer place to buy or sell.</span></li><li><strong>Deeper, steadier books</strong><span>A bounded routine can keep liquidity present across the market window.</span></li><li><strong>Better handoffs</strong><span>Fills, rollover, and settlement are treated as one connected lifecycle.</span></li></ul></div>
+        </section>
+
+        <section class="explainer-section safety-section" aria-labelledby="safety-title">
+          <div class="section-marker"><span>04</span><span class="eyebrow">RISK AND SAFETY</span></div>
+          <div class="section-main safety-main"><div class="section-intro"><h2 id="safety-title">The safe answer is sometimes no quote.</h2><p>The Risk Governor can allow quoting, reduce exposure, or halt new risk. The console keeps that decision visible and gives the operator direct pause, stop, and cancel controls.</p></div><div class="safety-states"><div><strong>ALLOW</strong><span>New maker liquidity may be considered.</span></div><div><strong>REDUCE ONLY</strong><span>Existing directional risk can be reduced, not increased.</span></div><div><strong>HALT</strong><span>New quoting stops until the safety condition is resolved.</span></div></div><p class="safety-note">VILLA does not promise profit. Realized PnL stays unavailable until it can be measured honestly.</p></div>
+        </section>
+
+        <section class="explainer-section proof-section" id="proof" aria-labelledby="proof-title">
+          <div class="section-marker"><span>05</span><span class="eyebrow">VERIFIED PROOF</span></div>
+          <div class="section-main"><div class="section-intro"><h2 id="proof-title">The loop has been exercised on testnet.</h2><p>Use the replay to inspect recorded behavior before you connect a wallet. The public cockpit is read-only, and each scene is labelled as replay evidence.</p></div><div class="proof-grid"><div><span>01</span><strong>Execution</strong><p>Bounded maker actions and cleanup were exercised.</p></div><div><span>02</span><strong>Fills</strong><p>Observed fills were reconciled into the session record.</p></div><div><span>03</span><strong>Rollover</strong><p>The next matching BTC 5m market was selected by identity.</p></div><div><span>04</span><strong>Settlement</strong><p>Claim and residual states were kept distinct.</p></div></div><button class="secondary-button proof-link" data-action="replay-open" type="button">Open the verified replay</button></div>
+        </section>
+
+        <section class="explainer-section console-section" aria-labelledby="console-title">
+          <div class="section-marker"><span>06</span><span class="eyebrow">THE OPERATOR CONSOLE</span></div>
+          <div class="console-callout"><div><h2 id="console-title">When you are ready, the console puts the decision in your hands.</h2><p>Review the safe defaults, see the live preflight, and understand the current state before you act. Wallet access is reserved for the operator surface.</p></div><div class="console-actions"><button class="primary-button" data-action="operator-open" type="button">Enter operator console</button><span>Wallet signature only. No transaction is sent to enter.</span></div></div>
+        </section>
+
+        <section class="landing-cta" aria-labelledby="cta-title"><span class="eyebrow accent-text">START WITH CONTEXT</span><h2 id="cta-title">See how VILLA supports a market, then inspect the controls.</h2><div class="landing-actions"><button class="primary-button" data-action="operator-open" type="button">Enter operator console</button><button class="quiet-button" data-action="replay-open" type="button">View verified replay</button></div></section>
+        <footer class="landing-footer"><span>VILLA, liquidity control for DreamDEX Event Contracts.</span><span>Read-only public evidence. Operator controls require wallet ownership.</span></footer>
+      </main>
+
+      <main class="workspace cockpit-page" data-page="cockpit" id="workspace" hidden>
         <section class="welcome" aria-labelledby="welcome-title">
           <div class="welcome-copy">
             <span class="eyebrow accent-text">LIQUIDITY CONTROL ROOM</span>
