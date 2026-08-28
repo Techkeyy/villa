@@ -3,21 +3,48 @@ import fs from "node:fs";
 import test from "node:test";
 
 const html = fs.readFileSync(new URL("../../dashboard/index.html", import.meta.url), "utf8");
+const css = fs.readFileSync(new URL("../../dashboard/styles.css", import.meta.url), "utf8");
 const app = fs.readFileSync(new URL("../../dashboard/app.mjs", import.meta.url), "utf8");
 
-test("public product explainer is the default layer and cockpit is explicit", () => {
-  assert.match(html, /<main class="landing-page" data-page="landing"/);
-  assert.match(html, /<main class="workspace cockpit-page" data-page="cockpit"[^>]*hidden/);
-  assert.match(html, /Enter operator console/);
+test("public explainer is the default layer with clean product routes", () => {
+  assert.match(html, /data-page="landing"/);
+  assert.match(html, /href="\/app"/);
+  assert.match(html, /href="\/proof"/);
+  assert.match(html, /Put your capital to work as liquidity on DreamDEX Event Contracts/);
+  assert.match(html, /For liquidity providers and operators/);
   assert.match(html, /View verified replay/);
   assert.match(html, /id="how-it-works"/);
-  assert.match(html, /id="proof"/);
-  assert.match(app, /params\.get\("mode"\) === "operator" \? "operator" : params\.get\("mode"\) === "replay" \? "replay" : "landing"/);
+  assert.doesNotMatch(app, /params\.get\("mode"\)/);
 });
 
-test("explainer copy names the real LP product and avoids technical promises", () => {
-  assert.match(html, /bounded liquidity operator for DreamDEX/);
-  assert.match(html, /liquidity providers and operators, not retail bettors/);
-  assert.match(html, /The safe answer is sometimes no quote/);
-  assert.match(html, /VILLA does not promise profit/);
+test("LP workspace is honest about development-gated capital actions", () => {
+  assert.match(html, /data-page="app"[^>]*hidden/);
+  assert.match(html, /MY LIQUIDITY/);
+  assert.match(html, /Connect wallet/);
+  assert.match(html, /Add liquidity<\/button>/);
+  assert.match(html, /Start VILLA<\/button>/);
+  assert.match(html, /Withdraw<\/button>/);
+  assert.match(html, /Capital actions are not live yet/);
+  assert.match(html, /VILLA will not ask for your private key/);
+  assert.match(html, /No deposit or transaction is sent/);
+  assert.match(html, /disabled>Add liquidity/);
+  assert.match(html, /disabled>Start VILLA/);
+  assert.match(html, /disabled>Withdraw/);
+});
+
+test("proof is separate and reads replay data without control-plane calls", () => {
+  assert.match(html, /data-page="proof"[^>]*hidden/);
+  assert.match(html, /VERIFIED SHANNON REPLAY/);
+  assert.match(html, /id="proof-scene"/);
+  assert.match(app, /api\/snapshot\?mode=replay/);
+  assert.doesNotMatch(app, /auth\/nonce|auth\/verify|\/state|\/config|START|PAUSE|STOP/);
+});
+
+test("visual system is light, blue, responsive, and accessible", () => {
+  assert.match(css, /color-scheme: light/);
+  assert.match(css, /--blue:/);
+  assert.match(css, /prefers-reduced-motion/);
+  assert.match(css, /focus-visible/);
+  assert.match(css, /max-width: 440px/);
+  assert.doesNotMatch(css, /radial-gradient|linear-gradient|backdrop-filter/);
 });

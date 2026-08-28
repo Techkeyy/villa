@@ -27,7 +27,7 @@ function json(response, status, body) {
 }
 
 async function serveStatic(response, pathname) {
-  const relative = pathname === "/" ? "index.html" : pathname.slice(1);
+  const relative = pathname === "/" || pathname === "/app" || pathname === "/app/" || pathname === "/proof" || pathname === "/proof/" ? "index.html" : pathname.slice(1);
   const requested = path.resolve(dashboardRoot, relative);
   if (!requested.startsWith(`${dashboardRoot}${path.sep}`)) return json(response, 403, { error: "forbidden path" });
   try {
@@ -56,8 +56,7 @@ const server = http.createServer(async (request, response) => {
   if (url.pathname === "/api/scenes") return json(response, 200, { scenes: REPLAY_SCENES });
   if (url.pathname === "/api/operator-config") return json(response, 200, {
     engineApiUrl: process.env.VILLA_ENGINE_API_URL || null,
-    publicMode: "DEMO / VERIFIED REPLAY",
-    operatorMode: "single-operator testnet MVP",
+    publicMode: "DEVELOPMENT PREVIEW / VERIFIED REPLAY",
   });
   if (url.pathname === "/api/snapshot") {
     const requestedMode = (url.searchParams.get("mode") || defaultMode).toLowerCase();
