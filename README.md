@@ -1,19 +1,18 @@
 # VILLA
 
-Independent liquidity intelligence for DreamDEX Event Contracts.
+Liquidity infrastructure for DreamDEX Event Contracts.
 
-VILLA is an operator-facing liquidity engine for Somnia Shannon Event
-Contracts. It forms its own fair value, applies deterministic risk rules,
-plans adaptive post-only quotes, reconciles inventory and fills, recovers
-settled value, and follows the next market window.
+VILLA is an LP-facing product for Somnia Shannon Event Contracts. It forms its
+own fair value, applies deterministic risk rules, plans adaptive post-only
+quotes, reconciles inventory and fills, recovers settled value, and follows
+the next market window.
 
 VILLA is for the liquidity provider, not the retail bettor. DreamDEX remains
 the venue. Ordinary traders meet VILLA only as liquidity on the DreamDEX book.
 
-**Public product overview:** [villa-ten-ashen.vercel.app](https://villa-ten-ashen.vercel.app/)
-— the default first page explains VILLA in plain language and leads into the
-read-only replay and operator surfaces. The local replay command is
-`npm run dashboard:replay`.
+**Public product:** [villa-ten-ashen.vercel.app](https://villa-ten-ashen.vercel.app/)
+— `/` is the public explainer, `/app` is the LP workspace, and `/proof` is the
+read-only verified replay surface. The local command is `npm run dashboard:replay`.
 
 **Legacy replay service:** [villa-yhzx.onrender.com](https://villa-yhzx.onrender.com)
 remains available as a replay-only fallback; it is not the primary VILLA UI.
@@ -71,12 +70,13 @@ inventory -> fills -> settlement -> claim -> successor rollover
                  villa-dashboard-v1
                          |
                          v
-                 operator cockpit
+                 LP workspace + proof
 ```
 
 The fair-value core answers "what do we think UP is worth?" The Risk Governor
 answers "are we allowed to take more risk?" Those are separate boundaries.
-The cockpit is read-only and observational.
+The public product is read-only and observational until the per-user capital
+account boundary is proven.
 
 ## Why DreamDEX Event Contracts
 
@@ -100,7 +100,7 @@ with a dashboard. The differentiating layer is:
 | Exposure | Worst-case stress includes every signed pending binary order delta. Opposing orders are not netted optimistically. |
 | Quotes | `villa-quote-v1` adapts spread, inventory skew, size, collateral, expiry, confidence, and exact tick/lot/minimum rules. |
 | Lifecycle | Bounded execution, fill reconciliation, complete-set inventory, explicit redemption, wallet hygiene, and same-series successor rollover. |
-| UX | A single cockpit explains fair value, venue comparison, quote posture, risk, inventory, lifecycle, evidence, and `PNL_UNAVAILABLE`. |
+| UX | A public explainer, LP workspace, and separate proof surface explain the product without implying that capital actions are live. |
 
 ## Verified on Shannon
 
@@ -116,14 +116,14 @@ readiness.
 | Settlement | Winning residuals were redeemed through the SDK and payout amounts reconciled. Known zero-value losing residuals remained labelled, not hidden. |
 | Rollover | A terminal BTC window was closed and a later same-series successor was rediscovered without mixing market scope. |
 | Wallet hygiene | Final audit ended with zero active orders and zero unknown inventory. |
-| Local audit | 404/404 total tests and 30/30 dashboard tests passed in the Phase 7A audit. |
+| Local audit | The Phase 7A regression and dashboard audit passed before this Phase 0 UI pivot; current results are rerun for this commit. |
 
 Detailed evidence, hashes, conditions, and limitations are in
 [`docs/TECHNICAL_VERIFICATION.md`](docs/TECHNICAL_VERIFICATION.md),
 [`docs/FINAL_AUDIT.md`](docs/FINAL_AUDIT.md), and
 [`docs/BACKEND_FREEZE.md`](docs/BACKEND_FREEZE.md).
 
-## Run the replay cockpit
+## Run the product surfaces
 
 Requires Node.js 20 or newer.
 
@@ -132,16 +132,19 @@ npm install
 npm run dashboard:replay
 ```
 
-Open [http://127.0.0.1:4173](http://127.0.0.1:4173). The default route is the
-public product explainer. Enter the operator console from its primary CTA, or
-use the replay action to inspect the three labelled evidence scenes:
+Open [http://127.0.0.1:4173](http://127.0.0.1:4173). The routes are:
 
-- Quote proof: recorded two-sided post-only liquidity.
-- Rollover proof: terminal market, successor discovery, and an honest `NO QUOTE`.
-- Settlement proof: organic fills, redemptions, payout reconciliation, and wallet hygiene.
+- `/`: public product explainer.
+- `/app`: LP workspace with wallet onboarding and development-gated capital actions.
+- `/proof`: read-only replay evidence for the three labelled scenes:
+
+  - Quote proof: recorded two-sided post-only liquidity.
+  - Rollover proof: terminal market, successor discovery, and an honest `NO QUOTE`.
+  - Settlement proof: organic fills, redemptions, payout reconciliation, and wallet hygiene.
 
 Replay is built from verified facts and does not send transactions. It does not
-pretend that recorded events are happening live.
+pretend that recorded events are happening live. The LP workspace also does not
+request a private key or send a deposit in this phase.
 
 ## Read-only live mode
 
@@ -177,9 +180,9 @@ npm run dashboard:test
 npm run dashboard:build
 ```
 
-The audited baseline is 404 passing tests, including 30 dashboard tests. The
-production dependency audit reported zero vulnerabilities. The dashboard build
-checks the static assets, favicon, replay markers, and unavailable-PnL marker.
+The dashboard build checks the static assets, clean route markers, and honest
+development-preview copy. The current test and audit results should be read
+from the command output for the checked commit.
 
 Write-capable scripts exist only for bounded local testnet verification and
 require explicit confirmation where applicable. Do not run them casually or
@@ -195,14 +198,14 @@ npm run villa:bounded:dry
 ```
 
 Wet write, mint, fill, redeem, and autonomous-run verification is not part of
-normal dashboard use. No new transaction is required for the replay cockpit.
+normal dashboard use. No new transaction is required for the replay surface.
 
 ## Honest limitations
 
 - This is a bounded Somnia Shannon testnet proof, not an indefinite production daemon.
 - Complete realized maker PnL and all cash-flow components are unavailable; the UI says `PNL_UNAVAILABLE`.
 - Restart recovery is bounded and explicit.
-- Event Contract session-key/operator authorization is not verified for VILLA's MVP.
+- Open multi-LP Event Contract delegation is not yet proven. The Phase 0 choice is `PER_USER_VILLA_ACCOUNT_REQUIRED`; capital actions remain gated.
 - Organic fills are market-dependent and are not manufactured for a demo.
 - The zero-drift fair-value baseline is a correctness-first model, not a claim of predictive edge.
 - Hosted mode is explainer-first, read-only, and signer-free. Live read-only mode may be unavailable when public RPC/indexer access is not safe or reliable.
@@ -231,11 +234,12 @@ normal dashboard use. No new transaction is required for the replay cockpit.
 | Quote planner | Pure `villa-quote-v1` value-centred adaptive quote planning. |
 | Execution | Bounded, serialized, post-only write adapter with reconciliation and cleanup. |
 | Lifecycle | Inventory, settlement, claim recovery, wallet hygiene, and successor scope. |
-| Dashboard | Read-only server adapter, replay envelope, pure presenter, and browser cockpit. |
+| Dashboard | Read-only server adapter, replay envelope, LP product surfaces, and proof view. |
 
-The operator EOA is the current custody boundary for local testnet proofs. The
-The public experience is not a wallet and cannot write to DreamDEX. Operator
-controls are a separate surface and remain behind the wallet ownership gate.
+The existing operator EOA is the custody boundary for the historical local
+testnet proofs only. The public experience is not a wallet and cannot write to
+DreamDEX. An open LP product requires a per-user account boundary before any
+capital is accepted.
 
 ## Hackathon fit
 
@@ -243,7 +247,7 @@ controls are a separate surface and remain behind the wallet ownership gate.
 | --- | --- |
 | Technical Implementation, 25% | Real DreamDEX Event Contract SDK integration on Shannon, verified post-only writes, inventory, settlement, and reconciliation. |
 | Innovation and Originality, 20% | Independent underlying-based value, deterministic governor, pending exposure, lifecycle recycling, and operator workflow above `ec-maker`. |
-| User Experience and Design, 20% | Readable one-page cockpit with replay/live honesty, named risk reasons, quote comparison, lifecycle evidence, and responsive UI. |
+| User Experience and Design, 20% | White and blue explainer, LP workspace, and separate proof route with replay/live honesty and responsive UI. |
 | Business and Ecosystem Impact, 20% | Software for the liquidity operator that can help keep Event Contract books usable for ordinary DreamDEX traders. |
 | Presentation and Demo, 15% | Stable replay of real quote, fill, rollover, and settlement evidence, with a prepared 2 to 3 minute script. |
 

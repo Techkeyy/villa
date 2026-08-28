@@ -1,10 +1,10 @@
 # Project understanding — VILLA
 
-Skill: `Desktop/skill/project-understanding`. Product locked by the directing agent. Current status is Phase 7A final pre-submission audit; the backend and Phase 6B.1 read-only cockpit are feature frozen. Phase 2A selected `villa-fv-v1`: a zero-drift log-return digital baseline with a separate data-quality score. Later implementation evidence is recorded in `docs/TECHNICAL_VERIFICATION.md` and the phase-specific lifecycle docs.
+Skill: `Desktop/skill/project-understanding`. Product locked by the directing agent. Current status is Phase 0 LP product pivot; the backend and proven VILLA engine remain feature frozen while the public, LP, and proof surfaces are rebuilt. Phase 2A selected `villa-fv-v1`: a zero-drift log-return digital baseline with a separate data-quality score. Later implementation evidence is recorded in `docs/TECHNICAL_VERIFICATION.md` and the phase-specific lifecycle docs. Open multi-LP capital automation is gated by `PER_USER_VILLA_ACCOUNT_REQUIRED`.
 
 ## One sentence
 
-**VILLA** helps **a liquidity provider / operator** **put capital to work on DreamDEX Event Contract books** by **forming its own view of value, quoting both sides inside risk limits, and recycling capital through settlement**.
+**VILLA** helps **a liquidity provider** **understand and eventually put their own capital to work on DreamDEX Event Contract books** by **forming its own view of value, quoting inside risk limits, and recycling capital through settlement**.
 
 ## The problem, as a story
 
@@ -20,8 +20,9 @@ Tobi cannot babysit every window. Windows die. Winnings do not arrive by themsel
 
 ```
 BEFORE  Capital sits idle, or Tobi bets, or he runs ec-maker quoting the mid.
-AFTER   Tobi funds VILLA, sets limits, and watches an independent value, live
-        quotes, inventory, and named stops. Other traders only see DreamDEX.
+AFTER   Tobi connects a wallet, reviews the capital boundary, and eventually
+        watches independent value, quotes, inventory, and named stops. Other
+        traders only see DreamDEX.
 ```
 
 If the after is indistinguishable from `npm start -w ec-maker`, we failed originality.
@@ -30,7 +31,7 @@ If the after is indistinguishable from `npm start -w ec-maker`, we failed origin
 
 | Actor | User-facing? |
 | --- | --- |
-| Operator (Tobi) | Yes — only direct user |
+| Liquidity provider (Tobi) | Yes — direct product user |
 | DreamDEX traders | No — they hit the book |
 | Fair-value engine | Yes, as a number + inputs |
 | Adaptive quoting | Yes, as bids/asks |
@@ -40,7 +41,7 @@ If the after is indistinguishable from `npm start -w ec-maker`, we failed origin
 
 ## Operator journey
 
-Arrival → see a desk not a casino → configure/fund outside the observational cockpit → VILLA discovers a live window → shows value vs market → posts quotes or refuses with a reason → fills move inventory and quotes → halt if a rule fires → window ends → claim → next window. The frozen Phase 6B screen observes this journey; it does not accept signer input or perform writes.
+Arrival → understand the product → connect a wallet → review owner-scoped capital allocation → authorize only a proven permission path → start VILLA → see value vs market → monitor quotes and named stops → window ends → settle → withdraw. The Phase 0 UI makes the first steps clear and keeps capital actions gated until the account boundary is proven.
 
 Magic moment: **the underlying ticks, fair value moves, quotes move, one English line explains it, and a halt is visible when rules say no.**
 
@@ -48,7 +49,7 @@ Magic moment: **the underlying ticks, fair value moves, quotes move, one English
 
 | Job | Likely tech (second) |
 | --- | --- |
-| Dashboard | Phase 6B.1 read-only operator cockpit |
+| Dashboard | Public explainer, LP workspace, and read-only proof route |
 | Collector | markets-sdk + priceFeed + RPC |
 | Fair value | deterministic TypeScript `villa-fv-v1` zero-drift log-return digital model |
 | Adaptive quoting | post-only via SDK/raw trader |
@@ -66,7 +67,7 @@ Magic moment: **the underlying ticks, fair value moves, quotes move, one English
 
 Operator trusts our off-chain process and DreamDEX settlement. Not "trustless." Two-sided quoting is not risk-free (adverse selection). If our process dies, orders should age off via mandatory expiry.
 
-Default custody: **operator EOA**. Holding other people's money is a different product.
+Historical proof custody: **operator EOA**. Open LP custody requires a per-user account boundary; holding other people's money through a shared operator wallet is not accepted.
 
 ## Load-bearing assumption
 

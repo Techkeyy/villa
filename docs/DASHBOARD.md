@@ -1,22 +1,23 @@
-# VILLA public experience and operator cockpit
+# VILLA product surfaces and verified replay
 
-**UI STATUS: FEATURE FROZEN**
+**UI STATUS: PHASE 0 LP PRODUCT PIVOT**
 
-Phase 6B.1 rendered QA passed across the recorded scenes and required desktop
-and narrow viewports. Future UI changes require a concrete demo usability issue
-or an audit-found bug.
+The Phase 0 pivot keeps the verified engine and replay evidence, then presents
+them through three clean product surfaces. Capital actions remain development
+gated while the per-user account boundary is designed and proven.
 
-## What it is
+## Current routes
 
-The default dashboard route is a public product explainer. It gives first-time
-visitors the product context, workflow, safety posture, and verified proof before
-they enter the operator surface. The explicit operator route is `?mode=operator`;
-the public evidence route is `?mode=replay`.
+The routes are `/` for the public explainer, `/app` for My Liquidity and My
+VILLA, and `/proof` for read-only verified Shannon replay. The `/app` surface
+starts with wallet onboarding and does not ask for a private key. Add Liquidity,
+Start VILLA, and Withdraw are disabled until owner-scoped capital ownership,
+permissions, settlement, and revocation are proven.
 
-## Operator cockpit
+## Historical Phase 6B evidence surface
 
-The VILLA cockpit is a single operator screen for supervising autonomous
-liquidity on DreamDEX Event Contracts. It answers five questions quickly:
+The retained evidence surface describes the autonomous liquidity engine. It
+answers five questions quickly:
 
 1. Which market is in view?
 2. What does VILLA independently think UP is worth?
@@ -24,14 +25,14 @@ liquidity on DreamDEX Event Contracts. It answers five questions quickly:
 4. What inventory and risk permission exist?
 5. What did the system just do, and why?
 
-The direct user is the capital allocator supervising VILLA, not a consumer
-placing prediction bets. The screen is observational in Phase 6B. It has no
-order, cancel, mint, burn, redeem, or session-control button.
+The direct product user is a liquidity provider, not a consumer placing
+prediction bets. The historical screen is observational and has no order,
+cancel, mint, burn, redeem, or session-control button.
 
 ## One-page structure
 
-The cockpit is intentionally one page because the operator scans a live desk,
-not a collection of administrative routes. The hierarchy is:
+The historical cockpit was intentionally one page because an operator scans a
+live desk. Its hierarchy was:
 
 - system bar: network, series, state, market lifecycle, wallet abbreviation,
   and contract version;
@@ -127,7 +128,7 @@ fees, and all relevant cash flows are not yet present in the backend ledger.
 ## Commands
 
 ```text
-npm run dashboard:dev       # local explainer-first dashboard
+npm run dashboard:dev       # local product surfaces
 npm run dashboard:replay    # explicit recorded-evidence mode
 npm run dashboard:live      # server-side read-only Shannon mode
 npm run dashboard:build     # static production asset check into dist/dashboard
@@ -151,5 +152,6 @@ replay command.
   retained as a committed artifact.
 - There is no control surface for the bounded runner in this milestone.
 - Full realized PnL and ROI remain unavailable.
+- Open multi-LP capital automation requires `PER_USER_VILLA_ACCOUNT_REQUIRED`.
 - No explorer URL is generated because the inherited project does not define a
   verified explorer URL pattern. Hashes can be copied for inspection.
