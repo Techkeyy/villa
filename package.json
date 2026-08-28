@@ -8,7 +8,7 @@
     "doctor": "node scripts/doctor.mjs",
     "start": "node scripts/dashboard-server.mjs --replay",
     "discover": "node scripts/discover.mjs",
-    "test": "node --test scripts/lib/write-path.test.mjs src/fair-value/*.test.mjs src/risk-governor/*.test.mjs src/quote-planner/*.test.mjs src/inventory-lifecycle/*.test.mjs src/execution/*.test.mjs src/settlement/*.test.mjs src/dashboard/*.test.mjs src/rollover/*.test.mjs src/orchestrator/*.test.mjs",
+    "test": "node --test scripts/lib/write-path.test.mjs src/account/*.test.mjs src/fair-value/*.test.mjs src/risk-governor/*.test.mjs src/quote-planner/*.test.mjs src/inventory-lifecycle/*.test.mjs src/execution/*.test.mjs src/settlement/*.test.mjs src/dashboard/*.test.mjs src/rollover/*.test.mjs src/orchestrator/*.test.mjs",
     "dashboard:dev": "node scripts/dashboard-server.mjs --replay",
     "dashboard:live": "node --env-file=.env scripts/dashboard-server.mjs --live",
     "dashboard:replay": "node scripts/dashboard-server.mjs --replay",
