@@ -117,6 +117,42 @@ h3 { margin-bottom: 9px; font-size: 19px; line-height: 1.2; letter-spacing: -.02
 .connected-state { display: grid; gap: 18px; }
 .connected-bar { display: flex; align-items: center; justify-content: space-between; gap: 20px; border-bottom: 1px solid var(--line); padding: 10px 2px 18px; }
 .connected-bar strong { display: block; font-size: 15px; }
+.connected-actions { display: flex; align-items: center; gap: 10px; }
+.network-panel { max-width: 720px; margin: 0 auto; }
+.network-panel h2 { margin-bottom: 10px; font-size: 28px; }
+.network-panel p:not(.form-message) { max-width: 560px; margin-bottom: 20px; color: var(--muted); }
+.loading-panel { display: flex; align-items: center; justify-content: center; gap: 14px; max-width: 620px; margin: 0 auto; }
+.loading-panel p { margin: 4px 0 0; color: var(--muted); font-size: 14px; }
+.spinner { display: block; width: 20px; height: 20px; border: 2px solid var(--line-strong); border-top-color: var(--blue); border-radius: 50%; animation: spin .8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.account-empty { max-width: 680px; margin: 0 auto; }
+.account-empty p:not(.form-message):not(.helper) { max-width: 560px; color: var(--muted); }
+.account-identity { display: flex; align-items: end; justify-content: space-between; gap: 30px; }
+.account-identity h2 { margin-bottom: 8px; font-size: 28px; }
+.identity-copy { max-width: 520px; margin-bottom: 0; color: var(--muted); }
+.identity-facts { display: grid; min-width: 300px; gap: 12px; }
+.identity-facts div { display: flex; justify-content: space-between; gap: 18px; border-bottom: 1px solid var(--line); padding-bottom: 8px; }
+.identity-facts div:last-child { border-bottom: 0; padding-bottom: 0; }
+.identity-facts span { color: var(--muted); font-size: 13px; }
+.identity-facts strong { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 13px; overflow-wrap: anywhere; text-align: right; }
+.capital-metrics { grid-template-columns: repeat(3, 1fr); }
+.capital-metrics .metric:nth-child(n + 4) { border-top: 1px solid var(--line); }
+.capital-metrics .metric:nth-child(4) { border-left: 0; padding-left: 0; }
+.allocation-row label span, .allocation-row label small { display: block; }
+.allocation-row label small { margin-top: 4px; color: var(--subtle); font-size: 12px; }
+.authorization-panel { padding: 30px; }
+.authorization-copy { margin-bottom: 18px; color: var(--muted); }
+.authorization-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+.secondary-link { margin-top: 12px; color: var(--muted); font-size: 13px; }
+.capital-actions .compact-panel { min-height: 230px; }
+.compact-panel .amount-input { margin-bottom: 12px; }
+.compact-panel > .button { width: 100%; }
+.transaction-panel { border-color: var(--line-strong); box-shadow: none; }
+.transaction-panel h2 { margin-bottom: 0; font-size: 24px; }
+.transaction-panel p { color: var(--muted); }
+.technical-detail { border-top: 1px solid var(--line); padding-top: 14px; color: var(--muted); font-size: 13px; }
+.technical-detail summary { width: fit-content; cursor: pointer; color: var(--ink); font-weight: 700; }
+.technical-detail p { margin: 12px 0 0; overflow-wrap: anywhere; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 12px; }
 .capital-panel, .strategy-panel { padding: 30px; }
 .panel-topline { display: flex; align-items: start; justify-content: space-between; gap: 24px; margin-bottom: 24px; }
 .panel-topline h2 { margin-bottom: 0; font-size: 28px; }
@@ -198,13 +234,18 @@ h3 { margin-bottom: 9px; font-size: 19px; line-height: 1.2; letter-spacing: -.02
   .app-header, .proof-header { align-items: start; flex-direction: column; padding-top: 52px; }
   .notice { margin-top: 0; }
   .panel, .capital-panel, .strategy-panel { padding: 22px; }
-  .connected-bar, .strategy-action, .allocation-row, .proof-controls { align-items: stretch; flex-direction: column; }
+  .connected-bar, .strategy-action, .allocation-row, .proof-controls, .account-identity { align-items: stretch; flex-direction: column; }
+  .connected-actions { justify-content: space-between; }
   .metric-grid, .strategy-summary { grid-template-columns: 1fr 1fr; }
+  .capital-metrics { grid-template-columns: 1fr 1fr; }
   .metric:nth-child(3) { grid-column: 1 / -1; border-top: 1px solid var(--line); padding-left: 0; }
   .metric + .metric { padding-left: 14px; }
   .metric:nth-child(3) { border-left: 0; }
+  .capital-metrics .metric:nth-child(4) { border-left: 0; padding-left: 0; }
+  .capital-metrics .metric:nth-child(3), .capital-metrics .metric:nth-child(5) { border-left: 0; }
+  .identity-facts { min-width: 0; }
   .amount-input { width: 100%; }
-  .allocation-row .button, .strategy-action .button, .proof-controls .button, .proof-controls select { width: 100%; }
+  .allocation-row .button, .strategy-action .button, .proof-controls .button, .proof-controls select, .authorization-actions .button { width: 100%; }
   .proof-controls .form-message { position: static; margin-top: 0; }
 }
 
@@ -213,7 +254,7 @@ h3 { margin-bottom: 9px; font-size: 19px; line-height: 1.2; letter-spacing: -.02
   .site-nav a:nth-child(2) { display: none; }
   .workflow-card { padding: 18px; }
   .workflow-label { display: none; }
-  .metric-grid, .strategy-summary { grid-template-columns: 1fr; }
+  .metric-grid, .strategy-summary, .capital-metrics { grid-template-columns: 1fr; }
   .metric { min-height: 0; padding: 16px 0; }
   .metric + .metric, .metric:nth-child(3) { border-top: 1px solid var(--line); border-left: 0; padding-left: 0; }
   .strategy-summary { gap: 0; padding: 16px; }

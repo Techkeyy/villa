@@ -11,8 +11,11 @@ VILLA is for the liquidity provider, not the retail bettor. DreamDEX remains
 the venue. Ordinary traders meet VILLA only as liquidity on the DreamDEX book.
 
 **Public product:** [villa-ten-ashen.vercel.app](https://villa-ten-ashen.vercel.app/)
-— `/` is the public explainer, `/app` is the LP workspace, and `/proof` is the
-read-only verified replay surface. The local command is `npm run dashboard:replay`.
+— `/` is the public explainer, `/app` is the owner-scoped LP workspace, and
+`/proof` is the read-only verified replay surface. Phase 2 account actions are
+implemented locally and remain public-enable gated until the disposable-wallet
+browser proof and owner approval pass. The local command is
+`npm run dashboard:replay`.
 
 **Legacy replay service:** [villa-yhzx.onrender.com](https://villa-yhzx.onrender.com)
 remains available as a replay-only fallback; it is not the primary VILLA UI.
@@ -100,7 +103,7 @@ with a dashboard. The differentiating layer is:
 | Exposure | Worst-case stress includes every signed pending binary order delta. Opposing orders are not netted optimistically. |
 | Quotes | `villa-quote-v1` adapts spread, inventory skew, size, collateral, expiry, confidence, and exact tick/lot/minimum rules. |
 | Lifecycle | Bounded execution, fill reconciliation, complete-set inventory, explicit redemption, wallet hygiene, and same-series successor rollover. |
-| UX | A public explainer, LP workspace, and separate proof surface explain the product without implying that capital actions are live. |
+| UX | A public explainer, owner-scoped LP workspace, and separate proof surface explain the product without exposing the execution engine. |
 
 ## Verified on Shannon
 
@@ -135,7 +138,7 @@ npm run dashboard:replay
 Open [http://127.0.0.1:4173](http://127.0.0.1:4173). The routes are:
 
 - `/`: public product explainer.
-- `/app`: LP workspace with wallet onboarding and development-gated capital actions.
+- `/app`: LP workspace with owner-scoped account creation, exact tUSDC funding, authorization, revocation, and owner-only withdrawal. Start VILLA remains disabled.
 - `/proof`: read-only replay evidence for the three labelled scenes:
 
   - Quote proof: recorded two-sided post-only liquidity.
@@ -143,8 +146,10 @@ Open [http://127.0.0.1:4173](http://127.0.0.1:4173). The routes are:
   - Settlement proof: organic fills, redemptions, payout reconciliation, and wallet hygiene.
 
 Replay is built from verified facts and does not send transactions. It does not
-pretend that recorded events are happening live. The LP workspace also does not
-request a private key or send a deposit in this phase.
+pretend that recorded events are happening live. The LP workspace never requests
+a private key; its account actions use the connected wallet and exact on-chain
+verification. Public enablement remains staged pending browser proof and owner
+approval.
 
 ## Read-only live mode
 
@@ -205,10 +210,10 @@ normal dashboard use. No new transaction is required for the replay surface.
 - This is a bounded Somnia Shannon testnet proof, not an indefinite production daemon.
 - Complete realized maker PnL and all cash-flow components are unavailable; the UI says `PNL_UNAVAILABLE`.
 - Restart recovery is bounded and explicit.
-- Open multi-LP Event Contract delegation is not yet proven. The Phase 0 choice is `PER_USER_VILLA_ACCOUNT_REQUIRED`; capital actions remain gated.
+- Open multi-LP Event Contract delegation is not yet proven. The Phase 2 choice is `PER_USER_VILLA_ACCOUNT_REQUIRED`; public account-action enablement remains gated until live browser proof and owner approval.
 - Organic fills are market-dependent and are not manufactured for a demo.
 - The zero-drift fair-value baseline is a correctness-first model, not a claim of predictive edge.
-- Hosted mode is explainer-first, read-only, and signer-free. Live read-only mode may be unavailable when public RPC/indexer access is not safe or reliable.
+- Hosted execution remains signer-free and Start VILLA is disabled. Live read-only mode may be unavailable when public RPC/indexer access is not safe or reliable. Account setup is non-custodial and wallet-mediated, but is not a production execution claim.
 
 ## How I tried to break it
 

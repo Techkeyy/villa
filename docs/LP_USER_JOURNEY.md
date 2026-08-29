@@ -1,46 +1,59 @@
-# VILLA LP User Journey
+# VILLA LP user journey
 
-Status: Phase 0 product journey lock
+Status: Phase 2 implementation, public enablement gated by browser proof and owner approval.
+
+VILLA is for liquidity providers and operators who want to make their own capital available to DreamDEX Event Contracts. It is not a retail betting screen. The journey keeps the owner wallet, the user-owned VILLA account, and the future automation permission visible.
 
 ## Core journey
 
-| LP moment | LP goal | Product response | System truth |
-| --- | --- | --- | --- |
-| Discover | Understand whether VILLA is for them | Public explainer says VILLA is for DreamDEX liquidity providers and explains the workflow in plain language. | No wallet or capital request on the landing page. |
-| Connect | Bring a compatible wallet into the product | Wallet connection is the first app action. | Connection is informational in this phase. No private key is requested. |
-| Review capital | Decide how much capital to allocate | My Liquidity shows wallet balance context, allocated capital, and the amount-to-use field. | Add Liquidity stays gated while the per-user account boundary is unbuilt. |
-| Authorize | Understand what VILLA may do | Permission language is owner-first and narrowly scoped. | No authorization transaction is presented until the capability is proven. |
-| Start | Begin market-making | The future action is labelled Start VILLA. | The preview control remains disabled in this phase. |
-| Monitor | See fair value, market comparison, risk, capital, orders, activity, and settlement | A compact running view prioritizes state, market, risk, and valid actions. | No invented live values are shown as real. |
-| Stop | Retain control of the strategy | Pause, resume, and stop are state-dependent. | Safe-mode preview has no capital-side effect. |
-| Settle | Understand when capital is available | Settlement explains pending, settled, and withdrawable states. | Unsettled capital is not described as immediately withdrawable. |
-| Withdraw | Return capital to the LP | Withdrawal appears only when the real path is implemented and proven. | The current UI does not imply that a disabled withdrawal succeeded. |
-| Verify | Inspect evidence without operational clutter | Proof and replay live on `/proof`. | Replay is explicitly labelled as evidence, not current LP activity. |
+| LP moment | Product response | System truth |
+| --- | --- | --- |
+| Understand | The public explainer describes VILLA in plain language and links to the LP workspace and verified replay. | No wallet or capital request occurs on `/`. |
+| Connect | The visitor connects a normal EIP-1193 wallet. | The browser receives an address only. No private key is requested or handled. |
+| Choose network | The product checks chain ID 50312 and offers the standard wallet switch or add-network request. | Actions remain paused until Somnia Shannon is confirmed. |
+| Find account | VILLA checks a local hint, the Shannon Explorer ownership-event index, and a provider log fallback. | Every candidate is rechecked by exact runtime code, owner, immutable wiring, and chain. Index data is never authorization. |
+| Create account | If no verified account exists, the wallet deploys the audited `VillaAccount` bytecode with the connected owner and operator set to zero. | The UI reports success only after receipt, address, bytecode, owner, operator, and wiring verification. |
+| Add liquidity | The owner enters an exact six-decimal tUSDC amount. The wallet approves that account for that amount if needed, then deposits into the account. | Post-transaction wallet and account deltas must reconcile exactly. |
+| Authorize | The owner can set the trusted VILLA operator or revoke it. | The product refuses to overwrite an unexpected operator and rereads the operator after each transaction. |
+| Review capital | My Liquidity shows wallet balance, allocated, available, and withdrawable capital. | Deployed and pending settlement remain zero while execution is disconnected. No PnL, APR, yield, or profit claim is shown. |
+| Start | The workspace explains readiness and keeps Start VILLA disabled. | Phase 2 does not connect the execution engine or place DreamDEX orders. |
+| Withdraw | The owner enters an amount and withdraws to the connected owner wallet. | There is no destination field. Owner, code, exact decrease, and exact wallet increase are verified. |
+| Reconnect | Refresh, reload, and a new session rediscover the account from verified on-chain evidence. | Deleting local storage does not destroy account identity. |
 
-## State model
+## Browser states
 
 ### Disconnected
 
-The app says: “Become a DreamDEX liquidity provider.” It offers Connect wallet and identifies Shannon Testnet. It does not render a dense dashboard before the first action.
+The app offers Connect wallet, identifies Somnia Shannon Testnet, and says that VILLA never asks for a private key. It does not show a capital form before a wallet is connected.
 
-### Connected, no allocation
+### Connected, wrong network
 
-The app introduces My Liquidity with wallet balance context, allocated-to-VILLA status, an amount-to-use field, and a disabled Add liquidity action with a truthful development message.
+The app shows the connected address and a Switch network action. Account history and capital actions remain paused until chain ID 50312 is read from the wallet.
 
-### Ready preview
+### Connected, account lookup in progress
 
-The app can show the intended shape of My VILLA: BTC 5 minute market, VILLA fair value, DreamDEX comparison, risk state, and Start VILLA. Preview values are clearly marked unavailable or preview-only until a real capital path exists.
+The app shows a compact loading state while it reads the verified account artifact, indexed ownership history, and chain state.
 
-### Running, paused, halted, stopped
+### Connected, no verified account
 
-- Running: show Pause and Stop.
-- Paused: show Resume and Stop.
-- Halted: show the reason and Stop.
-- Stopped: show settlement state, deployed and available balances when real, plus future Add liquidity and Withdraw actions.
+The app offers Create VILLA account. The copy explains that the connected wallet remains owner and that automation starts unauthorized.
 
-The app must never expose an action that is invalid for the current state.
+### Account ready for setup
 
-## Language rules
+The app shows exact tUSDC funding, authorization, and owner-only withdrawal actions. Every write uses the wallet and shows WAITING_FOR_WALLET, SUBMITTED, CONFIRMING, SUCCESS, or FAILED.
 
-Use liquidity provider, capital, allocation, strategy, risk, orders, activity, settlement, and withdrawal. Keep operator key, private engine, raw market identifiers, and execution internals under Advanced or out of the primary journey. Do not call the main application surface an operator cockpit.
+### Capital account ready
 
+After funding and authorization, the readiness card may say READY for the next integration phase. Start VILLA remains disabled, and Deployed and Pending settlement remain zero.
+
+### Failed or rejected
+
+The app says what was not verified, keeps the transaction hash in technical detail when available, and does not record success. Wallet rejection, wrong network, wrong owner, wrong code, unexpected operator, and unavailable discovery are distinct safety cases.
+
+## Owner control rules
+
+- The connected wallet is the only source of the current owner address.
+- A URL parameter, request body, local storage value, or visible account address cannot select an account for capital actions.
+- The account contract has no withdrawal destination input. Withdrawal is owner-only and returns collateral to the contract owner.
+- VILLA authorization is a narrow, visible owner transaction. Revoke is always available after authorization.
+- The public proof route remains read-only and cannot call the account or engine control plane.

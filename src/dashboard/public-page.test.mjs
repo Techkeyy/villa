@@ -17,19 +17,21 @@ test("public explainer is the default layer with clean product routes", () => {
   assert.doesNotMatch(app, /params\.get\("mode"\)/);
 });
 
-test("LP workspace is honest about development-gated capital actions", () => {
+test("LP workspace is a simple owner-scoped onboarding flow", () => {
   assert.match(html, /data-page="app"[^>]*hidden/);
   assert.match(html, /MY LIQUIDITY/);
   assert.match(html, /Connect wallet/);
+  assert.match(html, /Create VILLA account/);
   assert.match(html, /Add liquidity<\/button>/);
+  assert.match(html, /Authorize VILLA/);
+  assert.match(html, /Revoke VILLA/);
   assert.match(html, /Start VILLA<\/button>/);
   assert.match(html, /Withdraw<\/button>/);
-  assert.match(html, /Capital actions are not live yet/);
-  assert.match(html, /VILLA will not ask for your private key/);
-  assert.match(html, /No deposit or transaction is sent/);
-  assert.match(html, /disabled>Add liquidity/);
-  assert.match(html, /disabled>Start VILLA/);
-  assert.match(html, /disabled>Withdraw/);
+  assert.match(html, /VILLA never asks for your private key/);
+  assert.match(html, /Your liquidity is held by this account/);
+  assert.match(html, /START remains disabled in Phase 2/);
+  assert.match(html, /id="start-villa"[^>]*disabled/);
+  assert.match(html, /id="testnet-help"/);
 });
 
 test("proof is separate and reads replay data without control-plane calls", () => {
@@ -37,7 +39,7 @@ test("proof is separate and reads replay data without control-plane calls", () =
   assert.match(html, /VERIFIED SHANNON REPLAY/);
   assert.match(html, /id="proof-scene"/);
   assert.match(app, /api\/snapshot\?mode=replay/);
-  assert.doesNotMatch(app, /auth\/nonce|auth\/verify|\/state|\/config|START|PAUSE|STOP/);
+  assert.doesNotMatch(app, /auth\/nonce|auth\/verify|VILLA_ENGINE_API_URL/);
 });
 
 test("visual system is light, blue, responsive, and accessible", () => {
