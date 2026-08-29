@@ -119,7 +119,7 @@ readiness.
 | Settlement | Winning residuals were redeemed through the SDK and payout amounts reconciled. Known zero-value losing residuals remained labelled, not hidden. |
 | Rollover | A terminal BTC window was closed and a later same-series successor was rediscovered without mixing market scope. |
 | Wallet hygiene | Final audit ended with zero active orders and zero unknown inventory. |
-| Local audit | The Phase 7A regression and dashboard audit passed before this Phase 0 UI pivot; current results are rerun for this commit. |
+| Local audit | Phase 2 local gate: 422 full tests, 39 dashboard tests, dashboard build, and zero production dependency vulnerabilities pass. Real Wallet A/B browser proof remains pending. |
 
 Detailed evidence, hashes, conditions, and limitations are in
 [`docs/TECHNICAL_VERIFICATION.md`](docs/TECHNICAL_VERIFICATION.md),
@@ -280,8 +280,10 @@ The useful feedback from implementation is constructive:
 - Skills checkpoint: [`docs/SKILLS_COMPLIANCE.md`](docs/SKILLS_COMPLIANCE.md)
 
 The public repository and deployed replay demo are published for inspection.
-The final video is not recorded or uploaded automatically, and DoraHacks
-submission is not performed by this repository workflow.
+The Phase 2 owner-scoped account commit is currently local and is not yet
+published or publicly enabled. The final video is not recorded or uploaded
+automatically, and DoraHacks submission is not performed by this repository
+workflow.
 
 ## Project records
 
@@ -294,3 +296,6 @@ submission is not performed by this repository workflow.
 - [`docs/QUOTE_PLANNER.md`](docs/QUOTE_PLANNER.md)
 - [`docs/AUTONOMOUS_LOOP.md`](docs/AUTONOMOUS_LOOP.md)
 - [`docs/FINAL_AUDIT.md`](docs/FINAL_AUDIT.md)
+- [`docs/PHASE_2_LP_ONBOARDING.md`](docs/PHASE_2_LP_ONBOARDING.md)
+- [`docs/LP_ACCOUNT_DISCOVERY.md`](docs/LP_ACCOUNT_DISCOVERY.md)
+- [`docs/PHASE_2_SECURITY_AUDIT.md`](docs/PHASE_2_SECURITY_AUDIT.md)

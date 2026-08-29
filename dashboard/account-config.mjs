@@ -8,6 +8,8 @@ export const VILLA_CHAIN = Object.freeze({
 
 export const VILLA_ACCOUNT_CONFIG = Object.freeze({
   artifactPath: "/villa-account-artifact.json",
+  artifactCreationSha256: "a8acd22fe43cf08ea01b474fa71e630a41be1d02237135ebc2c0efa3b0b69644",
+  artifactRuntimeSha256: "38ad77ebb7761091852c4acd4682b68498b2fff1d33417d702537f8878f720af",
   discoveryApiUrl: "https://shannon-explorer.somnia.network/api",
   collateralToken: "0x70a86D8842FB63C4Ad2b7cdddF530eBf1BB25d8E",
   collateralSymbol: "tUSDC",

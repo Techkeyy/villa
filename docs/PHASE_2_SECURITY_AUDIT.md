@@ -1,6 +1,6 @@
 # Phase 2 security audit
 
-Status: local code review complete; live browser proof and public enablement are gated separately.
+Status: Audit-skill applied to the local Phase 2 commit; live owner-browser proof and public enablement are gated separately.
 
 Scope: the Phase 2 browser account client, static app surface, direct `VillaAccount` deployment path, account discovery, tUSDC approval and deposit, authorization and revocation, owner-only withdrawal, and public proof separation.
 
@@ -77,4 +77,41 @@ Before public enabled status, an owner or authorized tester must complete the re
 7. Confirm Wallet B cannot discover or act on Wallet A's account.
 8. Confirm no runner spawn, DreamDEX order, or blockchain write outside the explicitly approved account setup actions.
 
-The local `Audit-skill` file named by the project owner was unavailable in this builder environment. Equivalent security checks are recorded here without claiming that unavailable skill was read. The browser gate remains open until a real wallet-capable browser run is observed.
+## Actual Audit-skill evidence
+
+The required skill was found and read at `C:\Users\HomePC\Desktop\skill\audit-skill\SKILL.md`. Its project-audit phases were applied to commit `321ce0a1e07aed5f5537d2be46de157fddfabe95`.
+
+### Phase 0: claims inventory
+
+The README and Phase 2 records were read before the checks. Checkable claims included chain ID 50312, public repository and deployment URLs, the `/`, `/app`, and `/proof` routes, exact tUSDC configuration, test counts, build commands, signer-free hosted execution, and the staged public-enable boundary. The public repository and published `master` ref were checked directly; the Vercel URL returned HTTP 200 but still served the previous replay-only build. The README was updated to distinguish the local Phase 2 commit from the older public deployment.
+
+### Phase 1: mechanical hygiene
+
+- `npm test`: 422 passing.
+- `npm run operator:test`: 17 passing.
+- `npm run dashboard:test`: 39 passing.
+- `npm run dashboard:build`: passed.
+- `npm audit --omit=dev --audit-level=high`: 0 vulnerabilities.
+- `git diff --check`: passed.
+- No TODO or FIXME leftovers, dynamic `eval`/`Function` use, PEM/private-key headers, or tracked secret files were found. `console.log` occurrences are intentional CLI/server status output, not browser credential logging.
+- The tracked repository is approximately 1.45 MiB of Git objects; `.scratch/`, `dist/`, runtime JSON, `.env`, and key extensions are covered by `.gitignore`.
+
+### Phase 2: repository hygiene
+
+The complete tracked-file list was reviewed. The current worktree is clean, the Phase 2 commit is one commit ahead of `origin/master`, and the public clone was independently clean at the published starting commit. No build output or scratch clone is tracked.
+
+### Phase 3: claims versus reality
+
+- The local `npm run dashboard:replay` command started successfully on a stable localhost port and `/app` returned HTTP 200.
+- The public GitHub repository is public and owned by Techkeyy. Its unauthenticated `master` ref matches the starting local commit, not the unpushed Phase 2 commit.
+- The clean public clone passed `npm ci`, `npm test` at 417/417 for the published baseline, and `npm run dashboard:build`.
+- The public Vercel response is HTTP 200 and is the older replay-only deployment. Therefore Add Liquidity is not publicly enabled.
+- The official Shannon explorer API logs query found the known Phase 1 ownership event; the browser client treats this API as an index and verifies candidates on-chain. See the [Shannon explorer API documentation](https://shannon-explorer.somnia.network/api-docs).
+
+### Phase 4: adversarial checks
+
+The Phase 2 tests cover zero, negative, over-precision, scientific, NaN, and insufficient amounts; wrong owner; wrong runtime code; wrong immutable wiring; unexpected operator; URL account injection; local storage as a candidate-only hint; exact approval/deposit/withdraw call shapes; transaction rejection and confirmation states; and owner-scoped capital actions. The mock provider test confirms Wallet B cannot pass Wallet A's expected-owner check.
+
+### Phase 5: limits and remaining evidence
+
+The real owner-browser proof has not yet been performed. It must use the owner's disposable Shannon Wallet A and Wallet B in a normal browser, record only public addresses and transaction hashes, and verify reload discovery, authorization/revocation, exact capital deltas, isolation, and zero strategy execution. Kane is optional for this functional proof; its currently stored OAuth token is expired. Public push, Vercel redeploy, and public Add Liquidity enablement remain blocked until this evidence and owner approval are complete.

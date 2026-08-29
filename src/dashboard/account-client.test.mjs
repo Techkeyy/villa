@@ -99,6 +99,9 @@ test("chain reads verify exact runtime, owner, and trusted operator before UI st
   const app = fs.readFileSync(new URL("../../dashboard/app.mjs", import.meta.url), "utf8");
   assert.match(source, /eth_getCode/);
   assert.match(source, /artifact\?\.runtimeBytecode/);
+  assert.match(source, /artifactCreationSha256/);
+  assert.match(source, /artifactRuntimeSha256/);
+  assert.match(source, /SHA-256/);
   assert.match(source, /expectedOwner/);
   assert.match(source, /eth_getLogs/);
   assert.match(source, /indexedAccountLogs/);

@@ -142,6 +142,13 @@ export async function ensureShannon(provider) {
   return { switched: true, chainId: await getChainId(provider) };
 }
 
+async function bytecodeSha256(bytecode) {
+  if (!globalThis.crypto?.subtle) throw new AccountClientError("ARTIFACT_INVALID", "This browser cannot verify the VILLA account implementation.");
+  const bytes = new Uint8Array(String(bytecode).slice(2).match(/.{2}/g).map((pair) => Number.parseInt(pair, 16)));
+  const digest = await globalThis.crypto.subtle.digest("SHA-256", bytes);
+  return [...new Uint8Array(digest)].map((value) => value.toString(16).padStart(2, "0")).join("");
+}
+
 export async function loadArtifact() {
   const response = await fetch(VILLA_ACCOUNT_CONFIG.artifactPath, { cache: "no-store" });
   if (!response.ok) throw new AccountClientError("ARTIFACT_MISSING", "The verified VILLA account implementation could not be loaded.");
@@ -151,6 +158,14 @@ export async function loadArtifact() {
     || !/^0x[0-9a-f]+$/i.test(String(artifact.creationBytecode || ""))
     || !/^0x[0-9a-f]+$/i.test(String(artifact.runtimeBytecode || ""))) {
     throw new AccountClientError("ARTIFACT_INVALID", "The VILLA account implementation failed its integrity check.");
+  }
+  const [creationSha256, runtimeSha256] = await Promise.all([
+    bytecodeSha256(artifact.creationBytecode),
+    bytecodeSha256(artifact.runtimeBytecode),
+  ]);
+  if (creationSha256 !== VILLA_ACCOUNT_CONFIG.artifactCreationSha256
+    || runtimeSha256 !== VILLA_ACCOUNT_CONFIG.artifactRuntimeSha256) {
+    throw new AccountClientError("ARTIFACT_INVALID", "The VILLA account implementation failed its audited bytecode check.");
   }
   return artifact;
 }
