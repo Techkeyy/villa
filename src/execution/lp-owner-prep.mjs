@@ -73,13 +73,20 @@ function readSideRaw(side, name) {
   try { return raw(side[name], name, { positive: true }); } catch { return null; }
 }
 
-function validateQuotePlan({ quotePlan, quoteExecution, market, chainNowSec, caps = DEFAULT_PHASE_3B1_CAPS } = {}) {
+function validateQuotePlan({ quotePlan, quoteExecution, projectedSequence = null, market, chainNowSec, caps = DEFAULT_PHASE_3B1_CAPS } = {}) {
+  // A current NO_QUOTE is not silently bypassed. It may only be replaced by
+  // a projected plan when the complete mint -> quote -> cancel -> reconcile
+  // -> burn sequence has already passed the separate feasibility gate.
+  const usingProjected = projectedSequence?.valid === true;
+  const effectiveQuotePlan = usingProjected ? projectedSequence.quotePlan : quotePlan;
+  const effectiveQuoteExecution = usingProjected ? projectedSequence.quoteExecution : quoteExecution;
   const reasons = [];
-  if (!quotePlan || quotePlan.plan === "NO_QUOTE") reasons.push(blocker("NO_QUOTE", "the current shadow quote plan is NO_QUOTE"));
-  if (quotePlan?.governor?.state === "HALT") reasons.push(blocker("RISK_HALTED", "the Risk Governor did not permit a quote"));
-  if (quotePlan?.marketId && !sameAddress(quotePlan.marketId, market?.marketId)) reasons.push(blocker("MARKET_SCOPE_MISMATCH", "the quote belongs to a different market"));
-  if (quoteExecution?.postOnly !== true || Number(quoteExecution?.orderType) !== 3) reasons.push(blocker("POST_ONLY_NOT_PROVEN", "the quote was not proven to use the bounded post-only order type"));
-  if (quoteExecution?.policyValid !== true) reasons.push(blocker("POLICY_QUOTE_NOT_PROVEN", "the account-bound transaction policy did not validate an executable quote"));
+  if (projectedSequence && projectedSequence.valid !== true) reasons.push(blocker("PROJECTED_SEQUENCE_INVALID", "the planning-only mint sequence did not pass every cap, risk, venue, and policy gate"));
+  if (!effectiveQuotePlan || effectiveQuotePlan.plan === "NO_QUOTE") reasons.push(blocker("NO_QUOTE", usingProjected ? "the projected shadow quote plan is NO_QUOTE" : "the current shadow quote plan is NO_QUOTE"));
+  if (effectiveQuotePlan?.governor?.state === "HALT") reasons.push(blocker("RISK_HALTED", "the Risk Governor did not permit a quote"));
+  if (effectiveQuotePlan?.marketId && !sameAddress(effectiveQuotePlan.marketId, market?.marketId)) reasons.push(blocker("MARKET_SCOPE_MISMATCH", "the quote belongs to a different market"));
+  if (effectiveQuoteExecution?.postOnly !== true || Number(effectiveQuoteExecution?.orderType) !== 3) reasons.push(blocker("POST_ONLY_NOT_PROVEN", "the quote was not proven to use the bounded post-only order type"));
+  if (effectiveQuoteExecution?.policyValid !== true) reasons.push(blocker("POLICY_QUOTE_NOT_PROVEN", "the account-bound transaction policy did not validate an executable quote"));
 
   const grid = market?.grid ?? {};
   let tickSize;
@@ -100,7 +107,7 @@ function validateQuotePlan({ quotePlan, quoteExecution, market, chainNowSec, cap
 
   const sides = [];
   for (const name of ["bid", "ask"]) {
-    const side = quotePlan?.[name];
+    const side = effectiveQuotePlan?.[name];
     if (!side?.enabled) continue;
     const price = readSideRaw(side, "targetPriceRaw");
     const quantity = readSideRaw(side, "targetQuantityRaw");
@@ -121,10 +128,10 @@ function validateQuotePlan({ quotePlan, quoteExecution, market, chainNowSec, cap
       if (side.action?.startsWith("BUY") && price >= comparisonRaw) reasons.push(blocker("POST_ONLY_WOULD_CROSS", `${name} would cross the live best ask`));
       if (side.action?.startsWith("SELL") && price <= comparisonRaw) reasons.push(blocker("POST_ONLY_WOULD_CROSS", `${name} would cross the live best bid`));
     }
-    if (!Array.isArray(quotePlan?.governor?.allowedActions) || !quotePlan.governor.allowedActions.includes(side.action)) reasons.push(blocker("RISK_ACTION_NOT_ALLOWED", `${name} action is not in the current governor permission set`));
+    if (!Array.isArray(effectiveQuotePlan?.governor?.allowedActions) || !effectiveQuotePlan.governor.allowedActions.includes(side.action)) reasons.push(blocker("RISK_ACTION_NOT_ALLOWED", `${name} action is not in the current governor permission set`));
     sides.push({ name, action: side.action, priceRaw: price.toString(), quantityRaw: quantity.toString() });
   }
-  if (sides.length === 0) reasons.push(blocker("NO_POST_ONLY_ORDER", "the current quote plan has no enabled post-only order"));
+  if (sides.length === 0) reasons.push(blocker("NO_POST_ONLY_ORDER", "the selected quote plan has no enabled post-only order"));
   return { reasons, sides };
 }
 
@@ -191,6 +198,7 @@ export function buildOwnerMarketPreparation({
   permissions = {},
   quotePlan,
   quoteExecution = { postOnly: true, orderType: 3, policyValid: false },
+  projectedSequence = null,
   caps = DEFAULT_PHASE_3B1_CAPS,
 } = {}) {
   const identity = validateDisposableLpAccount({ account, owner, operator, chainId });
@@ -201,7 +209,7 @@ export function buildOwnerMarketPreparation({
   if (!marketId) reasons.push(blocker("MARKET_ID_INVALID", "fresh market id must be bytes32"));
   if (market?.series !== LP_MARKET_SERIES) reasons.push(blocker("MARKET_SERIES_MISMATCH", `market must be ${LP_MARKET_SERIES}`));
   if (market?.current === false) reasons.push(blocker("STALE_MARKET", "the selected market is not current"));
-  const quote = validateQuotePlan({ quotePlan, quoteExecution, market: { ...market, marketId }, chainNowSec, caps });
+  const quote = validateQuotePlan({ quotePlan, quoteExecution, projectedSequence, market: { ...market, marketId }, chainNowSec, caps });
   reasons.push(...quote.reasons);
 
   const marketApproved = permissions.marketApproved === true;
@@ -227,7 +235,8 @@ export function buildOwnerMarketPreparation({
     blockers: Object.freeze(uniqueReasons),
     identity,
     market: Object.freeze({ marketId, pool, expirySec, headroomSec: remaining, series: market?.series ?? null }),
-    quote: Object.freeze({ plan: quotePlan?.plan ?? null, postOnly: quoteExecution?.postOnly === true, orderType: Number(quoteExecution?.orderType ?? -1), policyValid: quoteExecution?.policyValid === true, enabledSides: Object.freeze(quote.sides) }),
+    quote: Object.freeze({ plan: (projectedSequence?.valid === true ? projectedSequence.quotePlan : quotePlan)?.plan ?? null, postOnly: (projectedSequence?.valid === true ? projectedSequence.quoteExecution : quoteExecution)?.postOnly === true, orderType: Number((projectedSequence?.valid === true ? projectedSequence.quoteExecution : quoteExecution)?.orderType ?? -1), policyValid: (projectedSequence?.valid === true ? projectedSequence.quoteExecution : quoteExecution)?.policyValid === true, enabledSides: Object.freeze(quote.sides), projected: projectedSequence?.valid === true }),
+    projectedSequence: projectedSequence ? Object.freeze({ valid: projectedSequence.valid === true, minimumMintRaw: projectedSequence.minimumMintRaw ?? null, recommendedPath: projectedSequence.recommendedPath ?? null, reasons: Object.freeze((projectedSequence.reasons ?? []).map((item) => item?.code ?? item)) }) : null,
     permissions: Object.freeze({ marketApproved, protocolPrepared, moduleOperator, poolOperator, outcomeToken, binaryModule, collateralAllowanceRaw: String(permissions.collateralAllowanceRaw ?? "0"), requiredPersistentCollateralAllowanceRaw: "0" }),
     protocolApproval: Object.freeze({ target: outcomeToken, method: "setOperator(address,bool)", selector: encodeFunctionData({ abi: OUTCOME_OPERATOR_PREP_ABI, functionName: "setOperator", args: [pool, true] }).slice(0, 10).toLowerCase(), approvals: Object.freeze([{ spender: pool, approved: true }, { spender: binaryModule, approved: true }]), invokedBy: normalizedAccount, via: "VillaAccount.prepareMarket(bytes32)" }),
     requests: Object.freeze(requests),

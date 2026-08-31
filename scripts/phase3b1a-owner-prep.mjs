@@ -26,7 +26,7 @@ const RPC_URL = process.env.RPC_URL || "https://dream-rpc.somnia.network";
 const ACCOUNT = "0x3A46446A30F945d390A41dAab0D390fBEf3d2cF2";
 const OWNER = "0xEFe0412781d3c1e7888b2DB9dEEcA3037542494d";
 const OPERATOR = VILLA_ACCOUNT_CONFIG.operator;
-const SHADOW_SCRIPT = fileURLToPath(new URL("./phase3b1a-shadow-readonly.mjs", import.meta.url));
+const FEASIBILITY_SCRIPT = fileURLToPath(new URL("./phase3b1a-feasibility-readonly.mjs", import.meta.url));
 const publicClient = createPublicClient({ chain: somniaShannon, transport: http(RPC_URL, { timeout: 15_000 }) });
 const jsonSafe = (value) => JSON.stringify(value, (_key, item) => typeof item === "bigint" ? item.toString() : item, null, 2);
 
@@ -38,10 +38,10 @@ function withoutSignerSecrets(env) {
   return safe;
 }
 
-async function readFreshShadow() {
+async function readFreshFeasibility() {
   let result;
   try {
-    result = await execFileAsync(process.execPath, [SHADOW_SCRIPT], {
+    result = await execFileAsync(process.execPath, [FEASIBILITY_SCRIPT], {
       cwd: fileURLToPath(new URL("..", import.meta.url)),
       env: { ...withoutSignerSecrets(process.env), RPC_URL },
       maxBuffer: 8 * 1024 * 1024,
@@ -53,20 +53,21 @@ async function readFreshShadow() {
   try {
     return JSON.parse(output);
   } catch {
-    throw new Error(`shadow output was not JSON: ${output.slice(-1000)}`);
+    throw new Error(`feasibility output was not JSON: ${output.slice(-1000)}`);
   }
 }
 
-const snapshot = await readFreshShadow();
-if (snapshot.result !== "PASS") {
+const feasibility = await readFreshFeasibility();
+const snapshot = feasibility.shadow;
+if (feasibility.result !== "PASS" || !snapshot || snapshot.result !== "PASS") {
   console.log(jsonSafe({
     result: "BLOCKED",
     stage: "FRESH_MARKET_DISCOVERY",
-    reason: snapshot.reason ?? "fresh shadow did not produce an eligible market",
-    chainNowSec: snapshot.chainNowSec ?? null,
-    blockNumber: snapshot.blockNumber ?? null,
-    candidates: snapshot.candidates ?? [],
-    rejected: snapshot.rejected ?? [],
+    reason: feasibility.reason ?? snapshot?.reason ?? "fresh feasibility did not produce an eligible market",
+    chainNowSec: snapshot?.chainNowSec ?? null,
+    blockNumber: snapshot?.blockNumber ?? null,
+    candidates: snapshot?.candidates ?? [],
+    rejected: snapshot?.rejected ?? [],
     safety: { privateKeyRead: false, autoSign: false, autoBroadcast: false, executionEnabled: false },
   }));
   process.exit(2);
@@ -94,6 +95,9 @@ const preparation = buildOwnerMarketPreparation({
   permissions: snapshot.permissions,
   quotePlan: snapshot.quotePlan,
   quoteExecution: snapshot.quoteExecution,
+  projectedSequence: feasibility.sellAfterMint
+    ? { valid: feasibility.sellAfterMint.viable === true, quotePlan: feasibility.sellAfterMint.quotePlan, quoteExecution: feasibility.sellAfterMint.quoteExecution, minimumMintRaw: feasibility.sellAfterMint.mintAmountRaw, recommendedPath: feasibility.recommendation?.path ?? null, reasons: feasibility.sellAfterMint.reasons }
+    : { valid: false, quotePlan: null, quoteExecution: { postOnly: true, orderType: 3, policyValid: false }, minimumMintRaw: null, recommendedPath: feasibility.recommendation?.path ?? null, reasons: ["NO_VIABLE_PROJECTED_SEQUENCE"] },
 });
 
 console.log(jsonSafe({
@@ -110,6 +114,13 @@ console.log(jsonSafe({
     quotePlan: snapshot.quotePlan.plan,
     riskState: snapshot.risk.state,
     riskReasons: snapshot.risk.triggeredRules,
+  },
+  feasibility: {
+    verdict: feasibility.verdict,
+    priorNoQuote: feasibility.priorNoQuote,
+    buyWithoutMint: { viable: feasibility.buyWithoutMint?.viable === true, reasons: feasibility.buyWithoutMint?.reasons ?? [] },
+    sellAfterMint: feasibility.sellAfterMint ? { viable: feasibility.sellAfterMint.viable === true, mintAmountRaw: feasibility.sellAfterMint.mintAmountRaw, reasons: feasibility.sellAfterMint.reasons } : null,
+    recommendation: feasibility.recommendation,
   },
   permissions: preparation.permissions,
   protocolApproval: preparation.protocolApproval,

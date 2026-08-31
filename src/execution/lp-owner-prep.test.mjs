@@ -46,7 +46,7 @@ function permissions(overrides = {}) {
 }
 
 function prepare(overrides = {}) {
-  return buildOwnerMarketPreparation({ account: ACCOUNT, owner: OWNER, operator: CANONICAL_VILLA_OPERATOR, chainId: 50312, market: market(overrides.market), chainNowSec: 1_800, permissions: permissions(overrides.permissions), quotePlan: overrides.quotePlan ?? quote(), quoteExecution: overrides.quoteExecution ?? { postOnly: true, orderType: 3, policyValid: true } });
+  return buildOwnerMarketPreparation({ account: ACCOUNT, owner: OWNER, operator: CANONICAL_VILLA_OPERATOR, chainId: 50312, market: market(overrides.market), chainNowSec: 1_800, permissions: permissions(overrides.permissions), quotePlan: overrides.quotePlan ?? quote(), quoteExecution: overrides.quoteExecution ?? { postOnly: true, orderType: 3, policyValid: true }, projectedSequence: overrides.projectedSequence ?? null });
 }
 
 test("market approval missing is identified and produces the exact owner request", () => {
@@ -93,6 +93,29 @@ test("NO_QUOTE invalidates preparation and cannot request owner approval", () =>
   assert.equal(result.status, "BLOCKED");
   assert.ok(result.blockers.some((item) => item.code === "NO_QUOTE"));
   assert.ok(result.blockers.some((item) => item.code === "NO_POST_ONLY_ORDER"));
+  assert.deepEqual(result.requests, []);
+});
+
+test("a valid projected mint sequence may authorize owner preparation even when current plan is NO_QUOTE", () => {
+  const result = prepare({
+    quotePlan: quote({ plan: "NO_QUOTE", bid: { enabled: false }, ask: { enabled: false } }),
+    quoteExecution: { postOnly: true, orderType: 3, policyValid: false },
+    projectedSequence: { valid: true, quotePlan: quote({ plan: "ONE_SIDED", ask: { enabled: false } }), quoteExecution: { postOnly: true, orderType: 3, policyValid: true }, minimumMintRaw: "1000", recommendedPath: "B", reasons: [] },
+  });
+  assert.equal(result.status, "READY");
+  assert.equal(result.quote.plan, "ONE_SIDED");
+  assert.equal(result.quote.projected, true);
+  assert.equal(result.requests[0].functionName, "setMarketApproval");
+});
+
+test("an invalid projected sequence keeps owner preparation blocked and emits no request", () => {
+  const result = prepare({
+    quotePlan: quote({ plan: "NO_QUOTE", bid: { enabled: false }, ask: { enabled: false } }),
+    quoteExecution: { postOnly: true, orderType: 3, policyValid: false },
+    projectedSequence: { valid: false, quotePlan: null, quoteExecution: { postOnly: true, orderType: 3, policyValid: false }, reasons: [{ code: "RISK_HALTED" }] },
+  });
+  assert.equal(result.status, "BLOCKED");
+  assert.ok(result.blockers.some((item) => item.code === "PROJECTED_SEQUENCE_INVALID"));
   assert.deepEqual(result.requests, []);
 });
 
