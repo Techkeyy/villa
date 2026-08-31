@@ -7,45 +7,71 @@ import { fileURLToPath } from "node:url";
 
 const execFileAsync = promisify(execFile);
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const buildRoot = path.join(root, ".scratch", "account-build");
 const sourcePath = path.join(root, "contracts", "VillaAccount.sol");
 const artifactPath = path.join(root, "dashboard", "villa-account-artifact.json");
-const creationPath = path.join(buildRoot, "contracts_VillaAccount_sol_VillaAccount.bin");
-const abiPath = path.join(buildRoot, "contracts_VillaAccount_sol_VillaAccount.abi");
-const proofAccount = "0xe78bd09d6869e450e66a49d1d3beebbfa75fb0cd";
-const rpcUrl = "https://dream-rpc.somnia.network";
 
-const [source, creation, abiText] = await Promise.all([
-  fs.readFile(sourcePath),
-  fs.readFile(creationPath, "utf8"),
-  fs.readFile(abiPath, "utf8"),
-]);
+function runSolc(input) {
+  return new Promise((resolve, reject) => {
+    const child = execFile("npm.cmd", ["exec", "--yes", "--package=solc@0.8.30", "--", "solcjs", "--standard-json"], {
+      cwd: root,
+      shell: true,
+      windowsHide: true,
+      maxBuffer: 32 * 1024 * 1024,
+    }, (error, stdout, stderr) => {
+      if (error) {
+        reject(new Error(`solcjs failed: ${stderr || error.message}`));
+        return;
+      }
+      resolve(stdout);
+    });
+    child.stdin?.end(JSON.stringify(input));
+  });
+}
 
-const response = await fetch(rpcUrl, {
-  method: "POST",
-  headers: { "content-type": "application/json" },
-  body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_getCode", params: [proofAccount, "latest"] }),
-});
-if (!response.ok) throw new Error(`RPC HTTP ${response.status}`);
-const body = await response.json();
-if (body.error) throw new Error(body.error.message || JSON.stringify(body.error));
-const runtimeBytecode = String(body.result || "").toLowerCase();
-if (!runtimeBytecode.startsWith("0x") || runtimeBytecode.length < 100) throw new Error("known Shannon account has no runtime bytecode");
+const source = await fs.readFile(sourcePath, "utf8");
+const compilerInput = {
+  language: "Solidity",
+  sources: { "contracts/VillaAccount.sol": { content: source } },
+  settings: {
+    optimizer: { enabled: true, runs: 200 },
+    outputSelection: {
+      "contracts/VillaAccount.sol": {
+        VillaAccount: ["abi", "evm.bytecode.object", "evm.deployedBytecode.object", "evm.deployedBytecode.immutableReferences"],
+      },
+    },
+  },
+};
+const compilerStdout = await runSolc(compilerInput);
+const jsonStart = compilerStdout.indexOf("{");
+if (jsonStart < 0) throw new Error("solcjs returned no standard JSON output");
+const compilerOutput = JSON.parse(compilerStdout.slice(jsonStart));
+const compilerErrors = (compilerOutput.errors || []).filter((entry) => entry.severity === "error");
+if (compilerErrors.length) throw new Error(compilerErrors.map((entry) => entry.formattedMessage || entry.message).join("\n"));
+const compiled = compilerOutput.contracts?.["contracts/VillaAccount.sol"]?.VillaAccount;
+if (!compiled?.evm?.bytecode?.object || !compiled.evm.deployedBytecode?.object) throw new Error("solcjs did not return VillaAccount bytecode");
+const creationBytecode = `0x${compiled.evm.bytecode.object}`.toLowerCase();
+const runtimeBytecode = `0x${compiled.evm.deployedBytecode.object}`.toLowerCase();
+const runtimeImmutableReferences = Object.values(compiled.evm.deployedBytecode.immutableReferences || {})
+  .flat()
+  .map(({ start, length }) => ({ start, length }))
+  .sort((left, right) => left.start - right.start);
+if (!runtimeImmutableReferences.length) throw new Error("solcjs did not return immutable runtime references");
 
 const { stdout } = await execFileAsync("git", ["rev-parse", "HEAD"], { cwd: root });
 const artifact = {
-  schema: "villa-browser-account-artifact-v1",
+  schema: "villa-browser-account-artifact-v2",
   contract: "VillaAccount",
   network: "Somnia Shannon",
   chainId: 50312,
   sourceSha256: crypto.createHash("sha256").update(source).digest("hex"),
   sourceCommit: stdout.trim(),
   compiler: "solc 0.8.30 optimized",
-  creationBytecode: `0x${creation.trim()}`,
+  creationBytecode,
   runtimeBytecode,
-  runtimeReferenceAccount: proofAccount,
-  abi: JSON.parse(abiText),
+  runtimeImmutableReferences,
+  abi: compiled.abi,
 };
 await fs.writeFile(artifactPath, `${JSON.stringify(artifact)}\n`, "utf8");
 console.log(`Browser account artifact ready: ${path.relative(root, artifactPath)}`);
 console.log(`Runtime identity bytes: ${(runtimeBytecode.length - 2) / 2}`);
+console.log(`Immutable reference ranges: ${runtimeImmutableReferences.length}`);

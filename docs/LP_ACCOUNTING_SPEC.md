@@ -68,6 +68,16 @@ withdrawDestination(B) = owner(B)
 
 The live two-LP proof must demonstrate this with two distinct account addresses, not merely two UI sessions pointing at one wallet.
 
+## Live Phase 2 accounting evidence
+
+The real Shannon owner-browser proof deposited exactly 1.00 tUSDC into one
+personal account. The owner wallet moved from 500.00 to 499.00 tUSDC, while
+the account showed 1.00 tUSDC allocated, available, and withdrawable. After
+operator authorization and revocation, the owner withdrew exactly 1.00 tUSDC
+to itself. The account ended at 0.00 tUSDC and capital was not changed by
+revocation. This proves the direct owner-account buckets for the tested
+lifecycle; it does not prove multi-LP engine delegation.
+
 ## Accounting limitations
 
 This specification is custody and lifecycle accounting. It does not claim realized maker PnL, profitability, or a complete fee model where the protocol does not expose enough authoritative data. The UI must retain the existing `PNL_UNAVAILABLE` honesty boundary.

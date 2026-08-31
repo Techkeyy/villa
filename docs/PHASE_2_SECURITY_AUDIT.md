@@ -1,6 +1,6 @@
 # Phase 2 security audit
 
-Status: Audit-skill applied to the local Phase 2 commit; live owner-browser proof and public enablement are gated separately.
+Status: Audit-skill reapplied after the completed real owner-browser Phase 2 proof. Phase 3 engine connection remains gated.
 
 Scope: the Phase 2 browser account client, static app surface, direct `VillaAccount` deployment path, account discovery, tUSDC approval and deposit, authorization and revocation, owner-only withdrawal, and public proof separation.
 
@@ -13,7 +13,7 @@ Scope: the Phase 2 browser account client, static app surface, direct `VillaAcco
 | High | Capital actions require connected-wallet ownership, exact runtime code, exact immutable wiring, and chain 50312. | Pass in code review |
 | High | Post-receipt success requires exact on-chain state and balance reconciliation. | Pass in code review |
 | Medium | A full provider log scan can exceed Shannon RPC range limits. | Mitigated by the official explorer index, on-chain candidate verification, and fail-closed retry behavior |
-| Medium | Browser wallet, explorer CORS, and live testnet conditions require real browser proof. | Open gate, not silently waived |
+| Medium | Browser wallet, explorer CORS, and live testnet conditions require real browser proof. | Pass for the documented owner/account lifecycle; multi-LP isolation remains a limitation |
 | Low | Local storage can be edited. | Safe because it is only a candidate hint and every candidate is verified on-chain |
 
 No Critical or High vulnerability was identified in the implementation review. This is an internal engineering audit, not a third-party audit or a guarantee of safety.
@@ -79,7 +79,7 @@ Before public enabled status, an owner or authorized tester must complete the re
 
 ## Actual Audit-skill evidence
 
-The required skill was found and read at `C:\Users\HomePC\Desktop\skill\audit-skill\SKILL.md`. Its project-audit phases were applied to commit `321ce0a1e07aed5f5537d2be46de157fddfabe95`.
+The required skill was found and read at `C:\Users\HomePC\Desktop\skill\audit-skill\SKILL.md`. Its project-audit phases were reapplied to the Phase 2 finalization worktree before publication.
 
 ### Phase 0: claims inventory
 
@@ -87,9 +87,9 @@ The README and Phase 2 records were read before the checks. Checkable claims inc
 
 ### Phase 1: mechanical hygiene
 
-- `npm test`: 422 passing.
+- `npm test`: 470 passing.
 - `npm run operator:test`: 17 passing.
-- `npm run dashboard:test`: 39 passing.
+- `npm run dashboard:test`: 87 passing.
 - `npm run dashboard:build`: passed.
 - `npm audit --omit=dev --audit-level=high`: 0 vulnerabilities.
 - `git diff --check`: passed.
@@ -98,14 +98,18 @@ The README and Phase 2 records were read before the checks. Checkable claims inc
 
 ### Phase 2: repository hygiene
 
-The complete tracked-file list was reviewed. The current worktree is clean, the Phase 2 commit is one commit ahead of `origin/master`, and the public clone was independently clean at the published starting commit. No build output or scratch clone is tracked.
+The complete tracked-file list was reviewed. The final publication excludes
+BreakFix/, phase2b_patch/, build output, temporary screenshots, and local
+wallet data. No build output or scratch clone is tracked.
 
 ### Phase 3: claims versus reality
 
 - The local `npm run dashboard:replay` command started successfully on a stable localhost port and `/app` returned HTTP 200.
 - The public GitHub repository is public and owned by Techkeyy. Its unauthenticated `master` ref matches the starting local commit, not the unpushed Phase 2 commit.
 - The clean public clone passed `npm ci`, `npm test` at 417/417 for the published baseline, and `npm run dashboard:build`.
-- The public Vercel response is HTTP 200 and is the older replay-only deployment. Therefore Add Liquidity is not publicly enabled.
+- Before this finalization, the public Vercel response was HTTP 200 and was
+  the older replay-only deployment. The finalization gate requires redeploying
+  the verified Phase 2 frontend before this document is considered published.
 - The official Shannon explorer API logs query found the known Phase 1 ownership event; the browser client treats this API as an index and verifies candidates on-chain. See the [Shannon explorer API documentation](https://shannon-explorer.somnia.network/api-docs).
 
 ### Phase 4: adversarial checks
@@ -114,4 +118,9 @@ The Phase 2 tests cover zero, negative, over-precision, scientific, NaN, and ins
 
 ### Phase 5: limits and remaining evidence
 
-The real owner-browser proof has not yet been performed. It must use the owner's disposable Shannon Wallet A and Wallet B in a normal browser, record only public addresses and transaction hashes, and verify reload discovery, authorization/revocation, exact capital deltas, isolation, and zero strategy execution. Kane is optional for this functional proof; its currently stored OAuth token is expired. Public push, Vercel redeploy, and public Add Liquidity enablement remain blocked until this evidence and owner approval are complete.
+The real owner-browser proof is complete for the documented owner and personal
+account. It verified creation, reload discovery, exact approval and deposit,
+authorization, revocation, exact withdrawal, and zero strategy execution. A
+separate two-wallet isolation run remains a Phase 3 product limitation; this
+audit does not claim open multi-LP delegation from one account proof. The
+complete transaction record is in PHASE_2_LP_ONBOARDING_PROOF.md.

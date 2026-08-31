@@ -52,10 +52,14 @@
             </div>
 
             <section class="panel network-panel" id="wrong-network" hidden aria-labelledby="network-title">
-              <div class="panel-label">NETWORK CHECK</div><h2 id="network-title">Switch to Somnia Shannon.</h2><p>Capital actions are paused until your wallet is on the exact VILLA testnet. Your wallet connection is still safe.</p><button class="button button-primary" id="switch-network" type="button">Switch network</button><p class="form-message" id="network-message" role="status" aria-live="polite"></p>
+              <div class="panel-label">NETWORK CHECK</div><h2 id="network-title">Wrong network</h2><p>VILLA runs on Somnia Shannon. Switch networks to continue.</p><button class="button button-primary" id="switch-network" type="button">Switch to Shannon</button><p class="form-message" id="network-message" role="status" aria-live="polite"></p>
             </section>
 
             <div id="account-loading" class="panel loading-panel" hidden role="status" aria-live="polite"><span class="spinner" aria-hidden="true"></span><div><strong>Checking your VILLA account</strong><p>Reading ownership and account history from Shannon.</p></div></div>
+
+            <section class="panel account-error" id="account-error" aria-labelledby="account-error-title" hidden>
+              <div class="panel-label">ACCOUNT LOOKUP</div><h2 id="account-error-title">Account lookup unavailable</h2><p id="account-error-copy">VILLA could not verify whether this wallet already has a liquidity account. Creating another account is disabled until verification succeeds.</p><button class="button button-secondary" id="retry-account" type="button">Retry</button><p class="form-message" id="account-error-message" role="status" aria-live="polite"></p>
+            </section>
 
             <section class="panel account-empty" id="account-empty" aria-labelledby="account-empty-title" hidden>
               <div class="panel-label">MY VILLA</div><h2 id="account-empty-title">No liquidity account yet.</h2><p>Create your personal VILLA account to start providing liquidity. Your wallet remains the owner.</p><button class="button button-primary" id="create-account" type="button">Create VILLA account</button><p class="form-message" id="create-message" role="status" aria-live="polite"></p><p class="helper">Creation deploys only the verified VILLA account implementation on Shannon. Automation starts unauthorized.</p>
@@ -68,9 +72,9 @@
               </section>
 
               <section class="panel capital-panel" id="capital" aria-labelledby="capital-title">
-                <div class="panel-topline"><div><p class="panel-label">CAPITAL</p><h2 id="capital-title">My Liquidity</h2></div><span class="status-pill status-safe" id="capital-status">ACCOUNT READY</span></div>
+                <div class="panel-topline"><div><p class="panel-label">CAPITAL</p><h2 id="capital-title">My Liquidity</h2></div><span class="status-pill status-preview" id="capital-status">SETUP REQUIRED</span></div>
                 <div class="metric-grid capital-metrics"><div class="metric"><span>Wallet balance</span><strong id="wallet-balance">Reading...</strong><small>tUSDC available in your wallet.</small></div><div class="metric"><span>Allocated</span><strong id="allocated-balance">Reading...</strong><small>Collateral held by your VILLA account.</small></div><div class="metric"><span>Available</span><strong id="available-balance">Reading...</strong><small>No strategy session is running.</small></div><div class="metric"><span>Withdrawable</span><strong id="withdrawable-balance">Reading...</strong><small>Owner-only account withdrawal.</small></div><div class="metric"><span>Deployed</span><strong>0.00 tUSDC</strong><small>Execution is not connected.</small></div><div class="metric"><span>Pending settlement</span><strong>0.00 tUSDC</strong><small>No public strategy session exists.</small></div></div>
-                <div class="allocation-row"><label for="amount-to-use"><span>How much would you like to use?</span><small>Keep enough STT for wallet gas.</small></label><div class="amount-input"><input id="amount-to-use" type="text" inputmode="decimal" placeholder="0.00" aria-describedby="amount-help" /><span>tUSDC</span></div><button class="button button-primary" id="add-liquidity" type="button">Add liquidity</button></div><p class="helper" id="amount-help">Your wallet approves the exact amount, then deposits it into your account.</p><p class="form-message" id="capital-message" role="status" aria-live="polite"></p>
+                <div class="allocation-row"><label for="amount-to-use"><span>How much would you like to use?</span><small>Keep enough STT for wallet gas.</small></label><div class="amount-input"><input id="amount-to-use" type="text" inputmode="decimal" placeholder="0.00" aria-describedby="amount-help" /><span>tUSDC</span></div><button class="button button-primary" id="add-liquidity" type="button">Add liquidity</button></div><p class="helper" id="amount-help">Minimum deposit: <span id="minimum-deposit">—</span> tUSDC. Your wallet approves the exact amount, then deposits it into your account.</p><p class="form-message" id="capital-message" role="status" aria-live="polite"></p>
               </section>
 
               <section class="panel authorization-panel" id="authorization" aria-labelledby="authorization-title">

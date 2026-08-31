@@ -1,6 +1,6 @@
 # VILLA Product Specification
 
-Status: Phase 0 product pivot lock
+Status: Phase 2 live owner-account proof complete; Phase 3 engine connection not started
 
 ## Product definition
 
@@ -19,16 +19,23 @@ The user is a liquidity provider or operator, not a retail bettor. VILLA does no
 - One LP must never control another LP's capital.
 - The existing proven VILLA engine remains the pricing, quoting, risk, inventory, rollover, and settlement reference.
 - The existing shared execution wallet is not an open LP product boundary.
-- Capital and execution controls remain development-gated until owner-scoped authority is proven.
-- Public deployment remains read-only and safe-mode only.
+- Owner-scoped capital controls are proven for one Shannon testnet account.
+- The public engine surface remains read-only and safe-mode only.
 
 ## Architecture decision
 
 The Phase 0 feasibility choice is `PER_USER_VILLA_ACCOUNT_REQUIRED`.
 
-The current DreamDEX Event Contract surface does not prove a complete owner-scoped delegation path for placing, cancelling, minting, merging, and settling on behalf of an LP. A future implementation therefore needs an isolated per-user account or equivalent owner-controlled account boundary before capital is accepted. This document does not implement that account, custody, deposit, or withdrawal path.
+Phase 2 implements direct deployment of an isolated owner-controlled
+VillaAccount before capital is accepted. The owner account boundary is proven
+for one Shannon testnet lifecycle, including exact deposit, authorization,
+revocation, and owner-only withdrawal. The current DreamDEX Event Contract
+surface still does not prove complete multi-LP delegation for placing,
+cancelling, minting, merging, and settling on behalf of every LP.
 
-This choice is a product boundary, not a change to the frozen VILLA engine. Until the boundary is designed, reviewed, and proven with disposable Shannon testnet capital, the UI must label capital actions as development preview and keep them inactive.
+This choice remains a product boundary, not a change to the frozen VILLA
+engine. The account actions are wallet-mediated Shannon testnet functionality;
+the autonomous engine remains disconnected and Start VILLA remains disabled.
 
 ## In scope for the product
 
@@ -41,11 +48,11 @@ This choice is a product boundary, not a change to the frozen VILLA engine. Unti
 
 ## Not in scope for this phase
 
-- Deposit, withdrawal, or capital-account implementation.
+- Per-LP account-to-engine delegation and autonomous live execution.
 - A pooled vault.
 - New custody keys.
 - Arbitrary users operating through the existing shared execution wallet.
-- Changes to `villa-fv-v1`, `villa-risk-v1`, `villa-quote-v1`, inventory, rollover, or settlement semantics.
+- Changes to villa-fv-v1, villa-risk-v1, villa-quote-v1, inventory, rollover, or settlement semantics.
 - Wet production execution, real funds, video recording, or DoraHacks submission.
 
 ## Success criteria
@@ -55,4 +62,3 @@ This choice is a product boundary, not a change to the frozen VILLA engine. Unti
 3. The application never implies that a disabled capital action succeeded.
 4. Proof and replay evidence are available without competing with the LP's main workflow.
 5. The product language stays factual about testnet evidence and avoids profitability claims.
-

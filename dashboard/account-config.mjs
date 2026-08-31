@@ -6,10 +6,15 @@ export const VILLA_CHAIN = Object.freeze({
   nativeCurrency: { name: "Somnia Test Token", symbol: "STT", decimals: 18 },
 });
 
+// Phase 2 product minimum. Keep this separate from contract economics so the
+// onboarding floor can become strategy-derived in a later phase.
+export const MIN_DEPOSIT_TUSDC = "1.00";
+export const MIN_DEPOSIT_RAW = 1_000_000n;
+
 export const VILLA_ACCOUNT_CONFIG = Object.freeze({
   artifactPath: "/villa-account-artifact.json",
   artifactCreationSha256: "a8acd22fe43cf08ea01b474fa71e630a41be1d02237135ebc2c0efa3b0b69644",
-  artifactRuntimeSha256: "38ad77ebb7761091852c4acd4682b68498b2fff1d33417d702537f8878f720af",
+  artifactRuntimeSha256: "a61885ce1f5709424bcd72945f580f7db947b7ef297a9bfc0501ac7b179427d5",
   discoveryApiUrl: "https://shannon-explorer.somnia.network/api",
   collateralToken: "0x70a86D8842FB63C4Ad2b7cdddF530eBf1BB25d8E",
   collateralSymbol: "tUSDC",

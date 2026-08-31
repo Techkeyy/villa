@@ -44,6 +44,7 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible, summary:focus-visible { outline: 3px solid rgba(30, 91, 198, .3); outline-offset: 3px; }
 .page { display: block; }
 .page[hidden] { display: none; }
+[hidden] { display: none !important; }
 .section { max-width: var(--max); margin: 0 auto; padding: 94px 28px; }
 .section-narrow { max-width: var(--narrow); margin-left: auto; margin-right: auto; padding-left: 28px; padding-right: 28px; }
 .hero { max-width: var(--max); margin: 0 auto; padding: 104px 28px 102px; }
