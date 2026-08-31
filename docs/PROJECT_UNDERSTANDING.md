@@ -92,3 +92,39 @@ Not a venue. Not a retail betting app. Not a Telegram bot. Not an LLM coin-flip.
 **Adult:** DreamDEX already runs short Up/Down markets. Those markets need prices. VILLA is software for the person providing those prices. It uses Bitcoin itself, not just the last bet, and it stops when the operator's safety rules fire.
 
 **Developer:** Off-chain deterministic engine + operator UI. Writes via `@somnia-chain/markets-sdk` 0.28.1 to Shannon binary pools. Differentiation is valuation, inventory policy, and a hard governor — not the existence of `createOrder`.
+
+## Phase 3A handoff: the account is the portfolio
+
+The Phase 3A product change is an ownership boundary, not a new strategy. A
+liquidity provider owns one `VillaAccount`; the VILLA operator signs calls to
+that account; DreamDEX therefore sees the account as the trader. The signer is
+not the LP balance, the LP order owner, or the settlement position.
+
+The core loop remains:
+
+```text
+read one VillaAccount -> check readiness -> reuse fair value/risk/quotes -> build scoped calls -> show a shadow plan
+```
+
+The Phase 3A magic moment is still the account-specific explanation of what
+VILLA would do and why it is allowed. It is not a transaction confirmation.
+The load-bearing assumption for this phase is that every collateral,
+inventory, order, exposure, settlement, and successor read can be carried by
+one explicit VillaAccount address while the operator remains only the scoped
+caller. The adapter tests, the real zero-capital Phase 2 account read, and the
+shadow-mode no-broadcast gate verify that assumption.
+
+## Phase 3B0 safety handoff
+
+Before a wet session can exist, the loop becomes:
+
+```text
+acquire one account lease -> read chain/venue truth -> preflight -> derive one intent -> policy validate -> serialize -> reconcile
+```
+
+The risky assumption is now narrower: an operator signer can be kept as a
+caller identity while every portfolio effect remains scoped to one
+`VillaAccount`, including after a timeout, crash, restart, or STOP. The
+account-scoped lease, deterministic intent policy, nonce-aware writer, and
+authoritative reconciliation tests exercise that assumption without arming a
+signer or sending a transaction.

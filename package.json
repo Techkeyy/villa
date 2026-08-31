@@ -14,6 +14,8 @@
     "dashboard:replay": "node scripts/dashboard-server.mjs --replay",
     "operator:dev": "node --env-file=.env scripts/operator-api.mjs",
     "operator:test": "node --test src/operator/*.test.mjs",
+    "phase3a:readonly": "node scripts/phase3a-readonly.mjs",
+    "phase3b0:test": "node --test src/execution/lp-*.test.mjs",
     "dashboard:build": "node scripts/dashboard-build.mjs",
     "dashboard:test": "node --test src/dashboard/*.test.mjs",
     "fair-value": "node --env-file=.env scripts/fair-value-snapshot.mjs",
