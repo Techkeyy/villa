@@ -99,6 +99,13 @@ function mockReader() {
   };
 }
 
+function restrictQuotePlan(quotePlan, sideName) {
+  const selected = quotePlan?.[sideName];
+  const disabled = (side) => ({ ...side, enabled: false, targetPriceRaw: null, targetQuantityRaw: null, collateralRequiredRaw: null, projectedExposure: null });
+  if (!selected?.enabled) return { ...quotePlan, plan: "NO_QUOTE", bid: disabled(quotePlan?.bid ?? {}), ask: disabled(quotePlan?.ask ?? {}) };
+  return { ...quotePlan, plan: "ONE_SIDED", bid: sideName === "bid" ? selected : disabled(quotePlan?.bid ?? {}), ask: sideName === "ask" ? selected : disabled(quotePlan?.ask ?? {}) };
+}
+
 function validateUnsignedSequence({ account, owner, operator, market, state, decision, quotePlan, mintAmountRaw, decimals, accountMaxOrderCollateralRaw }) {
   const includesMint = mintAmountRaw > 0n;
   if (decision.state === "HALT" || quotePlan?.plan === "NO_QUOTE" || (includesMint && mintAmountRaw > accountMaxOrderCollateralRaw)) return { valid: false, reasons: ["SEQUENCE_PRECONDITION_INVALID"], actions: [] };
@@ -153,7 +160,7 @@ function validateUnsignedSequence({ account, owner, operator, market, state, dec
   return { valid: reasons.length === 0, reasons, actions };
 }
 
-function projectedEvaluation({ shadow, state, market, decimals, account, owner, operator, accountMaxOrderCollateralRaw, mintAmountRaw }) {
+function projectedEvaluation({ shadow, state, market, decimals, account, owner, operator, accountMaxOrderQuantityRaw, accountMaxOrderCollateralRaw, mintAmountRaw, sideName }) {
   const baseSnapshot = shadow.riskSnapshot;
   const one = 10n ** BigInt(decimals);
   const snapshot = {
@@ -164,10 +171,10 @@ function projectedEvaluation({ shadow, state, market, decimals, account, owner, 
     capital: { ...baseSnapshot.capital, collateralAvailable: Number(state.collateralRaw) / Number(one), capitalAtRisk: 0, accountingStatus: "PARTIAL" },
   };
   const riskDecision = evaluateRisk(snapshot, DEFAULT_RISK_CONFIG);
-  const quotePlan = planQuotes(plannerInput({ snapshot, decision: riskDecision, market, state, decimals }));
+  const quotePlan = restrictQuotePlan(planQuotes(plannerInput({ snapshot, decision: riskDecision, market, state, decimals })), sideName);
   const sequence = validateUnsignedSequence({ account, owner, operator, market, state, decision: riskDecision, quotePlan, mintAmountRaw, decimals, accountMaxOrderCollateralRaw });
   const quoteExecution = { orderType: 3, postOnly: true, policyValid: sequence.valid };
-  return { riskDecision, quotePlan, quoteExecution, sequencePolicyValid: sequence.valid, sequence, snapshot };
+  return { riskDecision, quotePlan, quoteExecution, sequencePolicyValid: sequence.valid, sequence, snapshot, market, accountMaxOrderQuantityRaw, accountMaxOrderCollateralRaw };
 }
 
 const shadow = await readFreshShadow();
@@ -185,20 +192,22 @@ const collateralRaw = raw(shadow.capital?.collateralAvailableRaw ?? (shadow.risk
 const yesRaw = raw(shadow.inventory.yesRaw, "YES balance");
 const noRaw = raw(shadow.inventory.noRaw, "NO balance");
 const baseState = projectLpState({ collateralRaw, yesRaw, noRaw, mintAmountRaw: 0n });
+const accountMaxOrderQuantityRaw = raw(shadow.accountLimits.maxOrderQuantityRaw, "VillaAccount maxOrderQuantity");
 const accountMaxOrderCollateralRaw = raw(shadow.accountLimits.maxOrderCollateralRaw, "VillaAccount maxOrderCollateral");
 const minimumMintRaw = raw(market.minimumOrderRaw ?? market.grid.minQuantityRaw, "venue minimum mint");
 const candidates = generateMintCandidates({ minimumAmountRaw: minimumMintRaw, maximumAmountRaw: DEFAULT_PHASE_3B1_CAPS.MAX_MINT_AMOUNT, stepRaw: minimumMintRaw });
 
-const evaluate = (mintAmountRaw) => evaluateMintCandidate({ collateralRaw, yesRaw, noRaw, mintAmountRaw, minimumMintRaw, accountMaxOrderCollateralRaw, caps: DEFAULT_PHASE_3B1_CAPS, evaluateProjectedState: (state) => projectedEvaluation({ shadow, state, market, decimals, account, owner, operator, accountMaxOrderCollateralRaw, mintAmountRaw: raw(mintAmountRaw, "mint amount") }) });
-const zeroEvaluation = projectedEvaluation({ shadow, state: baseState, market, decimals, account, owner, operator, accountMaxOrderCollateralRaw, mintAmountRaw: 0n });
+const evaluate = (mintAmountRaw) => evaluateMintCandidate({ collateralRaw, yesRaw, noRaw, mintAmountRaw, minimumMintRaw, accountMaxOrderQuantityRaw, accountMaxOrderCollateralRaw, caps: DEFAULT_PHASE_3B1_CAPS, evaluateProjectedState: (state) => projectedEvaluation({ shadow, state, market, decimals, account, owner, operator, accountMaxOrderQuantityRaw, accountMaxOrderCollateralRaw, mintAmountRaw: raw(mintAmountRaw, "mint amount"), sideName: "ask" }) });
+const zeroEvaluation = projectedEvaluation({ shadow, state: baseState, market, decimals, account, owner, operator, accountMaxOrderQuantityRaw, accountMaxOrderCollateralRaw, mintAmountRaw: 0n, sideName: "bid" });
+const zeroValidation = validateProjectedQuote({ riskDecision: zeroEvaluation.riskDecision, quotePlan: zeroEvaluation.quotePlan, quoteExecution: zeroEvaluation.quoteExecution, market, accountMaxOrderQuantityRaw, accountMaxOrderCollateralRaw, caps: DEFAULT_PHASE_3B1_CAPS });
 const buyWithoutMint = Object.freeze({
-  viable: zeroEvaluation.riskDecision.state !== "HALT" && zeroEvaluation.quotePlan.plan !== "NO_QUOTE" && zeroEvaluation.quotePlan.bid?.enabled === true && zeroEvaluation.sequencePolicyValid,
+  viable: zeroEvaluation.riskDecision.state !== "HALT" && zeroEvaluation.quotePlan.plan !== "NO_QUOTE" && zeroEvaluation.quotePlan.bid?.enabled === true && zeroEvaluation.sequencePolicyValid && zeroValidation.valid,
   state: baseState,
   riskDecision: zeroEvaluation.riskDecision,
   quotePlan: zeroEvaluation.quotePlan,
   quoteExecution: zeroEvaluation.quoteExecution,
   sequence: zeroEvaluation.sequence,
-  reasons: validateProjectedQuote({ riskDecision: zeroEvaluation.riskDecision, quotePlan: zeroEvaluation.quotePlan, quoteExecution: zeroEvaluation.quoteExecution, market, caps: DEFAULT_PHASE_3B1_CAPS }).reasons,
+  reasons: zeroValidation.reasons,
 });
 const evaluatedCandidates = candidates.map(evaluate);
 const smallestViable = evaluatedCandidates.find((item) => item.viable) ?? null;
