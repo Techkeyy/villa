@@ -93,9 +93,11 @@ export function generateMintCandidates({ minimumAmountRaw, maximumAmountRaw = DE
  * by the normal quote plan. This does not replace planQuotes or transaction
  * policy validation; it proves the projected result remains inside them.
  */
-export function validateProjectedQuote({ riskDecision, quotePlan, quoteExecution = {}, market, pendingOrderCount = 0, pendingExposureRaw = 0n, caps = DEFAULT_PHASE_3B1_CAPS } = {}) {
+export function validateProjectedQuote({ riskDecision, quotePlan, quoteExecution = {}, market, pendingOrderCount = 0, pendingExposureRaw = 0n, accountMaxOrderQuantityRaw = null, accountMaxOrderCollateralRaw = null, caps = DEFAULT_PHASE_3B1_CAPS } = {}) {
   const reasons = [];
   const sides = sideEntries(quotePlan);
+  const accountMaxQuantity = rawOrNull(accountMaxOrderQuantityRaw, "accountMaxOrderQuantityRaw");
+  const accountMaxCollateral = rawOrNull(accountMaxOrderCollateralRaw, "accountMaxOrderCollateralRaw");
   if (riskDecision?.state === "HALT") reasons.push(reason("RISK_HALTED", "projected collateral or another risk rule halts the projected state"));
   if (!quotePlan || quotePlan.plan === "NO_QUOTE") reasons.push(reason("PROJECTED_NO_QUOTE", `projected quote planner returned NO_QUOTE${quotePlan?.reasonCodes?.length ? ` (${quotePlan.reasonCodes.join(", ")})` : ""}`));
   if (quoteExecution.postOnly !== true || Number(quoteExecution.orderType) !== 3) reasons.push(reason("POST_ONLY_NOT_PROVEN", "projected quote is not explicitly bounded post-only"));
@@ -122,6 +124,10 @@ export function validateProjectedQuote({ riskDecision, quotePlan, quoteExecution
     }
     if (price <= 0n || price >= 1_000_000n) reasons.push(reason("PRICE_INVALID", `${name} price is outside the binary range`));
     if (quantity > caps.MAX_ORDER_NOTIONAL) reasons.push(reason("ORDER_NOTIONAL_CAP", `${name} quantity exceeds the bounded order cap`));
+    if (accountMaxQuantity !== null && quantity > accountMaxQuantity) reasons.push(reason("ACCOUNT_ORDER_QUANTITY_LIMIT", `${name} quantity exceeds VillaAccount.maxOrderQuantity`));
+    const oneRaw = rawOrNull(market?.grid?.oneRaw ?? 1_000_000n, "oneRaw") ?? 1_000_000n;
+    const collateralRequired = side.action?.startsWith("BUY") ? (price * quantity + oneRaw - 1n) / oneRaw : 0n;
+    if (accountMaxCollateral !== null && collateralRequired > accountMaxCollateral) reasons.push(reason("ACCOUNT_ORDER_COLLATERAL_LIMIT", `${name} collateral exceeds VillaAccount.maxOrderCollateral`));
     if (!riskDecision?.permissions?.allowedActions?.includes(side.action)) reasons.push(reason("RISK_ACTION_NOT_ALLOWED", `${name} action is not allowed by the projected governor`));
     const comparison = marketBookPrice(market, side.action);
     if (comparison !== null) {
@@ -144,7 +150,7 @@ export function validateProjectedQuote({ riskDecision, quotePlan, quoteExecution
  * Evaluate one hypothetical mint. `evaluateProjectedState` is supplied by the
  * live read-only probe so the pure module does not own model/risk construction.
  */
-export function evaluateMintCandidate({ collateralRaw, yesRaw, noRaw, mintAmountRaw, minimumMintRaw, caps = DEFAULT_PHASE_3B1_CAPS, accountMaxOrderCollateralRaw = null, evaluateProjectedState } = {}) {
+export function evaluateMintCandidate({ collateralRaw, yesRaw, noRaw, mintAmountRaw, minimumMintRaw, caps = DEFAULT_PHASE_3B1_CAPS, accountMaxOrderQuantityRaw = null, accountMaxOrderCollateralRaw = null, evaluateProjectedState } = {}) {
   const amount = raw(mintAmountRaw, "mintAmountRaw", { positive: true });
   const minimum = raw(minimumMintRaw, "minimumMintRaw", { positive: true });
   const maxAccount = accountMaxOrderCollateralRaw === null || accountMaxOrderCollateralRaw === undefined ? null : raw(accountMaxOrderCollateralRaw, "accountMaxOrderCollateralRaw", { positive: true });
@@ -156,7 +162,7 @@ export function evaluateMintCandidate({ collateralRaw, yesRaw, noRaw, mintAmount
   try { state = projectLpState({ collateralRaw, yesRaw, noRaw, mintAmountRaw: amount }); } catch (error) { reasons.push(reason("PROJECTED_BALANCE_INVALID", error.message)); }
   let evaluated = null;
   if (state && typeof evaluateProjectedState === "function") evaluated = evaluateProjectedState(state);
-  const quoteValidation = evaluated ? validateProjectedQuote({ ...evaluated, caps }) : null;
+  const quoteValidation = evaluated ? validateProjectedQuote({ ...evaluated, accountMaxOrderQuantityRaw, accountMaxOrderCollateralRaw, caps }) : null;
   if (evaluated?.riskDecision?.state === "HALT") reasons.push(reason("RISK_HALTED", "projected state is halted by the existing Risk Governor"));
   if (quoteValidation && !quoteValidation.valid) reasons.push(...quoteValidation.reasons);
   if (evaluated?.sequencePolicyValid !== true) reasons.push(reason("PROJECTED_SEQUENCE_INVALID", "the complete projected sequence did not pass the unsigned policy boundary"));

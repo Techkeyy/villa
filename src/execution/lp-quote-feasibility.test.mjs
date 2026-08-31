@@ -93,6 +93,16 @@ test("projected quote validation enforces post-only, venue grid, risk, and pendi
   assert.ok(riskCapped.reasons.some((item) => item.code === "RISK_HEADROOM"));
 });
 
+test("projected quote validation enforces the deployed VillaAccount order limits", () => {
+  const { riskDecision, quotePlan } = evaluatedState({ collateral: 1.2, yes: 0.01, no: 0.01 });
+  const quantityLimited = validateProjectedQuote({ riskDecision, quotePlan, quoteExecution: { postOnly: true, orderType: 3, policyValid: true }, market: MARKET, accountMaxOrderQuantityRaw: 3_999n, accountMaxOrderCollateralRaw: 1_000n });
+  assert.equal(quantityLimited.valid, false);
+  assert.ok(quantityLimited.reasons.some((item) => item.code === "ACCOUNT_ORDER_QUANTITY_LIMIT"));
+  const collateralLimited = validateProjectedQuote({ riskDecision, quotePlan: { ...quotePlan, ask: { ...quotePlan.ask, enabled: false } }, quoteExecution: { postOnly: true, orderType: 3, policyValid: true }, market: MARKET, accountMaxOrderQuantityRaw: 10_000n, accountMaxOrderCollateralRaw: 1n });
+  assert.equal(collateralLimited.valid, false);
+  assert.ok(collateralLimited.reasons.some((item) => item.code === "ACCOUNT_ORDER_COLLATERAL_LIMIT"));
+});
+
 test("smallest viable mint is deterministic and unnecessary mint loses to BUY path", () => {
   const candidates = [1_000n, 2_000n, 3_000n];
   const found = findSmallestViableMint(candidates, (amount) => ({ viable: amount === 2_000n, mintAmountRaw: amount.toString() }));
