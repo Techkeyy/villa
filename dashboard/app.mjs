@@ -9,6 +9,7 @@ import {
   discoverAccount,
   ensureShannon,
   formatAmount,
+  formatRawExact,
   getChainId,
   loadArtifact,
   normalizeAddress,
@@ -20,7 +21,7 @@ import {
   sendTransaction,
   tokenCall,
 } from "./account-client.mjs";
-import { MIN_DEPOSIT_RAW, VILLA_ACCOUNT_CONFIG, VILLA_CHAIN, ZERO_ADDRESS } from "./account-config.mjs";
+import { MIN_INITIAL_DEPOSIT_RAW, MIN_STRATEGY_CAPITAL_RAW, MIN_TOP_UP_RAW, PHASE_3B1_MAX_ACCOUNT_CAPITAL_RAW, VILLA_ACCOUNT_CONFIG, VILLA_CHAIN, ZERO_ADDRESS } from "./account-config.mjs";
 import { deriveWalletStatus, renderAccountJourney } from "./account-journey.mjs";
 import { createAddLiquidityHandler, runAddLiquidity } from "./liquidity-flow.mjs";
 import { evaluateVerifiedOwnerAccountReadiness, isVerifiedOwnerAccountReady } from "./account-readiness.mjs";
@@ -175,6 +176,8 @@ function humanError(error) {
   if (error?.code === "WRONG_NETWORK") return "Switch to Somnia Shannon.";
   if (error?.code === "RPC_ERROR") return "The wallet or network could not complete that request. Your funds are safe.";
   if (error?.code === "MIN_DEPOSIT") return error.message;
+  if (error?.code === "MIN_TOP_UP") return error.message;
+  if (error?.code === "ACCOUNT_STATE_INVALID") return error.message;
   if (error?.code === "ACTION_BUSY") return "A liquidity action is already in progress. Please wait.";
   if (error?.code === "ACCOUNT_NOT_READY") return "Your VILLA account is not ready. Refresh account verification and try again.";
   if (error?.code === "OPERATOR_UNAVAILABLE") return "VILLA operator configuration is unavailable. Retry.";
@@ -334,6 +337,7 @@ function updateWorkspace(account, walletBalance) {
   publishReadinessDebug({ ...appState, account });
   debugLiquidity("account_readiness_check", readinessEvaluation);
   const allocated = account.balance;
+  const funded = allocated > 0n;
   const authorized = account.operator === normalizeAddress(VILLA_ACCOUNT_CONFIG.operator);
   const unexpectedOperator = account.operator !== ZERO_ADDRESS && !authorized;
   text("account-address", shorten(account.address));
@@ -345,6 +349,15 @@ function updateWorkspace(account, walletBalance) {
   text("withdrawable-balance", `${formatAmount(allocated)} tUSDC`);
   text("withdrawable-inline", `${formatAmount(allocated)} tUSDC`);
   text("strategy-allocated", `${formatAmount(allocated)} tUSDC`);
+  text("minimum-deposit-label", funded ? "Minimum top-up" : "Minimum initial deposit");
+  text("minimum-deposit", formatRawExact(funded ? MIN_TOP_UP_RAW : MIN_INITIAL_DEPOSIT_RAW));
+  toggle("phase3b1-diagnostics", DEBUG_ENABLED && funded);
+  if (DEBUG_ENABLED && funded) {
+    text("phase3b1-target", `${formatRawExact(PHASE_3B1_MAX_ACCOUNT_CAPITAL_RAW)} tUSDC`);
+    const additional = PHASE_3B1_MAX_ACCOUNT_CAPITAL_RAW > allocated ? PHASE_3B1_MAX_ACCOUNT_CAPITAL_RAW - allocated : 0n;
+    text("phase3b1-additional", `${formatRawExact(additional)} tUSDC`);
+    text("phase3b1-strategy-floor", `${formatRawExact(MIN_STRATEGY_CAPITAL_RAW)} tUSDC`);
+  }
   text("advanced-account", account.address);
   text("advanced-operator", VILLA_ACCOUNT_CONFIG.operator);
 
@@ -577,7 +590,7 @@ async function handleCreateAccount() {
 }
 
 function showLiquidityStage(stage, amount = 0n, hash = "") {
-  const value = amount ? formatAmount(amount) : "the requested";
+  const value = amount ? formatRawExact(amount) : "the requested";
   if (stage === "PREPARING") showTransaction("READY", "Preparing liquidity", "Checking the amount, network, account, and wallet balance.");
   if (stage === "APPROVAL_READY") showTransaction("READY", `Approve ${value} tUSDC`, "Your wallet will approve this exact amount for your VILLA account only.");
   if (stage === "APPROVAL_CONFIRMING") showTransaction("CONFIRMING", "Waiting for approval", "Verifying the exact allowance before deposit.", hash);
@@ -621,8 +634,8 @@ const handleAddLiquidity = createAddLiquidityHandler({
   onSuccess: ({ amount, walletAfter, accountAfter, hash }) => {
     setAppState({ account: accountAfter, currentAccountAddress: accountAfter.address, discoveryStatus: "DISCOVERED", error: null });
     updateWorkspace(accountAfter, walletAfter);
-    showTransaction("SUCCESS", "Liquidity added", `${formatAmount(amount)} tUSDC is now held by your VILLA account.`, hash);
-    setMessage("capital-message", `Liquidity added: ${formatAmount(amount)} tUSDC.`, "safe");
+    showTransaction("SUCCESS", "Liquidity added", `${formatRawExact(amount)} tUSDC is now held by your VILLA account.`, hash);
+    setMessage("capital-message", `Liquidity added: ${formatRawExact(amount)} tUSDC.`, "safe");
     element("amount-to-use").value = "";
   },
 });
@@ -786,7 +799,7 @@ function initProof() {
 
 function showPage() {
   const requested = page === "/app" ? "app" : page === "/proof" ? "proof" : "landing";
-  text("minimum-deposit", formatAmount(MIN_DEPOSIT_RAW));
+  text("minimum-deposit", formatRawExact(MIN_INITIAL_DEPOSIT_RAW));
   document.querySelectorAll("[data-page]").forEach((pageElement) => {
     pageElement.hidden = pageElement.dataset.page !== requested;
   });

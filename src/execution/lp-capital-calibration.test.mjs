@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { DEFAULT_PHASE_3B1_CAPS } from "./lp-transaction-policy.mjs";
-import { calibrationCandidatesRaw, compareLockedCaps, deriveCapitalEquation, evaluateCapitalCandidate } from "./lp-capital-calibration.mjs";
+import { calibrationCandidatesRaw, compareLockedCaps, deriveCapitalEquation, evaluateCapitalCandidate, PHASE_3B1A4_BASELINE_CAPITAL_RAW } from "./lp-capital-calibration.mjs";
 import { createProjectedEvaluator, evaluateCapitalAtSnapshot } from "./lp-feasibility-simulation.mjs";
 import { evaluateLpExecutionReadiness } from "./lp-readiness.mjs";
 
@@ -63,13 +63,21 @@ test("six-decimal candidates are exact and the candidate below the floor fails",
 });
 
 test("recommended buffered value passes the strategy floor but current cap remains a separate fail", () => {
-  const result = evaluateCapitalCandidate({ capitalRaw: 1_002_000n, mathematicalMinimumRaw: 1_001_000n, recommendedCapitalRaw: 1_002_000n, currentCapitalCapRaw: DEFAULT_PHASE_3B1_CAPS.MAX_ACCOUNT_CAPITAL, strategyFeasible: true, currentCapsNonCapitalPass: true, path: "B" });
+  const result = evaluateCapitalCandidate({ capitalRaw: 1_002_000n, mathematicalMinimumRaw: 1_001_000n, recommendedCapitalRaw: 1_002_000n, currentCapitalCapRaw: PHASE_3B1A4_BASELINE_CAPITAL_RAW, strategyFeasible: true, currentCapsNonCapitalPass: true, path: "B" });
   assert.equal(result.mathematicalPass, true);
   assert.equal(result.recommendedPass, true);
   assert.equal(result.currentCapitalPass, false);
   assert.equal(result.currentCapsPass, false);
   assert.equal(result.proposedReplacementCapPass, true);
   assert.ok(result.reasons.includes("ACCOUNT_CAPITAL_CAP"));
+});
+
+test("the activated bounded cap is inclusive and rejects one raw unit above it", () => {
+  const exact = evaluateCapitalCandidate({ capitalRaw: DEFAULT_PHASE_3B1_CAPS.MAX_ACCOUNT_CAPITAL, mathematicalMinimumRaw: 1_001_000n, recommendedCapitalRaw: 1_002_000n, strategyFeasible: true, currentCapsNonCapitalPass: true });
+  const above = evaluateCapitalCandidate({ capitalRaw: DEFAULT_PHASE_3B1_CAPS.MAX_ACCOUNT_CAPITAL + 1n, mathematicalMinimumRaw: 1_001_000n, recommendedCapitalRaw: 1_002_000n, strategyFeasible: true, currentCapsNonCapitalPass: true });
+  assert.equal(exact.currentCapitalPass, true);
+  assert.equal(above.currentCapitalPass, false);
+  assert.ok(above.reasons.includes("ACCOUNT_CAPITAL_CAP"));
 });
 
 test("locked non-capital caps cannot drift during calibration", () => {

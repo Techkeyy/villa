@@ -105,6 +105,14 @@ test("account capital is checked against the actual hard-cap field", () => {
   assert.equal(policy.validate(base).code, "ACCOUNT_CAPITAL_CAP");
 });
 
+test("the Phase 3B1 account-cap boundary is inclusive and integer exact", () => {
+  const policy = createLpTransactionPolicy({ session: session(), now: () => 1000 });
+  const exact = prepared("operatorCancelOrder", { marketId: MARKET, orderId: 7n }, { accountCapitalRaw: DEFAULT_PHASE_3B1_CAPS.MAX_ACCOUNT_CAPITAL });
+  const above = prepared("operatorCancelOrder", { marketId: MARKET, orderId: 7n }, { accountCapitalRaw: DEFAULT_PHASE_3B1_CAPS.MAX_ACCOUNT_CAPITAL + 1n });
+  assert.equal(policy.validate(exact).allowed, true);
+  assert.equal(policy.validate(above).code, "ACCOUNT_CAPITAL_CAP");
+});
+
 test("intent construction rejects a destination outside the VillaAccount", () => {
   assert.throws(() => createTransactionIntent({ session: session(), action: "CANCEL_ORDER", marketId: MARKET, destination: OWNER, txIndex: 0, createdAt: 1000 }), { code: "DESTINATION_DENIED" });
 });

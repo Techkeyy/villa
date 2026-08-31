@@ -11,6 +11,9 @@ import { decimalToRaw } from "../quote-planner/index.mjs";
 import { DEFAULT_PHASE_3B1_CAPS } from "./lp-transaction-policy.mjs";
 
 export const LP_CAPITAL_CALIBRATION_VERSION = "villa-lp-capital-calibration-v1";
+// Historical Phase 3B1A.4 baseline. Keep it explicit so that re-running the
+// calibration still reports the before/after policy boundary after activation.
+export const PHASE_3B1A4_BASELINE_CAPITAL_RAW = 1_000_000n;
 export const CALIBRATION_CANDIDATES_TUSDC = Object.freeze([
   "1.001",
   "1.002",

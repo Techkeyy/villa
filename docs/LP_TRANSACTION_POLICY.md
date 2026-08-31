@@ -63,7 +63,7 @@ them without a new safety review.
 
 | Cap | Value |
 | --- | ---: |
-| `MAX_ACCOUNT_CAPITAL` | `1.00 tUSDC` |
+| `MAX_ACCOUNT_CAPITAL` | `1.002 tUSDC` |
 | `MAX_ORDER_NOTIONAL` | `0.25 tUSDC` |
 | `MAX_OPEN_ORDERS` | `2` |
 | `MAX_PENDING_EXPOSURE` | `0.25 tUSDC` |
@@ -71,5 +71,6 @@ them without a new safety review.
 | `MAX_SESSION_DURATION` | `900` seconds |
 | `MAX_TX_COUNT` | `12` |
 
-These caps do not authorize execution. They constrain a future explicitly
-approved one-account test.
+These caps do not authorize execution. The `1.002 tUSDC` account-cap value is
+the approved bounded Phase 3B1 test cap only; it is not a permanent public-user
+deposit ceiling. The public initial-deposit minimum remains `1.00 tUSDC`.

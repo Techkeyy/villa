@@ -7,6 +7,7 @@
  */
 
 import { encodeFunctionData, isAddress } from "viem";
+import { PHASE_3B1_MAX_ACCOUNT_CAPITAL_RAW } from "../../dashboard/account-config.mjs";
 import { VILLA_ACCOUNT_OPERATOR_ABI } from "./lp-adapter.mjs";
 import { LP_SESSION_VERSION, assertLpSessionScope } from "./lp-session.mjs";
 
@@ -37,7 +38,7 @@ export const LP_DENIED_OPERATIONS = Object.freeze([
 // Shannon tUSDC uses six decimal raw units. These are hard upper bounds for
 // the first wet cycle, not targets. A later phase may only lower them.
 export const DEFAULT_PHASE_3B1_CAPS = Object.freeze({
-  MAX_ACCOUNT_CAPITAL: 1_000_000n,
+  MAX_ACCOUNT_CAPITAL: PHASE_3B1_MAX_ACCOUNT_CAPITAL_RAW,
   MAX_ORDER_NOTIONAL: 250_000n,
   MAX_OPEN_ORDERS: 2,
   MAX_PENDING_EXPOSURE: 250_000n,

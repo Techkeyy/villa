@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { AccountClientError, accountCall, tokenCall } from "../../dashboard/account-client.mjs";
-import { MIN_DEPOSIT_RAW, MIN_DEPOSIT_TUSDC, VILLA_ACCOUNT_CONFIG, VILLA_CHAIN, ZERO_ADDRESS } from "../../dashboard/account-config.mjs";
+import { MIN_DEPOSIT_RAW, MIN_DEPOSIT_TUSDC, MIN_TOP_UP_RAW, VILLA_ACCOUNT_CONFIG, VILLA_CHAIN, ZERO_ADDRESS } from "../../dashboard/account-config.mjs";
 import { evaluateVerifiedOwnerAccountReadiness, isVerifiedOwnerAccountReady } from "../../dashboard/account-readiness.mjs";
 import { createAddLiquidityHandler, parseLiquidityAmount, runAddLiquidity } from "../../dashboard/liquidity-flow.mjs";
 
@@ -9,9 +9,9 @@ const OWNER = "0xCc67779F8eDb2C80DC665775C5597657C512FE1A".toLowerCase();
 const ACCOUNT = "0xFc9dbf0a8468aA56799b4e23B1EBe936426eE30b".toLowerCase();
 const WALLET_START = 500_000_000n;
 
-function harness({ allowanceStart = 0n, sendFailure = null } = {}) {
+function harness({ allowanceStart = 0n, sendFailure = null, initialAccountBalance = 0n, rawInput = "1.00" } = {}) {
   let walletBalance = WALLET_START;
-  let accountBalance = 0n;
+  let accountBalance = initialAccountBalance;
   let allowance = allowanceStart;
   const calls = [];
   const stages = [];
@@ -54,11 +54,9 @@ function harness({ allowanceStart = 0n, sendFailure = null } = {}) {
       if (sendFailure && sendFailure === phase) throw new AccountClientError("WALLET_REJECTED", `${phase} rejected`);
       update("SUBMITTED", `0x${phase}`);
       update("SUCCESS", `0x${phase}`);
-      if (isApproval) allowance = MIN_DEPOSIT_RAW;
+      const raw = BigInt(`0x${transaction.data.slice(-64)}`);
+      if (isApproval) allowance = raw;
       else {
-        const amount = phase === "deposit" ? MIN_DEPOSIT_RAW : 0n;
-        const raw = BigInt(`0x${transaction.data.slice(-64)}`);
-        assert.equal(raw, amount);
         walletBalance -= raw;
         accountBalance += raw;
       }
@@ -72,7 +70,7 @@ function harness({ allowanceStart = 0n, sendFailure = null } = {}) {
     currentAccountAddress: ACCOUNT,
     account: { address: ACCOUNT, owner: OWNER, operator: ZERO_ADDRESS, verification: "VERIFIED" },
     accountArtifact: { runtimeBytecode: "0x6000" },
-    rawInput: "1.00",
+    rawInput,
     chainId: VILLA_CHAIN.id,
     busy: false,
     transactionStatus: "IDLE",
@@ -148,6 +146,40 @@ test("Phase 2 minimum deposit is exact and rejects unsafe inputs", () => {
     assert.throws(() => parseLiquidityAmount(value), (error) => error.code === "INVALID_AMOUNT");
   }
   assert.throws(() => parseLiquidityAmount("500.00", 499_999_999n), (error) => error.code === "INSUFFICIENT_FUNDS");
+});
+
+test("initially unfunded accounts cannot bypass the 1.00 tUSDC minimum with a small deposit", () => {
+  assert.throws(() => parseLiquidityAmount("0.002", WALLET_START, 0n), (error) => error.code === "MIN_DEPOSIT");
+  assert.equal(parseLiquidityAmount("1.00", WALLET_START, 0n), MIN_DEPOSIT_RAW);
+});
+
+test("funded accounts accept exact 0.001 and 0.002 tUSDC top-ups", () => {
+  assert.equal(parseLiquidityAmount("0.001", WALLET_START, MIN_DEPOSIT_RAW), MIN_TOP_UP_RAW);
+  assert.equal(parseLiquidityAmount("0.002", WALLET_START, MIN_DEPOSIT_RAW), 2_000n);
+  assert.throws(() => parseLiquidityAmount("0", WALLET_START, MIN_DEPOSIT_RAW), (error) => error.code === "MIN_TOP_UP");
+});
+
+test("the top-up parser preserves raw precision and checks wallet balance", () => {
+  assert.throws(() => parseLiquidityAmount("0.0000001", WALLET_START, MIN_DEPOSIT_RAW), (error) => error.code === "INVALID_AMOUNT");
+  assert.throws(() => parseLiquidityAmount("-0.001", WALLET_START, MIN_DEPOSIT_RAW), (error) => error.code === "INVALID_AMOUNT");
+  assert.throws(() => parseLiquidityAmount("0.002", 1_999n, MIN_DEPOSIT_RAW), (error) => error.code === "INSUFFICIENT_FUNDS");
+});
+
+test("funded-account top-up uses the same exact finite amount for approval and deposit", async () => {
+  const { context, result } = await execute({ initialAccountBalance: MIN_DEPOSIT_RAW, rawInput: "0.002" });
+  assert.equal(result.amount, 2_000n);
+  assert.equal(context.calls.length, 2);
+  assert.deepEqual(context.calls[0], {
+    from: OWNER,
+    to: VILLA_ACCOUNT_CONFIG.collateralToken.toLowerCase(),
+    data: tokenCall.approve(ACCOUNT, 2_000n),
+  });
+  assert.deepEqual(context.calls[1], {
+    from: OWNER,
+    to: ACCOUNT,
+    data: accountCall.deposit(2_000n),
+  });
+  assert.equal(context.accountBalance, 1_002_000n);
 });
 
 test("rediscovered owner/account state uses exact raw approval and deposit amounts", async () => {

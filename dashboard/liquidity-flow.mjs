@@ -3,6 +3,7 @@ import {
   actionTransaction,
   accountCall,
   formatAmount,
+  formatRawExact,
   getChainId,
   parseAmount,
   readAccount,
@@ -11,7 +12,7 @@ import {
   sendTransaction,
   tokenCall,
 } from "./account-client.mjs";
-import { MIN_DEPOSIT_RAW, VILLA_ACCOUNT_CONFIG, VILLA_CHAIN } from "./account-config.mjs";
+import { MIN_INITIAL_DEPOSIT_RAW, MIN_TOP_UP_RAW, VILLA_ACCOUNT_CONFIG, VILLA_CHAIN } from "./account-config.mjs";
 import { accountReadinessSnapshot } from "./account-readiness.mjs";
 
 const errorCode = (error) => error?.code || "UNKNOWN";
@@ -22,12 +23,22 @@ function emitDebug(onDebug, event, details = {}) {
   }
 }
 
-export function parseLiquidityAmount(value, walletBalance = null) {
+export function parseLiquidityAmount(value, walletBalance = null, accountCollateralRaw = 0n) {
   const amount = parseAmount(value, VILLA_ACCOUNT_CONFIG.collateralDecimals, { allowZero: true });
-  if (amount < MIN_DEPOSIT_RAW) {
+  let collateral;
+  try {
+    collateral = typeof accountCollateralRaw === "bigint" ? accountCollateralRaw : BigInt(String(accountCollateralRaw));
+  } catch {
+    throw new AccountClientError("ACCOUNT_STATE_INVALID", "Your VILLA account balance could not be verified.");
+  }
+  if (collateral < 0n) throw new AccountClientError("ACCOUNT_STATE_INVALID", "Your VILLA account balance could not be verified.");
+  const funded = collateral > 0n;
+  const minimum = funded ? MIN_TOP_UP_RAW : MIN_INITIAL_DEPOSIT_RAW;
+  if (amount < minimum) {
+    if (funded) throw new AccountClientError("MIN_TOP_UP", `Enter at least ${formatRawExact(MIN_TOP_UP_RAW)} ${VILLA_ACCOUNT_CONFIG.collateralSymbol} for a top-up.`);
     throw new AccountClientError(
       "MIN_DEPOSIT",
-      `Enter at least ${formatAmount(MIN_DEPOSIT_RAW)} ${VILLA_ACCOUNT_CONFIG.collateralSymbol}.`,
+      `Enter at least ${formatAmount(MIN_INITIAL_DEPOSIT_RAW)} ${VILLA_ACCOUNT_CONFIG.collateralSymbol} for the initial deposit.`,
     );
   }
   if (walletBalance !== null && amount > BigInt(walletBalance)) {
@@ -93,12 +104,6 @@ export async function runAddLiquidity({
   const send = dependencies.sendTransaction || sendTransaction;
 
   onStage("PREPARING");
-  const amount = parseLiquidityAmount(rawInput);
-  emitDebug(onDebug, "amount_parsed", {
-    rawInput: String(rawInput ?? ""),
-    amountRaw: amount.toString(),
-    amount: formatAmount(amount),
-  });
 
   emitDebug(onDebug, "chain_request_start", {});
   const chainId = await readChainIdFor(provider);
@@ -111,6 +116,13 @@ export async function runAddLiquidity({
   emitDebug(onDebug, "account_verified", { owner, account: verified.address, chainId });
   const walletBefore = await readWalletBalanceFor(provider, owner);
   emitDebug(onDebug, "wallet_balance_result", { balanceRaw: walletBefore.toString() });
+  const amount = parseLiquidityAmount(rawInput, walletBefore, verified.balance);
+  emitDebug(onDebug, "amount_parsed", {
+    rawInput: String(rawInput ?? ""),
+    amountRaw: amount.toString(),
+    amount: formatRawExact(amount),
+    accountFunded: verified.balance > 0n,
+  });
   if (amount > walletBefore) throw new AccountClientError("INSUFFICIENT_FUNDS", "Your wallet does not have enough tUSDC.");
 
   const allowance = await readAllowanceWithDiagnostics(

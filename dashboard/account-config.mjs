@@ -6,10 +6,19 @@ export const VILLA_CHAIN = Object.freeze({
   nativeCurrency: { name: "Somnia Test Token", symbol: "STT", decimals: 18 },
 });
 
-// Phase 2 product minimum. Keep this separate from contract economics so the
-// onboarding floor can become strategy-derived in a later phase.
-export const MIN_DEPOSIT_TUSDC = "1.00";
-export const MIN_DEPOSIT_RAW = 1_000_000n;
+// Capital policy concepts are deliberately separate. The initial-deposit floor
+// is public onboarding policy; the strategy floor and Phase 3B1 cap are bounded
+// engineering-test policy and are not a public-user deposit ceiling.
+export const MIN_INITIAL_DEPOSIT_TUSDC = "1.00";
+export const MIN_INITIAL_DEPOSIT_RAW = 1_000_000n;
+export const MIN_DEPOSIT_TUSDC = MIN_INITIAL_DEPOSIT_TUSDC;
+export const MIN_DEPOSIT_RAW = MIN_INITIAL_DEPOSIT_RAW;
+export const MIN_TOP_UP_TUSDC = "0.001";
+export const MIN_TOP_UP_RAW = 1_000n;
+export const MIN_STRATEGY_CAPITAL_TUSDC = "1.001";
+export const MIN_STRATEGY_CAPITAL_RAW = 1_001_000n;
+export const PHASE_3B1_RECOMMENDED_CAP_TUSDC = "1.002";
+export const PHASE_3B1_MAX_ACCOUNT_CAPITAL_RAW = 1_002_000n;
 
 export const VILLA_ACCOUNT_CONFIG = Object.freeze({
   artifactPath: "/villa-account-artifact.json",

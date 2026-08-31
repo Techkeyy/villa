@@ -20,6 +20,7 @@
     "phase3b1a:one-cycle": "node scripts/lp-one-cycle.mjs --one-cycle --account=0x1111111111111111111111111111111111111111 --session-id=local-shadow-smoke",
     "phase3b1a:feasibility": "node scripts/phase3b1a-feasibility-readonly.mjs",
     "phase3b1a4:calibrate": "node scripts/phase3b1a4-capital-calibration-readonly.mjs",
+    "phase3b1a5:topup-plan": "node scripts/phase3b1a5-owner-topup-prep.mjs",
     "phase3b1a:owner-prep": "node scripts/phase3b1a-owner-prep.mjs",
     "dashboard:build": "node scripts/dashboard-build.mjs",
     "dashboard:test": "node --test src/dashboard/*.test.mjs",

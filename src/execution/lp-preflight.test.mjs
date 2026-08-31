@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { evaluateWetExecutionPreflight } from "./lp-preflight.mjs";
+import { DEFAULT_PHASE_3B1_CAPS } from "./lp-transaction-policy.mjs";
 import { createLpExecutionSession, createAccountLeaseStore, transitionLpSession } from "./lp-session.mjs";
 
 const ACCOUNT = "0x1111111111111111111111111111111111111111";
@@ -61,7 +62,7 @@ test("wrong signer/operator/owner and insufficient or over-capitalized accounts 
   assert.ok(owner.reasons.includes("OWNER_NOT_VERIFIED"));
   const low = evaluateWetExecutionPreflight({ ...base(), capital: { collateralRaw: 0n } });
   assert.ok(low.reasons.includes("INSUFFICIENT_CAPITAL"));
-  const high = evaluateWetExecutionPreflight({ ...base(), capital: { collateralRaw: 1_000_001n } });
+  const high = evaluateWetExecutionPreflight({ ...base(), capital: { collateralRaw: DEFAULT_PHASE_3B1_CAPS.MAX_ACCOUNT_CAPITAL + 1n } });
   assert.ok(high.reasons.includes("ACCOUNT_CAPITAL_CAP"));
 });
 
@@ -91,6 +92,6 @@ test("pending or unknown transactions, unknown orders, risk HALT, and active dur
   assert.ok(halt.reasons.includes("RISK_HALTED"));
   const duration = evaluateWetExecutionPreflight({ ...base(), nowMs: 901_001 });
   assert.ok(duration.reasons.includes("SESSION_DURATION_EXCEEDED"));
-  const raisedCap = evaluateWetExecutionPreflight({ ...base(), caps: { MAX_ACCOUNT_CAPITAL: 1_000_001n } });
+  const raisedCap = evaluateWetExecutionPreflight({ ...base(), caps: { MAX_ACCOUNT_CAPITAL: DEFAULT_PHASE_3B1_CAPS.MAX_ACCOUNT_CAPITAL + 1n } });
   assert.ok(raisedCap.reasons.includes("CAPS_INVALID"));
 });
