@@ -48,6 +48,10 @@ test("operator API rejects unauthorized controls and permits an authorized sessi
     const started = await request(base, "/session/start", { method: "POST", token: verified.body.token, body: { capitalAllocationHuman: 0.001 } });
     assert.equal(started.status, 202);
     assert.deepEqual(calls, [["start", { capitalAllocationHuman: 0.001 }]]);
+    const arbitrary = await request(base, "/session/start", { method: "POST", token: verified.body.token, body: { to: account.address, data: "0xdeadbeef" } });
+    assert.equal(arbitrary.status, 400);
+    assert.equal(arbitrary.body.code, "ARBITRARY_CALL_DENIED");
+    assert.equal(calls.length, 1);
     const originRejected = await request(base, "/health", { origin: "http://not-allowed.test" });
     assert.equal(originRejected.status, 403);
   } finally {

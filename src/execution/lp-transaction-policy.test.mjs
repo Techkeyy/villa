@@ -99,6 +99,12 @@ test("hard caps reject oversized order, exposure, mint, transaction index, and r
   assert.throws(() => createLpTransactionPolicy({ session: session(), caps: { MAX_OPEN_ORDERS: 3 } }), { code: "CAP_EXCEEDED" });
 });
 
+test("account capital is checked against the actual hard-cap field", () => {
+  const policy = createLpTransactionPolicy({ session: session(), now: () => 1000 });
+  const base = prepared("operatorCancelOrder", { marketId: MARKET, orderId: 7n }, { accountCapitalRaw: DEFAULT_PHASE_3B1_CAPS.MAX_ACCOUNT_CAPITAL + 1n });
+  assert.equal(policy.validate(base).code, "ACCOUNT_CAPITAL_CAP");
+});
+
 test("intent construction rejects a destination outside the VillaAccount", () => {
   assert.throws(() => createTransactionIntent({ session: session(), action: "CANCEL_ORDER", marketId: MARKET, destination: OWNER, txIndex: 0, createdAt: 1000 }), { code: "DESTINATION_DENIED" });
 });

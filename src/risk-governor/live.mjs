@@ -235,13 +235,18 @@ export async function collectRiskSnapshot(exchange, options = {}) {
 
   const owner = options.owner ?? exchange.walletAddress;
   if (!owner || !isAddress(owner)) throw new Error("read-only risk collection needs a valid operator address");
+  // For account-bound LP execution, collateral/inventory/orders belong to the
+  // VillaAccount while native gas is paid by the configured operator EOA. The
+  // default preserves the historical signer-owned behavior.
+  const gasAddress = options.gasAddress ?? owner;
+  if (!gasAddress || !isAddress(gasAddress)) throw new Error("read-only risk collection needs a valid gas payer address");
   const decimals = asFiniteNumber(collectorMarket.info.baseDecimals ?? collectorMarket.info.quoteDecimals, "market decimals");
   if (!Number.isInteger(decimals) || decimals < 0 || decimals > 18) throw new Error(`unsupported market decimals ${decimals}`);
   const [yesRaw, noRaw, collateralRaw, gasRaw, openOrderRead] = await Promise.all([
     exchange.client.getOutcomeBalance({ outcomeToken: onchain.outcomeToken, account: owner, id: onchain.yesId }),
     exchange.client.getOutcomeBalance({ outcomeToken: onchain.outcomeToken, account: owner, id: onchain.noId }),
     exchange.client.getErc20Balance(onchain.collateral, owner),
-    exchange.client.getViemClient().getBalance({ address: owner }),
+    exchange.client.getViemClient().getBalance({ address: gasAddress }),
     readOpenOrders(exchange, onchain, owner, marketId, decimals, { knownOrderIds: options.knownOrderIds, knownOrders: options.knownOrders }),
   ]);
 
@@ -290,6 +295,7 @@ export async function collectRiskSnapshot(exchange, options = {}) {
       reference: resolvedReference,
       openOrderRead,
       accountingWarnings: ["CAPITAL_ACCOUNTING_PARTIAL", "DRAWDOWN_UNACCOUNTED"],
+      gasAddress,
     },
   };
 }

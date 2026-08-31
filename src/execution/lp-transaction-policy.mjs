@@ -258,7 +258,7 @@ export function validateTransactionPlan(plan, { session, caps = DEFAULT_PHASE_3B
   if (intent.expirationNs !== null && raw(intent.expirationNs, "intent expiration") !== (facts.expirationNs ?? 0n)) return reject("INTENT_EXPIRATION_MISMATCH", "intent expiration differs from calldata");
   if (intent.side !== null && intent.side !== facts.side) return reject("INTENT_SIDE_MISMATCH", "intent side differs from calldata");
 
-  if (plan.accountCapitalRaw !== undefined && raw(plan.accountCapitalRaw, "account capital") > effectiveCaps.MAX_ACCOUNT_CAPITAL_RAW) return reject("ACCOUNT_CAPITAL_CAP", "account capital exceeds the first-cycle hard cap");
+  if (plan.accountCapitalRaw !== undefined && raw(plan.accountCapitalRaw, "account capital") > effectiveCaps.MAX_ACCOUNT_CAPITAL) return reject("ACCOUNT_CAPITAL_CAP", "account capital exceeds the first-cycle hard cap");
   if (facts.action === "PLACE_ORDER") {
     if (facts.kind > 3 || facts.priceRaw <= 0n || facts.priceRaw >= 1_000_000n) return reject("ORDER_INVALID", "order is outside the Shannon binary order range");
     if (facts.amountRaw > effectiveCaps.MAX_ORDER_NOTIONAL) return reject("ORDER_NOTIONAL_CAP", "order quantity exceeds the first-cycle notional cap");

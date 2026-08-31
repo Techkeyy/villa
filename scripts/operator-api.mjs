@@ -4,6 +4,7 @@ import { OperatorConfigError } from "../src/operator/config.mjs";
 import { createEngineSupervisor, OperatorControlError } from "../src/operator/supervisor.mjs";
 
 const MAX_BODY_BYTES = 16 * 1024;
+const ARBITRARY_TRANSACTION_FIELDS = Object.freeze(["to", "target", "destination", "recipient", "selector", "data", "calldata", "args", "value", "transaction", "rawTransaction"]);
 
 function jsonSafe(value) {
   return JSON.stringify(value, (_key, item) => typeof item === "bigint" ? item.toString() : item);
@@ -47,6 +48,12 @@ function readBody(request) {
 
 function isAllowedOrigin(origin, allowedOrigins) {
   return !origin || allowedOrigins.includes(origin);
+}
+
+function rejectArbitraryTransactionPayload(body) {
+  const candidate = body?.config && typeof body.config === "object" ? body.config : body;
+  const field = ARBITRARY_TRANSACTION_FIELDS.find((name) => Object.prototype.hasOwnProperty.call(candidate ?? {}, name));
+  if (field) throw new OperatorControlError("ARBITRARY_CALL_DENIED", `control requests cannot carry transaction field '${field}'.`, 400);
 }
 
 function authError(error) {
@@ -147,6 +154,7 @@ export function createOperatorApiServer({
       if (request.method === "POST") {
         const body = await readBody(request);
         if (url.pathname === "/session/start") {
+          rejectArbitraryTransactionPayload(body);
           send(response, 202, await control.start(body.config ?? body), origin, origins);
           return;
         }

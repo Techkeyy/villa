@@ -1,8 +1,5 @@
-import { fork } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { fileURLToPath } from "node:url";
-import { dirname, resolve } from "node:path";
-import { isExecutionEnabled, operatorConfigToRunnerArgs, safeOperatorConfig, validateOperatorConfig } from "./config.mjs";
+import { isExecutionEnabled, safeOperatorConfig, validateOperatorConfig } from "./config.mjs";
 
 export const OPERATOR_STATES = Object.freeze([
   "STOPPED",
@@ -27,9 +24,6 @@ export class OperatorControlError extends Error {
     this.status = status;
   }
 }
-
-const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
-const runnerScript = resolve(root, "scripts/villa-bounded.mjs");
 
 function publicRecord(record) {
   if (!record || typeof record !== "object") return null;
@@ -101,38 +95,17 @@ function stateFromEvent(event, current) {
 }
 
 export function createDefaultRunner({ config, env, onRecord, onError, onExit }) {
-  if (!isExecutionEnabled(env)) {
-    throw new OperatorControlError("EXECUTION_DISABLED", "VILLA execution is disabled. No writer was started and no order can be sent.", 423);
-  }
-  const child = fork(runnerScript, operatorConfigToRunnerArgs(config), {
-    cwd: root,
-    env: { ...env },
-    stdio: ["ignore", "pipe", "pipe", "ipc"],
-  });
-  let stdoutBuffer = "";
-  const readStdout = (chunk) => {
-    stdoutBuffer += String(chunk);
-    const lines = stdoutBuffer.split(/\r?\n/);
-    stdoutBuffer = lines.pop() ?? "";
-    for (const line of lines) {
-      if (!line.trim()) continue;
-      try { onRecord(JSON.parse(line)); } catch { /* runner diagnostics stay private */ }
-    }
-  };
-  child.stdout?.on("data", readStdout);
-  child.stderr?.on("data", () => onError?.());
-  child.once("error", () => onError?.());
-  child.once("exit", (code, signal) => onExit?.({ code, signal }));
-  return {
-    send(type, reason = null) {
-      if (!child.connected) throw new OperatorControlError("ENGINE_DISCONNECTED", "The private engine is no longer connected.", 503);
-      child.send({ type, reason });
-    },
-    kill() {
-      child.kill("SIGTERM");
-    },
-    pid: child.pid,
-  };
+  // The former child process ran the historical signer-owned engine. Keeping
+  // that path reachable from the control API would defeat the Phase 3A
+  // account-bound identity boundary. The future LP one-cycle runtime is a
+  // separate private service and must be injected explicitly after its own
+  // owner-authorized deployment gate.
+  void config;
+  void env;
+  void onRecord;
+  void onError;
+  void onExit;
+  throw new OperatorControlError("LEGACY_RUNNER_DISABLED", "The historical signer-owned runner is disabled; use the private account-bound one-cycle runtime.", 423);
 }
 
 export function createEngineSupervisor({

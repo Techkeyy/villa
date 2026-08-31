@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createEngineSupervisor, OperatorControlError } from "./supervisor.mjs";
+import { createDefaultRunner, createEngineSupervisor, OperatorControlError } from "./supervisor.mjs";
 
 function harness() {
   let hooks;
@@ -104,4 +104,8 @@ test("only explicit execution enablement can reach the runner factory", async ()
   const state = await armed.start();
   assert.equal(state.state, "STARTING");
   assert.equal(spawned, 1);
+});
+
+test("the default supervisor runner cannot reach the historical signer-owned process", () => {
+  assert.throws(() => createDefaultRunner({ env: { VILLA_EXECUTION_ENABLED: "true" } }), { code: "LEGACY_RUNNER_DISABLED" });
 });
