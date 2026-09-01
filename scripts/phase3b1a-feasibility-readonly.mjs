@@ -14,13 +14,15 @@ import { planQuotes, decimalToRaw } from "../src/quote-planner/index.mjs";
 import { createLpExecutionAdapter } from "../src/execution/lp-adapter.mjs";
 import { buildLpShadowPlan } from "../src/execution/lp-shadow.mjs";
 import { createLpExecutionSession, transitionLpSession } from "../src/execution/lp-session.mjs";
-import { LP_MARKET_SERIES } from "../src/execution/lp-market-selection.mjs";
 import { DEFAULT_PHASE_3B1_CAPS, createLpTransactionPolicy } from "../src/execution/lp-transaction-policy.mjs";
 import { evaluateMintCandidate, generateMintCandidates, LP_QUOTE_FEASIBILITY_VERSION, projectLpState, recommendQuotePath, validateProjectedQuote } from "../src/execution/lp-quote-feasibility.mjs";
 
 const execFileAsync = promisify(execFile);
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const SHADOW_SCRIPT = fileURLToPath(new URL("./phase3b1a-shadow-readonly.mjs", import.meta.url));
+const MARKET_INTERVAL_SEC = Number(process.env.MARKET_INTERVAL_SEC ?? 300);
+if (!Number.isSafeInteger(MARKET_INTERVAL_SEC) || MARKET_INTERVAL_SEC < 1) throw new Error("MARKET_INTERVAL_SEC must be a positive integer");
+const MARKET_SERIES = process.env.MARKET_SERIES ?? `BINARY:BTC:${MARKET_INTERVAL_SEC}`;
 const jsonSafe = (value) => JSON.stringify(value, (_key, item) => typeof item === "bigint" ? item.toString() : item, null, 2);
 
 function withoutSignerSecrets(env) {
@@ -111,7 +113,7 @@ function validateUnsignedSequence({ account, owner, operator, market, state, dec
   if (decision.state === "HALT" || quotePlan?.plan === "NO_QUOTE" || (includesMint && mintAmountRaw > accountMaxOrderCollateralRaw)) return { valid: false, reasons: ["SEQUENCE_PRECONDITION_INVALID"], actions: [] };
   const adapter = createLpExecutionAdapter({ account, owner, operator, reader: mockReader() });
   const createdAtMs = Date.now();
-  const session = transitionLpSession(createLpExecutionSession({ sessionId: `phase3b1a-feasibility-${market.marketId.slice(-8)}`, account, owner, operator, marketSeries: LP_MARKET_SERIES, currentMarketId: market.marketId, riskPolicyVersion: decision.governorVersion, executionMode: "WET", createdAt: createdAtMs }), "PREFLIGHT", { atMs: createdAtMs });
+  const session = transitionLpSession(createLpExecutionSession({ sessionId: `phase3b1a-feasibility-${market.marketId.slice(-8)}`, account, owner, operator, marketSeries: MARKET_SERIES, currentMarketId: market.marketId, riskPolicyVersion: decision.governorVersion, executionMode: "WET", createdAt: createdAtMs }), "PREFLIGHT", { atMs: createdAtMs });
   const policy = createLpTransactionPolicy({ session, caps: DEFAULT_PHASE_3B1_CAPS, now: () => createdAtMs });
   const one = 10n ** BigInt(decimals);
   const accountState = {
@@ -127,7 +129,7 @@ function validateUnsignedSequence({ account, owner, operator, market, state, dec
     account: { address: account, owner, operator, runtimeVerified: true },
     owner: { address: owner, verified: true },
     operator: { configuredAddress: operator, signerAddress: operator },
-    market: { marketId: market.marketId, series: LP_MARKET_SERIES, currentMarketId: market.marketId, valid: true, current: true },
+    market: { marketId: market.marketId, series: MARKET_SERIES, currentMarketId: market.marketId, valid: true, current: true },
     permissions: { requiresMarketApproval: false, marketApproved: true, requiresProtocolApproval: false, protocolPrepared: true },
     capital: { collateralRaw: state.collateralRaw },
     riskLimits: { valid: true },
@@ -225,7 +227,7 @@ console.log(jsonSafe({
   account,
   owner,
   operator,
-  market: { marketId: market.marketId, expirySec: market.expirySec, headroomSec: shadow.risk.authoritativeTime.timeRemainingSec, grid: market.grid, minimumOrderRaw: minimumMintRaw, book: market.book },
+  market: { marketId: market.marketId, series: MARKET_SERIES, intervalSec: MARKET_INTERVAL_SEC, expirySec: market.expirySec, headroomSec: shadow.risk.authoritativeTime.timeRemainingSec, strike: market.strike ?? null, venueId: market.venueId ?? null, reference: shadow.riskSnapshot?.market?.reference ?? null, grid: market.grid, minimumOrderRaw: minimumMintRaw, book: market.book },
   priorNoQuote: { plan: shadow.quotePlan.plan, reasonCodes: shadow.quotePlan.reasonCodes, bid: shadow.quotePlan.bid?.reasonCodes ?? [], ask: shadow.quotePlan.ask?.reasonCodes ?? [] },
   circularDependency: { detected: shadow.quotePlan.plan === "NO_QUOTE" && shadow.inventory.yesRaw === "0" && shadow.inventory.noRaw === "0", explanation: "pre-mint quote planning cannot create a BUY because collateral must remain at the reserve, and cannot create a SELL because YES inventory is zero" },
   buyWithoutMint,

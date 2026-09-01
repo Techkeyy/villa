@@ -46,7 +46,7 @@ function permissions(overrides = {}) {
 }
 
 function prepare(overrides = {}) {
-  return buildOwnerMarketPreparation({ account: ACCOUNT, owner: OWNER, operator: CANONICAL_VILLA_OPERATOR, chainId: 50312, market: market(overrides.market), chainNowSec: 1_800, permissions: permissions(overrides.permissions), quotePlan: overrides.quotePlan ?? quote(), quoteExecution: overrides.quoteExecution ?? { postOnly: true, orderType: 3, policyValid: true }, projectedSequence: overrides.projectedSequence ?? null });
+  return buildOwnerMarketPreparation({ account: ACCOUNT, owner: OWNER, operator: CANONICAL_VILLA_OPERATOR, chainId: 50312, market: market(overrides.market), chainNowSec: 1_800, permissions: permissions(overrides.permissions), quotePlan: overrides.quotePlan ?? quote(), quoteExecution: overrides.quoteExecution ?? { postOnly: true, orderType: 3, policyValid: true }, projectedSequence: overrides.projectedSequence ?? null, marketSeries: overrides.marketSeries, minimumHeadroomSec: overrides.minimumHeadroomSec });
 }
 
 test("market approval missing is identified and produces the exact owner request", () => {
@@ -125,6 +125,14 @@ test("a real post-only quote permits fresh owner preparation", () => {
   assert.equal(result.quote.postOnly, true);
   assert.deepEqual(result.quote.enabledSides.map((item) => item.name), ["bid", "ask"]);
   assert.equal(result.requests.length, 1);
+  assert.equal(result.requests[0].functionName, "setMarketApproval");
+});
+
+test("owner preparation supports the BTC 15m series with its higher initial gate", () => {
+  const result = prepare({ market: { series: "BINARY:BTC:900", expirySec: 2_500 }, marketSeries: "BINARY:BTC:900", minimumHeadroomSec: 600 });
+  assert.equal(result.status, "READY");
+  assert.equal(result.market.series, "BINARY:BTC:900");
+  assert.equal(result.market.headroomSec, 700);
   assert.equal(result.requests[0].functionName, "setMarketApproval");
 });
 

@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>VILLA owner preparation</title>
+  <style>
+    :root { color-scheme: light; --ink:#10213b; --muted:#60708a; --line:#dfe8f3; --blue:#1769e0; --blue-dark:#0b4db1; --soft:#f4f8fd; --green:#11734b; --amber:#9b6100; --red:#a43434; }
+    * { box-sizing:border-box; }
+    body { margin:0; min-height:100vh; background:#f7faff; color:var(--ink); font:15px/1.55 Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif; }
+    main { width:min(960px,calc(100% - 32px)); margin:0 auto; padding:34px 0 64px; }
+    header { display:flex; align-items:flex-start; justify-content:space-between; gap:20px; margin-bottom:34px; }
+    .eyebrow,.label { margin:0; color:var(--blue-dark); font-size:11px; font-weight:800; letter-spacing:.12em; text-transform:uppercase; }
+    h1 { margin:5px 0 8px; font-size:clamp(28px,5vw,44px); letter-spacing:-.04em; line-height:1.05; }
+    h2 { margin:4px 0 8px; font-size:21px; letter-spacing:-.02em; }
+    p { margin:0; }
+    .lede { color:var(--muted); max-width:630px; }
+    .stage { flex:0 0 auto; border:1px solid #bcd3f4; border-radius:999px; background:#edf5ff; color:var(--blue-dark); padding:7px 11px; font-size:11px; font-weight:800; letter-spacing:.06em; }
+    .panel { border:1px solid var(--line); border-radius:18px; background:white; box-shadow:0 10px 30px rgba(21,61,112,.06); padding:22px; margin-top:16px; }
+    .status { display:flex; align-items:flex-start; gap:12px; border-radius:14px; background:var(--soft); padding:15px 17px; }
+    .status-dot { width:10px; height:10px; margin-top:6px; border-radius:50%; background:var(--blue); flex:0 0 auto; }
+    .status[data-tone="safe"] .status-dot { background:var(--green); }
+    .status[data-tone="warning"] .status-dot { background:var(--amber); }
+    .status[data-tone="error"] .status-dot { background:var(--red); }
+    .status strong { display:block; margin-bottom:2px; }
+    .status span { color:var(--muted); }
+    .review-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px; margin-top:18px; }
+    .fact { border:1px solid var(--line); border-radius:12px; padding:12px; background:#fbfdff; min-width:0; }
+    .fact .label { color:var(--muted); font-size:10px; }
+    .fact strong { display:block; margin-top:4px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .fact.wide { grid-column:span 2; }
+    .fact code { font-size:12px; }
+    .actions { display:flex; align-items:center; justify-content:space-between; gap:18px; margin-top:22px; padding-top:20px; border-top:1px solid var(--line); }
+    button { border:0; border-radius:10px; background:var(--blue); color:white; cursor:pointer; font:inherit; font-weight:750; padding:12px 16px; }
+    button:hover:not(:disabled) { background:var(--blue-dark); }
+    button:disabled { cursor:not-allowed; opacity:.45; }
+    .subtle { color:var(--muted); font-size:13px; }
+    .safety { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; margin-top:16px; }
+    .safety div { border-radius:12px; background:#f2fbf6; color:var(--green); padding:11px 12px; font-size:13px; font-weight:700; }
+    .safety div::before { content:"✓"; margin-right:7px; }
+    .blockers { margin:12px 0 0; padding-left:20px; color:var(--red); }
+    .hash { overflow-wrap:anywhere; font-family:ui-monospace,SFMono-Regular,Consolas,monospace; font-size:12px; }
+    [hidden] { display:none !important; }
+    @media (max-width:700px) { header { display:block; } .stage { display:inline-block; margin-top:14px; } .review-grid,.safety { grid-template-columns:repeat(2,minmax(0,1fr)); } .fact.wide { grid-column:span 2; } .actions { align-items:stretch; flex-direction:column; } button { width:100%; } }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <div>
+        <p class="eyebrow">VILLA / LOCAL OWNER PREP</p>
+        <h1>Prepare one fresh market.</h1>
+        <p class="lede">This local review flow is limited to two owner approvals. Your wallet signs them in Rabby. VILLA does not sign, broadcast, start execution, or place an order here.</p>
+      </div>
+      <div id="stage" class="stage">WAITING FOR MARKET</div>
+    </header>
+
+    <section class="status" id="status" data-tone="info">
+      <span class="status-dot" aria-hidden="true"></span>
+      <div><strong id="status-title">Waiting for a new BTC market</strong><span id="status-copy">Public reads are running locally. No transaction is being prepared yet.</span></div>
+    </section>
+
+    <section class="panel" id="wallet-panel">
+      <p class="label">WALLET CHECK</p>
+      <h2>Connect the authorized owner wallet</h2>
+      <p class="subtle">The wallet must be on Somnia Shannon, chain 50312, and use the verified owner address below. Network or account mismatch blocks both actions.</p>
+      <div class="review-grid">
+        <div class="fact wide"><p class="label">Expected owner</p><strong><code>0xEFe0412781d3c1e7888b2DB9dEEcA3037542494d</code></strong></div>
+        <div class="fact"><p class="label">Network</p><strong>Somnia Shannon</strong></div>
+        <div class="fact"><p class="label">Chain</p><strong>50312</strong></div>
+      </div>
+      <div class="actions"><span class="subtle" id="wallet-state">Wallet not checked.</span><button id="connect-wallet" type="button">Connect owner wallet</button></div>
+      <details class="wallet-diagnostics" id="wallet-diagnostics">
+        <summary>Local wallet diagnostics</summary>
+        <div class="review-grid">
+          <div class="fact wide"><p class="label">EIP-6963 providers discovered</p><strong id="wallet-eip6963">None</strong></div>
+          <div class="fact"><p class="label">Selected provider</p><strong id="wallet-provider-name">None</strong></div>
+          <div class="fact"><p class="label">Selected public account</p><strong id="wallet-account">None</strong></div>
+          <div class="fact"><p class="label">Chain ID</p><strong id="wallet-chain">None</strong></div>
+          <div class="fact"><p class="label">Connect handler reached</p><strong id="wallet-handler">no</strong></div>
+        </div>
+      </details>
+    </section>
+
+    <section class="panel" id="review-panel" hidden>
+      <p class="label">LIVE REVIEW</p>
+      <h2 id="review-heading">Fresh BTC market</h2>
+      <p class="subtle">The countdown is live. The action button is available only while these exact facts still pass.</p>
+      <div class="review-grid">
+        <div class="fact wide"><p class="label">Market ID</p><strong><code id="market-id">-</code></strong></div>
+        <div class="fact"><p class="label">Headroom</p><strong id="headroom">-</strong></div>
+        <div class="fact"><p class="label">Expiry</p><strong id="expiry">-</strong></div>
+        <div class="fact"><p class="label">Spot</p><strong id="spot">-</strong></div>
+        <div class="fact"><p class="label">Strike / opening</p><strong id="strike">-</strong></div>
+        <div class="fact"><p class="label">Fair value</p><strong id="fair-value">-</strong></div>
+        <div class="fact"><p class="label">Confidence</p><strong id="confidence">-</strong></div>
+        <div class="fact"><p class="label">Capital</p><strong>1.002 tUSDC</strong></div>
+        <div class="fact"><p class="label">Planned path</p><strong id="planned-path">-</strong></div>
+        <div class="fact"><p class="label">Planned mint</p><strong id="planned-mint">-</strong></div>
+        <div class="fact"><p class="label">Planned order</p><strong id="quote">-</strong></div>
+        <div class="fact wide"><p class="label">Expected order owner</p><strong><code>0x3A46446A30F945d390A41dAab0D390fBEf3d2cF2</code></strong></div>
+        <div class="fact wide"><p class="label">VILLA operator</p><strong><code>0xaf4ee6C0c6Ff6337F4C4F07b87C8343dF73e8d37</code></strong></div>
+      </div>
+      <div class="safety"><div>Risk ALLOW</div><div>Post-only quote</div><div>Execution disabled</div></div>
+      <div class="actions"><span class="subtle" id="action-help">-</span><button id="action-button" type="button" disabled>Approve this market</button></div>
+    </section>
+
+    <section class="panel" id="wallet-review-panel" hidden>
+      <p class="label">WALLET REVIEW</p>
+      <h2>Review this exact owner call</h2>
+      <p class="subtle">The destination, method, market, and value are fixed by the local safety boundary. There is no editable transaction form.</p>
+      <div class="review-grid">
+        <div class="fact"><p class="label">Network</p><strong>Somnia Shannon / 50312</strong></div>
+        <div class="fact wide"><p class="label">From</p><strong><code id="tx-from">-</code></strong></div>
+        <div class="fact wide"><p class="label">To</p><strong><code id="tx-to">-</code></strong></div>
+        <div class="fact wide"><p class="label">Method</p><strong id="tx-method">-</strong></div>
+        <div class="fact wide"><p class="label">Market ID</p><strong><code id="tx-market">-</code></strong></div>
+        <div class="fact"><p class="label">Value</p><strong>0</strong></div>
+      </div>
+    </section>
+
+    <section class="panel" id="outcome-panel" hidden>
+      <p class="label">STOP BOUNDARY</p>
+      <h2 id="outcome-title">Final preflight</h2>
+      <p class="subtle" id="outcome-copy"></p>
+      <ul class="blockers" id="blockers"></ul>
+      <div id="hashes" class="subtle"></div>
+    </section>
+  </main>
+  <script type="module" src="/phase3b1b1-owner-prep-wizard-client.mjs"></script>
+</body>
+</html>

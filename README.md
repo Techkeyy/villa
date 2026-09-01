@@ -11,7 +11,7 @@ VILLA is for the liquidity provider, not the retail bettor. DreamDEX remains
 the venue. Ordinary traders meet VILLA only as liquidity on the DreamDEX book.
 
 **Public product:** [villa-ten-ashen.vercel.app](https://villa-ten-ashen.vercel.app/)
-— `/` is the public explainer, `/app` is the owner-scoped LP workspace, and
+`/` is the public explainer, `/app` is the owner-scoped LP workspace, and
 `/proof` is the read-only verified replay surface. Phase 2 owner-account
 actions are proven on Shannon for the documented lifecycle. The autonomous
 engine remains disconnected and safe-mode only. The local command is
@@ -120,7 +120,7 @@ readiness.
 | Rollover | A terminal BTC window was closed and a later same-series successor was rediscovered without mixing market scope. |
 | Wallet hygiene | Final audit ended with zero active orders and zero unknown inventory. |
 | Phase 2 LP account | Real owner-browser Shannon proof completed: account deployment, exact 1 tUSDC approval and deposit, authorization, revocation, and owner-only withdrawal. |
-| Local audit | Phase 2 final gate: 470 full tests, 87 dashboard tests, 17 operator tests, dashboard build, and zero production dependency vulnerabilities pass. |
+| Historical local audit | Phase 2 final gate: 470 full tests, 87 dashboard tests, 17 operator tests, dashboard build, and zero production dependency vulnerabilities passed. |
 
 Detailed evidence, hashes, conditions, and limitations are in
 [`docs/TECHNICAL_VERIFICATION.md`](docs/TECHNICAL_VERIFICATION.md),
@@ -128,7 +128,7 @@ Detailed evidence, hashes, conditions, and limitations are in
 [`docs/BACKEND_FREEZE.md`](docs/BACKEND_FREEZE.md). The complete Phase 2
 owner-browser record is [`docs/PHASE_2_LP_ONBOARDING_PROOF.md`](docs/PHASE_2_LP_ONBOARDING_PROOF.md).
 
-## Phase 2 status
+## Account-bound control status
 
 PROVEN NOW:
 
@@ -139,11 +139,22 @@ PROVEN NOW:
 - Owner-only withdrawal with no arbitrary destination.
 - Historical VILLA market-making engine evidence.
 
-NOT CONNECTED YET:
+PREPARED SAFELY, NOT PUBLICLY ARMED:
 
-- Per-LP account to autonomous VILLA engine delegation.
-- Public Start, Pause, or Stop live automation.
-- DreamDEX order placement from the public frontend.
+- An authenticated account-control seam that binds the caller to the account owner.
+- A Start gate that consumes fresh owner, account, market, capital, risk, lease,
+  and reconciliation facts before the existing account-bound session controller.
+- A Stop path that delegates only scoped order cleanup, paired cleanup where safe,
+  reconciliation, and lease release. It has no withdrawal or arbitrary relay path.
+- Public Start, Pause, Stop, and DreamDEX order placement remain disabled until a
+  real account-bound wet proof is completed and separately authorized.
+
+The current 1-hour fallback is a read-only feasibility candidate only. A Shannon
+checkpoint verified `BINARY:BTC:3600`, Trading status, the live pool grid and
+binary outcome pair, 1.002 tUSDC capital, Risk `ALLOW`, and the projected
+`mint -> SELL_YES -> cancel -> burn` path. No owner transaction, order, or
+blockchain write was sent. The account-specific `prepareMarket` mapping remains
+unavailable until its owner transaction is completed.
 
 ## Run the product surfaces
 
@@ -157,7 +168,7 @@ npm run dashboard:replay
 Open [http://127.0.0.1:4173](http://127.0.0.1:4173). The routes are:
 
 - `/`: public product explainer.
-- `/app`: LP workspace with owner-scoped account creation, exact tUSDC funding, authorization, revocation, and owner-only withdrawal. Start VILLA remains disabled.
+- `/app`: LP workspace with owner-scoped account creation, exact tUSDC funding, authorization, revocation, and owner-only withdrawal. The LP journey and safe control-plane boundary are visible; Start VILLA remains disabled.
 - `/proof`: read-only replay evidence for the three labelled scenes:
 
   - Quote proof: recorded two-sided post-only liquidity.
@@ -228,7 +239,7 @@ normal dashboard use. No new transaction is required for the replay surface.
 - This is a bounded Somnia Shannon testnet proof, not an indefinite production daemon.
 - Complete realized maker PnL and all cash-flow components are unavailable; the UI says `PNL_UNAVAILABLE`.
 - Restart recovery is bounded and explicit.
-- Open multi-LP Event Contract delegation is not yet proven. The Phase 2 choice is `PER_USER_VILLA_ACCOUNT_REQUIRED`; the documented single-owner account lifecycle is proven on Shannon.
+- The account-bound autonomous wet cycle is not yet proven for the current public product. The Phase 2 choice is `PER_USER_VILLA_ACCOUNT_REQUIRED`; the documented single-owner account lifecycle is proven on Shannon.
 - Organic fills are market-dependent and are not manufactured for a demo.
 - The zero-drift fair-value baseline is a correctness-first model, not a claim of predictive edge.
 - Hosted execution remains signer-free and Start VILLA is disabled. Live read-only mode may be unavailable when public RPC/indexer access is not safe or reliable. Account setup is non-custodial and wallet-mediated, but is not a production execution claim.
@@ -249,6 +260,26 @@ normal dashboard use. No new transaction is required for the replay surface.
 
 ## Architecture and trust boundary
 
+The intended production flow is account-bound and staged behind the same fresh
+preflight facts that already protect the local controller:
+
+```mermaid
+flowchart LR
+  B[LP browser] --> A[Wallet-authenticated API]
+  A --> G[Fresh account and risk gates]
+  G --> S[Account-bound session]
+  S --> P[Private engine service]
+  P --> V[VillaAccount]
+  V --> D[DreamDEX Event Contracts]
+  W[Owner wallet] --> A
+  W --> V
+  K[Private signer] -. private service only .-> P
+```
+
+The public browser never receives `K`. The public deployment is currently
+read-only and the account-control seam is present for integration tests, not
+for public wet execution.
+
 | Layer | Job |
 | --- | --- |
 | SDK and read adapters | Discover `marketId`, on-chain status, reference, price feed, book, balances, and chain time. |
@@ -257,12 +288,14 @@ normal dashboard use. No new transaction is required for the replay surface.
 | Quote planner | Pure `villa-quote-v1` value-centred adaptive quote planning. |
 | Execution | Bounded, serialized, post-only write adapter with reconciliation and cleanup. |
 | Lifecycle | Inventory, settlement, claim recovery, wallet hygiene, and successor scope. |
+| Control plane | Wallet-authenticated, owner-scoped Start/Stop seam with explicit public and execution gates. |
 | Dashboard | Read-only server adapter, replay envelope, LP product surfaces, and proof view. |
 
 The existing operator EOA is the custody boundary for the historical local
 testnet proofs only. The public experience is not a wallet and cannot write to
-DreamDEX. An open LP product requires a per-user account boundary before any
-capital is accepted.
+DreamDEX. Each LP account remains the capital boundary; the owner controls
+deposits, authorization, and withdrawals, while any future engine action must
+remain scoped to that account and its tracked market orders.
 
 ## Hackathon fit
 
@@ -294,6 +327,7 @@ The useful feedback from implementation is constructive:
 
 - Demo rehearsal: [`docs/DEMO_SCRIPT.md`](docs/DEMO_SCRIPT.md)
 - Submission copy: [`docs/SUBMISSION.md`](docs/SUBMISSION.md)
+- Finish-day status: [`docs/FINISH_DAY_STATUS.md`](docs/FINISH_DAY_STATUS.md)
 - Deployment/security boundary: [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md)
 - Skills checkpoint: [`docs/SKILLS_COMPLIANCE.md`](docs/SKILLS_COMPLIANCE.md)
 

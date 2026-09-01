@@ -18,11 +18,13 @@ uploads the final demonstration.
 
 ## Short description
 
-VILLA is an operator-facing liquidity engine for DreamDEX binary Event
+VILLA is an operator-facing liquidity product for DreamDEX binary Event
 Contracts. It independently estimates UP probability from the underlying
 price, reference, time remaining, and realized volatility, then combines that
 view with deterministic risk limits, adaptive post-only quoting, inventory,
-settlement, and successor-market lifecycle logic.
+settlement, and successor-market lifecycle logic. The first page explains the
+product in plain language, while the LP workspace shows the owner journey and
+the proof page separates replay evidence from current execution status.
 
 ## Longer description
 
@@ -36,7 +38,10 @@ redeem settled value, and rediscover the next same-series window.
 DreamDEX remains the venue. VILLA uses the official markets SDK on Somnia
 Shannon for Event Contract reads and bounded testnet writes. The public
 experience is explainer-first, with an observational replay surface and a
-separate operator cockpit. It never receives a signer or private key.
+separate operator cockpit. It never receives a signer or private key. A
+wallet-authenticated account-control seam is prepared around the existing
+account-bound session controller, but public Start and autonomous execution
+remain disabled pending a fresh account-bound wet proof.
 
 ## Problem
 
@@ -66,7 +71,9 @@ unbounded operational risk.
 - two genuine external `SELL_YES` fills were recovered and redeemed;
 - successor discovery crossed a same-series BTC window without mixing market IDs;
 - final wallet hygiene reported zero active orders and zero unknown inventory;
-- the final local audit passed 404/404 tests, with 30/30 dashboard tests;
+- the historical Phase 7A audit passed 404/404 tests, with 30/30 dashboard tests;
+- the current finish-day control-plane regression adds owner-scope, preflight,
+  public-gate, and arbitrary-relay rejection coverage;
 - no profitability or complete realized PnL claim is made.
 
 Detailed hashes and conditions are in `docs/TECHNICAL_VERIFICATION.md`.
@@ -93,6 +100,7 @@ examples in the Event Contract documentation.
 - this is a bounded Shannon testnet proof, not an indefinite production daemon;
 - full realized maker PnL and all cash-flow components are not implemented;
 - restart recovery is bounded and explicit;
+- the current account-bound Start/Stop cycle is prepared but not publicly armed;
 - Event Contract session-key authorization is not verified for VILLA's MVP;
 - organic fills are market-dependent and are not manufactured;
 - public hosting must remain explainer-first, read-only, and signer-free.

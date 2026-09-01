@@ -167,7 +167,7 @@ export function evaluateMintCandidate({ collateralRaw, yesRaw, noRaw, mintAmount
   if (quoteValidation && !quoteValidation.valid) reasons.push(...quoteValidation.reasons);
   if (evaluated?.sequencePolicyValid !== true) reasons.push(reason("PROJECTED_SEQUENCE_INVALID", "the complete projected sequence did not pass the unsigned policy boundary"));
   const unique = uniqueReasons(reasons);
-  return Object.freeze({ version: LP_QUOTE_FEASIBILITY_VERSION, viable: unique.length === 0, mintAmountRaw: amount.toString(), state, riskDecision: evaluated?.riskDecision ?? null, quotePlan: evaluated?.quotePlan ?? null, quoteExecution: evaluated?.quoteExecution ?? null, quoteValidation, sequencePolicyValid: evaluated?.sequencePolicyValid === true, reasons: Object.freeze(unique) });
+  return Object.freeze({ version: LP_QUOTE_FEASIBILITY_VERSION, viable: unique.length === 0, mintAmountRaw: amount.toString(), state, riskDecision: evaluated?.riskDecision ?? null, quotePlan: evaluated?.quotePlan ?? null, quoteExecution: evaluated?.quoteExecution ?? null, quoteValidation, sequence: evaluated?.sequence ?? null, sequencePolicyValid: evaluated?.sequencePolicyValid === true, reasons: Object.freeze(unique) });
 }
 
 export function findSmallestViableMint(candidates, evaluate) {

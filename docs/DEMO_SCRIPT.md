@@ -3,7 +3,7 @@
 Status: rehearsal script prepared. Recording and upload are intentionally not
 performed by this task.
 
-Target runtime: 2:40 to 2:50.
+Target runtime: 2:45 to 2:55.
 
 Start at the public product overview, [villa-ten-ashen.vercel.app](https://villa-ten-ashen.vercel.app/),
 then use its verified replay action for the evidence scenes. The local replay
@@ -17,15 +17,15 @@ session.
 
 | Time | Screen and narration |
 | --- | --- |
-| 0:00-0:15 | Open VILLA. "Event Contract books need someone willing to quote them. VILLA is software for that liquidity operator, not another bettor screen." |
-| 0:15-0:35 | Quote proof scene. Point to VILLA Fair and the DreamDEX midpoint. "VILLA forms its own UP probability from BTC, reference, time, and realized volatility. DreamDEX is comparison only and is not a model input." |
-| 0:35-0:55 | Point to the post-only bid and ask, then Risk Governor. "The quote planner adapts around independent value. The governor decides whether a quote is allowed." |
-| 0:55-1:20 | Show the quote event timeline. "This is a replay of a real Phase 4B Shannon checkpoint: a complete set was supplied and both post-only sides rested. The cockpit is not sending a transaction." |
-| 1:20-1:40 | Switch to rollover proof. Highlight the terminal market, successor, fresh fair value, and NO QUOTE reason. "When the old window leaves Trading, VILLA closes that scope, rediscovers a later same-series window, and refuses a quote when the venue grid leaves no safe order." |
-| 1:40-2:05 | Switch to settlement proof. Highlight the two organic fills and the NO residuals. "These are two genuine external SELL_YES fills from the bounded runner, not simulated fills." |
-| 2:05-2:25 | Highlight the redeemed claims, payout reconciliation, known zero-value residual, and wallet hygiene. "Settlement uses the exact market and payout vector. The claim amounts reconciled, and the final audit found zero unknown inventory and zero active orders." |
-| 2:25-2:45 | Close on the cockpit. "The stock DreamDEX maker supplies useful exchange plumbing. VILLA adds independent valuation, confidence-aware quoting, worst-case pending exposure, deterministic halts, settlement recovery, and successor rollover. It is bounded testnet software, with PnL and an indefinite daemon deliberately not claimed." |
-| 2:45-2:50 | Show the public repo and demo URL. "The source, replay cockpit, evidence, and limitations are linked below." |
+| 0:00-0:20 | Open VILLA. "Event Contract books need someone willing to quote them. VILLA is software for that liquidity operator, not another bettor screen." |
+| 0:20-0:40 | Show the LP journey on `/app`. "The product starts with the operator's wallet, account, capital, and permission. The owner keeps custody, and the public Start control is deliberately staged behind proof." |
+| 0:40-1:00 | Quote proof scene. Point to VILLA Fair and the DreamDEX midpoint. "VILLA forms its own UP probability from BTC, reference, time, and realized volatility. DreamDEX is comparison only and is not a model input." |
+| 1:00-1:20 | Point to the post-only bid and ask, then Risk Governor. "The quote planner adapts around independent value. The governor decides whether a quote is allowed." |
+| 1:20-1:45 | Show the quote event timeline. "This is a replay of a real Phase 4B Shannon checkpoint: a complete set was supplied and both post-only sides rested. The cockpit is not sending a transaction." |
+| 1:45-2:05 | Switch to rollover proof. Highlight the terminal market, successor, fresh fair value, and NO QUOTE reason. "When the old window leaves Trading, VILLA closes that scope, rediscovers a later same-series window, and refuses a quote when the venue grid leaves no safe order." |
+| 2:05-2:30 | Switch to settlement proof. Highlight the two organic fills and the NO residuals. "These are two genuine external SELL_YES fills from the bounded runner, not simulated fills." |
+| 2:30-2:48 | Highlight the redeemed claims, payout reconciliation, known zero-value residual, and wallet hygiene. "Settlement uses the exact market and payout vector. The claim amounts reconciled, and the final audit found zero unknown inventory and zero active orders." |
+| 2:48-2:55 | Show the public repo and demo URL. "The source, replay cockpit, evidence, and limitations are linked below. The current account-bound wet cycle remains pending." |
 
 ## Rehearsal checks
 

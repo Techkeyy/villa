@@ -10,10 +10,15 @@ test("public explainer is the default layer with clean product routes", () => {
   assert.match(html, /data-page="landing"/);
   assert.match(html, /href="\/app"/);
   assert.match(html, /href="\/proof"/);
-  assert.match(html, /Put your capital to work as liquidity on DreamDEX Event Contracts/);
-  assert.match(html, /For liquidity providers and operators/);
+  assert.match(html, /Become a DreamDEX liquidity provider without giving up custody of your capital/);
+  assert.match(html, /For liquidity providers and operators/i);
   assert.match(html, /View verified replay/);
   assert.match(html, /id="how-it-works"/);
+  assert.match(html, /THE OPERATOR PROBLEM/);
+  assert.match(html, /WHAT VILLA DOES/);
+  assert.match(html, /WHY DREAMDEX BENEFITS/);
+  assert.match(html, /RISK AND SAFETY/);
+  assert.match(html, /Enter operator console/);
   assert.doesNotMatch(app, /params\.get\("mode"\)/);
 });
 
@@ -32,11 +37,14 @@ test("LP workspace is a simple owner-scoped onboarding flow", () => {
   assert.match(html, /START remains disabled in Phase 2/);
   assert.match(html, /id="start-villa"[^>]*disabled/);
   assert.match(html, /id="testnet-help"/);
+  assert.match(html, /01 Connect wallet/);
+  assert.match(html, /SAFE CONTROL PLANE/);
 });
 
 test("proof is separate and reads replay data without control-plane calls", () => {
   assert.match(html, /data-page="proof"[^>]*hidden/);
   assert.match(html, /VERIFIED SHANNON REPLAY/);
+  assert.match(html, /ACCOUNT-BOUND WET PROOF PENDING/);
   assert.match(html, /id="proof-scene"/);
   assert.match(app, /api\/snapshot\?mode=replay/);
   assert.doesNotMatch(app, /auth\/nonce|auth\/verify|VILLA_ENGINE_API_URL/);
@@ -48,5 +56,7 @@ test("visual system is light, blue, responsive, and accessible", () => {
   assert.match(css, /prefers-reduced-motion/);
   assert.match(css, /focus-visible/);
   assert.match(css, /max-width: 440px/);
-  assert.doesNotMatch(css, /radial-gradient|linear-gradient|backdrop-filter/);
+  assert.match(css, /radial-gradient/);
+  assert.match(css, /linear-gradient/);
+  assert.doesNotMatch(css, /backdrop-filter/);
 });

@@ -73,7 +73,7 @@ function readSideRaw(side, name) {
   try { return raw(side[name], name, { positive: true }); } catch { return null; }
 }
 
-function validateQuotePlan({ quotePlan, quoteExecution, projectedSequence = null, market, chainNowSec, caps = DEFAULT_PHASE_3B1_CAPS } = {}) {
+function validateQuotePlan({ quotePlan, quoteExecution, projectedSequence = null, market, chainNowSec, caps = DEFAULT_PHASE_3B1_CAPS, minimumHeadroomSec = OWNER_PREP_MIN_HEADROOM_SEC } = {}) {
   // A current NO_QUOTE is not silently bypassed. It may only be replaced by
   // a projected plan when the complete mint -> quote -> cancel -> reconcile
   // -> burn sequence has already passed the separate feasibility gate.
@@ -101,7 +101,7 @@ function validateQuotePlan({ quotePlan, quoteExecution, projectedSequence = null
   }
 
   const remaining = finite(market?.expirySec, "market expiry") - finite(chainNowSec, "chain time");
-  if (remaining < OWNER_PREP_MIN_HEADROOM_SEC) reasons.push(blocker("HEADROOM_INSUFFICIENT", `market has only ${Math.floor(remaining)}s before owner approval`));
+  if (remaining < minimumHeadroomSec) reasons.push(blocker("HEADROOM_INSUFFICIENT", `market has only ${Math.floor(remaining)}s before owner approval`));
   if (market?.poolFinalized === true) reasons.push(blocker("POOL_FINALIZED", "the selected market pool is finalized"));
   if (market?.status !== undefined && String(market.status).toLowerCase() !== "trading" && Number(market.status) !== 1) reasons.push(blocker("MARKET_NOT_TRADING", "the selected market is not Trading"));
 
@@ -200,6 +200,8 @@ export function buildOwnerMarketPreparation({
   quoteExecution = { postOnly: true, orderType: 3, policyValid: false },
   projectedSequence = null,
   caps = DEFAULT_PHASE_3B1_CAPS,
+  marketSeries = LP_MARKET_SERIES,
+  minimumHeadroomSec = OWNER_PREP_MIN_HEADROOM_SEC,
 } = {}) {
   const identity = validateDisposableLpAccount({ account, owner, operator, chainId });
   const normalizedAccount = identity.account;
@@ -207,9 +209,9 @@ export function buildOwnerMarketPreparation({
   const marketId = normalizedMarketId(market?.marketId);
   const reasons = [];
   if (!marketId) reasons.push(blocker("MARKET_ID_INVALID", "fresh market id must be bytes32"));
-  if (market?.series !== LP_MARKET_SERIES) reasons.push(blocker("MARKET_SERIES_MISMATCH", `market must be ${LP_MARKET_SERIES}`));
+  if (market?.series !== marketSeries) reasons.push(blocker("MARKET_SERIES_MISMATCH", `market must be ${marketSeries}`));
   if (market?.current === false) reasons.push(blocker("STALE_MARKET", "the selected market is not current"));
-  const quote = validateQuotePlan({ quotePlan, quoteExecution, projectedSequence, market: { ...market, marketId }, chainNowSec, caps });
+  const quote = validateQuotePlan({ quotePlan, quoteExecution, projectedSequence, market: { ...market, marketId }, chainNowSec, caps, minimumHeadroomSec });
   reasons.push(...quote.reasons);
 
   const marketApproved = permissions.marketApproved === true;
@@ -221,13 +223,13 @@ export function buildOwnerMarketPreparation({
   const binaryModule = normalizedAddress(permissions.binaryModule, "binary module");
   const expirySec = finite(market?.expirySec, "market expiry");
   const remaining = expirySec - finite(chainNowSec, "chain time");
-  if (remaining < OWNER_PREP_MIN_HEADROOM_SEC) reasons.push(blocker("HEADROOM_INSUFFICIENT", `market has only ${Math.floor(remaining)}s before owner approval`));
+  if (remaining < minimumHeadroomSec) reasons.push(blocker("HEADROOM_INSUFFICIENT", `market has only ${Math.floor(remaining)}s before owner approval`));
   const uniqueReasons = unique(reasons.map((item) => item.code)).map((code) => reasons.find((item) => item.code === code));
   const requests = [];
   // The second request is deliberately withheld until a fresh invocation sees
   // the first owner transaction on-chain. prepareMarket would otherwise be a
   // known revert while approvedMarkets[marketId] is still false.
-  if (uniqueReasons.length === 0 && !marketApproved) requests.push(unsignedOwnerRequest({ account: normalizedAccount, owner: normalizedOwner, marketId, functionName: "setMarketApproval", args: [marketId, true], operation: "MARKET_APPROVAL", why: "Owner-only market-specific approval enables this fresh BTC 5m market." }));
+  if (uniqueReasons.length === 0 && !marketApproved) requests.push(unsignedOwnerRequest({ account: normalizedAccount, owner: normalizedOwner, marketId, functionName: "setMarketApproval", args: [marketId, true], operation: "MARKET_APPROVAL", why: `Owner-only market-specific approval enables this fresh ${marketSeries} market.` }));
   else if (uniqueReasons.length === 0 && !protocolPrepared) requests.push(unsignedOwnerRequest({ account: normalizedAccount, owner: normalizedOwner, marketId, functionName: "prepareMarket", args: [marketId], operation: "PROTOCOL_APPROVAL", why: "Owner-only preparation asks the VillaAccount to set only the derived pool and fixed binary-module outcome-token operators." }));
   return Object.freeze({
     version: LP_OWNER_PREP_VERSION,

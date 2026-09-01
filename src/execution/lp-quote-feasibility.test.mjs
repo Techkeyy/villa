@@ -78,6 +78,13 @@ test("mint candidates are bounded by both policy cap and VillaAccount mint limit
   assert.ok(rejected.reasons.some((item) => item.code === "ACCOUNT_MINT_LIMIT"));
 });
 
+test("mint feasibility preserves the validated unsigned sequence for the owner wizard", () => {
+  const sequence = { valid: true, actions: [{ functionName: "operatorMintSet" }, { functionName: "operatorPlaceOrder" }, { functionName: "operatorCancelOrder" }, { functionName: "operatorBurnSet" }] };
+  const result = evaluateMintCandidate({ collateralRaw: 1_000_000n, yesRaw: 0n, noRaw: 0n, mintAmountRaw: 1_000n, minimumMintRaw: 1_000n, accountMaxOrderCollateralRaw: 1_000n, evaluateProjectedState: () => ({ riskDecision: { state: "ALLOW", permissions: { allowedActions: ["SELL_YES"] } }, quotePlan: { plan: "ONE_SIDED", ask: { enabled: true, action: "SELL_YES", targetPriceRaw: "500000", targetQuantityRaw: "1000", projectedExposure: { worstCase: { directionalUp: 1, directionalDown: 1, grossOutcome: 1 } } }, bid: { enabled: false } }, quoteExecution: { postOnly: true, orderType: 3, policyValid: true }, sequencePolicyValid: true, sequence, market: MARKET }) });
+  assert.equal(result.viable, true);
+  assert.deepEqual(result.sequence, sequence);
+});
+
 test("projected quote validation enforces post-only, venue grid, risk, and pending caps", () => {
   const { riskDecision, quotePlan } = evaluatedState({ collateral: 1.2, yes: 0.01, no: 0.01 });
   const valid = validateProjectedQuote({ riskDecision, quotePlan, quoteExecution: { postOnly: true, orderType: 3, policyValid: true }, market: MARKET });

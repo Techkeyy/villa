@@ -18,11 +18,14 @@ import { evaluateWetExecutionPreflight } from "../src/execution/lp-preflight.mjs
 import { createLpExecutionSession, createAccountLeaseStore, transitionLpSession } from "../src/execution/lp-session.mjs";
 import { runLpOneCycle } from "../src/execution/lp-one-cycle.mjs";
 import { DEFAULT_PHASE_3B1_CAPS, createLpTransactionPolicy } from "../src/execution/lp-transaction-policy.mjs";
-import { LP_MARKET_SERIES, selectCurrentBtc5mMarket } from "../src/execution/lp-market-selection.mjs";
+import { selectCurrentBtcMarket } from "../src/execution/lp-market-selection.mjs";
 
 const ACCOUNT = "0x3A46446A30F945d390A41dAab0D390fBEf3d2cF2";
 const OWNER = "0xEFe0412781d3c1e7888b2DB9dEEcA3037542494d";
 const OPERATOR = VILLA_ACCOUNT_CONFIG.operator;
+const MARKET_INTERVAL_SEC = Number(process.env.MARKET_INTERVAL_SEC ?? 300);
+if (!Number.isSafeInteger(MARKET_INTERVAL_SEC) || MARKET_INTERVAL_SEC < 1) throw new Error("MARKET_INTERVAL_SEC must be a positive integer");
+const MARKET_SERIES = process.env.MARKET_SERIES ?? `BINARY:BTC:${MARKET_INTERVAL_SEC}`;
 const RPC_URL = process.env.RPC_URL || VILLA_ACCOUNT_CONFIG.rpcUrl || "https://dream-rpc.somnia.network";
 const INDEXER_URL = process.env.INDEXER_URL || "https://dev.smk.somnia.host/v1/graphql";
 const WS_RPC_URL = process.env.WS_RPC_URL || "wss://api.infra.testnet.somnia.network/ws";
@@ -47,13 +50,13 @@ async function discover() {
   const block = await publicClient.getBlock();
   const chainNowSec = Number(block.timestamp);
   const rows = typeof exchange.client.listLiveBinaryMarkets === "function"
-    ? await exchange.client.listLiveBinaryMarkets({ asset: "BTC", intervalSec: 300, status: "Trading", orderBy: "closingSoon", limit: 100, nowSec: Math.floor(chainNowSec) })
-    : await exchange.client.listBinaryMarkets({ asset: "BTC", intervalSec: 300, status: "Trading", limit: 100 });
+    ? await exchange.client.listLiveBinaryMarkets({ asset: "BTC", intervalSec: MARKET_INTERVAL_SEC, status: "Trading", orderBy: "closingSoon", limit: 100, nowSec: Math.floor(chainNowSec) })
+    : await exchange.client.listBinaryMarkets({ asset: "BTC", intervalSec: MARKET_INTERVAL_SEC, status: "Trading", limit: 100 });
   const loaded = await exchange.loadMarkets(true);
   const candidates = [];
   for (const row of rows) {
     if (!(isBinaryMarket(row) || String(row.marketType ?? row.info?.marketType ?? "").toUpperCase() === "BINARY")) continue;
-    if (String(row.asset ?? row.info?.asset ?? "").toUpperCase() !== "BTC" || Number(row.intervalSec ?? row.info?.intervalSec) !== 300) continue;
+    if (String(row.asset ?? row.info?.asset ?? "").toUpperCase() !== "BTC" || Number(row.intervalSec ?? row.info?.intervalSec) !== MARKET_INTERVAL_SEC) continue;
     const marketId = row.marketId ?? row.info?.marketId ?? row.id;
     if (!marketId) continue;
     const onchain = await exchange.client.getMarketOnchain(marketId);
@@ -68,7 +71,7 @@ async function discover() {
     candidates.push({ row, market, onchain: { ...onchain, poolFinalized: Boolean(params.finalized) }, marketId: String(marketId), expirySec: Number(onchain.expiry), grid: { tickSizeRaw: String(params.tickSize), lotSizeRaw: String(params.lotSize), minQuantityRaw: String(params.minQuantity) }, minimumOrderRaw: String(params.minQuantity), book: { bids: book?.bids?.slice?.(0, 5) ?? [], asks: book?.asks?.slice?.(0, 5) ?? [] }, reference: { price: reference.price, source: reference.kind }, spot: { price: spot.price, timestampSec: spot.tSec } });
   }
   const minimumHeadroomSec = Number(process.env.MIN_MARKET_HEADROOM_SEC ?? 120);
-  const selection = selectCurrentBtc5mMarket({ candidates, chainNowSec, minHeadroomSec: Number.isFinite(minimumHeadroomSec) ? minimumHeadroomSec : 120 });
+  const selection = selectCurrentBtcMarket({ candidates, chainNowSec, minHeadroomSec: Number.isFinite(minimumHeadroomSec) ? minimumHeadroomSec : 120, asset: "BTC", intervalSec: MARKET_INTERVAL_SEC, series: MARKET_SERIES });
   if (!selection.selected) return { block, chainNowSec, candidates, selection };
   const selected = candidates.find((item) => item.marketId.toLowerCase() === selection.selected.marketId.toLowerCase());
   return { block, chainNowSec, candidates, selection, selected };
@@ -77,7 +80,7 @@ async function discover() {
 async function main() {
   const discovered = await discover();
   if (!discovered.selected) {
-    console.log(jsonSafe({ result: "BLOCKED", reason: "NO_ELIGIBLE_BTC_5M_MARKET", chainNowSec: discovered.chainNowSec, blockNumber: discovered.block.number?.toString?.() ?? null, rejected: discovered.selection.rejected.slice(0, 12), candidates: discovered.candidates.map((item) => ({ marketId: item.marketId, expirySec: item.expirySec, pool: item.onchain.pool, poolFinalized: item.onchain.poolFinalized })) }));
+    console.log(jsonSafe({ result: "BLOCKED", reason: `NO_ELIGIBLE_BTC_${MARKET_INTERVAL_SEC}_MARKET`, chainNowSec: discovered.chainNowSec, blockNumber: discovered.block.number?.toString?.() ?? null, rejected: discovered.selection.rejected.slice(0, 12), candidates: discovered.candidates.map((item) => ({ marketId: item.marketId, expirySec: item.expirySec, pool: item.onchain.pool, poolFinalized: item.onchain.poolFinalized })) }));
     return 2;
   }
   const { selected, selection } = discovered;
@@ -104,7 +107,7 @@ async function main() {
       fairValue,
       chainTime: effectiveChainTime,
       feed: { price: spot.price, timestampSec: spot.tSec, sourceAgeSec: spot.sourceAgeSec },
-      market: { status: Number(selected.onchain.status), expirySec: selected.expirySec, reference: { status: "VALID", source: reference.kind, scaleExponent10: reference.scaleExponent10 } },
+    market: { status: Number(selected.onchain.status), expirySec: selected.expirySec, reference: { status: "VALID", source: reference.kind, scaleExponent10: reference.scaleExponent10 } },
       inventory: { yes: Number(yesRaw) / one, no: Number(noRaw) / one },
       openOrdersStatus: openOrderRead.status,
       openOrders: openOrderRead.orders,
@@ -152,14 +155,14 @@ async function main() {
     account: { owner: OWNER, operator: OPERATOR, runtimeVerified: true },
     owner: { verified: true },
     operator: { configuredAddress: OPERATOR, signerAddress: OPERATOR },
-    market: { marketId: selected.marketId, series: LP_MARKET_SERIES, currentMarketId: selected.marketId, valid: true, current: true },
+    market: { marketId: selected.marketId, series: MARKET_SERIES, currentMarketId: selected.marketId, valid: true, current: true },
     permissions: { requiresMarketApproval: true, marketApproved, requiresProtocolApproval: true, protocolPrepared: modulePrepared && poolPrepared },
     capital: { collateralRaw: accountRead.capital.directCollateralRaw },
     riskLimits: { valid: true },
     risk: { state: decision.state },
     executionConfig: { mode: "SHADOW", minimumCollateralRaw: 1n, sessionActive: false },
   };
-  const sessionBase = createLpExecutionSession({ sessionId: `phase3b1a-shadow-${selected.marketId.slice(-8)}`, account: ACCOUNT, owner: OWNER, operator: OPERATOR, marketSeries: LP_MARKET_SERIES, currentMarketId: selected.marketId, riskPolicyVersion: decision.governorVersion, executionMode: "WET", createdAt: Date.now() });
+  const sessionBase = createLpExecutionSession({ sessionId: `phase3b1a-shadow-${selected.marketId.slice(-8)}`, account: ACCOUNT, owner: OWNER, operator: OPERATOR, marketSeries: MARKET_SERIES, currentMarketId: selected.marketId, riskPolicyVersion: decision.governorVersion, executionMode: "WET", createdAt: Date.now() });
   const session = transitionLpSession(sessionBase, "PREFLIGHT");
   const leases = createAccountLeaseStore();
   const lease = leases.acquire(session, { reconciled: true });
@@ -168,12 +171,12 @@ async function main() {
   const preflight = evaluateWetExecutionPreflight({
     nowMs: Date.now(), session, lease: { ...lease, held: true }, chain: { id: 50312 }, executionEnabled: false,
     account: { address: ACCOUNT, owner: OWNER, operator: OPERATOR, runtimeVerified: true }, owner: { address: OWNER, verified: true }, operator: { configuredAddress: OPERATOR, signerAddress: OPERATOR }, capital: { collateralRaw: accountRead.capital.directCollateralRaw },
-    market: { marketId: selected.marketId, series: LP_MARKET_SERIES, status: 1, valid: true, current: true, currentMarketId: selected.marketId }, orders: { account: ACCOUNT, status: accountRead.orders.status, orders: accountRead.orders.orders }, inventory: { account: ACCOUNT, status: "VERIFIED", yesRaw: accountRead.inventory.yesRaw, noRaw: accountRead.inventory.noRaw }, reconciliation: { status: "RECONCILED", pendingTransactions: 0, unknownTransactions: 0, unknownOrders: 0 }, permissions: readinessInput.permissions, riskLimits: { valid: true }, risk: { state: decision.state }, executionConfig: { mode: "WET", minimumCollateralRaw: 1n }, caps: DEFAULT_PHASE_3B1_CAPS,
+    market: { marketId: selected.marketId, series: MARKET_SERIES, status: 1, valid: true, current: true, currentMarketId: selected.marketId }, orders: { account: ACCOUNT, status: accountRead.orders.status, orders: accountRead.orders.orders }, inventory: { account: ACCOUNT, status: "VERIFIED", yesRaw: accountRead.inventory.yesRaw, noRaw: accountRead.inventory.noRaw }, reconciliation: { status: "RECONCILED", pendingTransactions: 0, unknownTransactions: 0, unknownOrders: 0 }, permissions: readinessInput.permissions, riskLimits: { valid: true }, risk: { state: decision.state }, executionConfig: { mode: "WET", minimumCollateralRaw: 1n }, caps: DEFAULT_PHASE_3B1_CAPS,
   });
-  const facts = { fresh: true, session, lease: { ...lease, held: true }, account: { operator: OPERATOR }, operator: { signerAddress: OPERATOR }, market: { marketId: selected.marketId, series: LP_MARKET_SERIES } };
+  const facts = { fresh: true, session, lease: { ...lease, held: true }, account: { operator: OPERATOR }, operator: { signerAddress: OPERATOR }, market: { marketId: selected.marketId, series: MARKET_SERIES } };
   const shadowCycle = await runLpOneCycle({ request: { oneCycle: true, account: ACCOUNT, sessionId: session.sessionId }, mode: "SHADOW", executionEnabled: false, facts, buildPlans: async () => shadow.actions, validatePlan: async (plan) => policy.validate(plan) });
   const wetDisabled = await runLpOneCycle({ request: { oneCycle: true, account: ACCOUNT, sessionId: session.sessionId }, mode: "WET", executionEnabled: false, facts, buildPlans: async () => shadow.actions, validatePlan: async (plan) => policy.validate(plan) });
-  console.log(jsonSafe({ result: "PASS", chainId: 50312, account: ACCOUNT, owner: OWNER, operator: OPERATOR, market: { ...selection.selected, decimals, poolFinalized: false }, fairValue: riskCollected.snapshot.fairValue, volatility: { realizedVolPerSqrtSec: riskCollected.volatility.realizedVolPerSqrtSec, dataQualityStatus: riskCollected.volatility.dataQualityStatus ?? null }, riskSnapshot: riskCollected.snapshot, capital: { collateralAvailableRaw: accountRead.capital.directCollateralRaw.toString(), directCollateralRaw: accountRead.capital.directCollateralRaw.toString(), dreamDexVaultCreditRaw: accountRead.capital.vaultRaw === null ? null : accountRead.capital.vaultRaw.toString() }, inventory: accountState.inventory, openOrders: accountState.orders, accountLimits: { maxOrderQuantityRaw: accountRead.identity.maxOrderQuantity.toString(), maxOrderCollateralRaw: accountRead.identity.maxOrderCollateral.toString() }, risk: decision, quotePlan, quoteExecution: { orderType: 3, postOnly: true, policyValid: shadow.actions.length > 0 }, readiness: shadow.readiness, permissions: { marketApproved, protocolPrepared: modulePrepared && poolPrepared, moduleOperator: modulePrepared, poolOperator: poolPrepared, collateralAllowanceRaw: allowance.toString(), outcomeToken: VILLA_ACCOUNT_CONFIG.outcomeToken, binaryModule: VILLA_ACCOUNT_CONFIG.binaryModule }, gas: { payer: OPERATOR, balanceWei: riskCollected.gasRaw.toString() }, shadowPlan: { actions: shadow.actions, actionCount: shadow.actions.length, broadcast: shadow.broadcast, orderOwner: ACCOUNT }, wetPreflight: preflight, shadowCycle, wetDisabled, caps: DEFAULT_PHASE_3B1_CAPS, signer: { installed: false, privateKeyRead: false }, writes: { broadcast: false, intents: shadow.actions.map((action) => action.intent ?? null) } }));
+  console.log(jsonSafe({ result: "PASS", chainId: 50312, account: ACCOUNT, owner: OWNER, operator: OPERATOR, market: { ...selection.selected, intervalSec: MARKET_INTERVAL_SEC, series: MARKET_SERIES, decimals, poolFinalized: false }, fairValue: riskCollected.snapshot.fairValue, volatility: { realizedVolPerSqrtSec: riskCollected.volatility.realizedVolPerSqrtSec, dataQualityStatus: riskCollected.volatility.dataQualityStatus ?? null }, riskSnapshot: riskCollected.snapshot, capital: { collateralAvailableRaw: accountRead.capital.directCollateralRaw.toString(), directCollateralRaw: accountRead.capital.directCollateralRaw.toString(), dreamDexVaultCreditRaw: accountRead.capital.vaultRaw === null ? null : accountRead.capital.vaultRaw.toString() }, inventory: accountState.inventory, accountLimits: { maxOrderQuantityRaw: accountRead.identity.maxOrderQuantity.toString(), maxOrderCollateralRaw: accountRead.identity.maxOrderCollateral.toString() }, risk: decision, quotePlan, quoteExecution: { orderType: 3, postOnly: true, policyValid: shadow.actions.length > 0 }, readiness: shadow.readiness, permissions: { marketApproved, protocolPrepared: modulePrepared && poolPrepared, moduleOperator: modulePrepared, poolOperator: poolPrepared, collateralAllowanceRaw: allowance.toString(), outcomeToken: VILLA_ACCOUNT_CONFIG.outcomeToken, binaryModule: VILLA_ACCOUNT_CONFIG.binaryModule }, gas: { payer: OPERATOR, balanceWei: riskCollected.gasRaw.toString() }, shadowPlan: { actions: shadow.actions, actionCount: shadow.actions.length, broadcast: shadow.broadcast, orderOwner: ACCOUNT }, wetPreflight: preflight, shadowCycle, wetDisabled, caps: DEFAULT_PHASE_3B1_CAPS, signer: { installed: false, privateKeyRead: false }, writes: { broadcast: false, intents: shadow.actions.map((action) => action.intent ?? null) } }));
   return 0;
 }
 

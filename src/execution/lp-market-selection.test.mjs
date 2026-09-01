@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { LP_MARKET_SERIES, selectCurrentBtc5mMarket } from "./lp-market-selection.mjs";
+import { LP_MARKET_SERIES, selectCurrentBtc5mMarket, selectCurrentBtcMarket } from "./lp-market-selection.mjs";
 
 const MARKET_A = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 const MARKET_B = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
@@ -24,6 +24,17 @@ test("selects a live current BTC 5m market from verified facts, never a hardcode
   assert.equal(result.selected.status, "Trading");
   assert.equal(result.selected.minimumOrderRaw, "1000");
   assert.ok(result.selected.grid && result.selected.book && result.selected.reference);
+});
+
+test("generic selector accepts the fresh BTC 15m series while the 5m wrapper stays unchanged", () => {
+  const fifteenMinute = candidate(MARKET_A, { row: { ...candidate(MARKET_A).row, intervalSec: 900 }, expirySec: 2_000 });
+  const result = selectCurrentBtcMarket({ chainNowSec: 1_000, minHeadroomSec: 600, candidates: [fifteenMinute], asset: "BTC", intervalSec: 900, series: "BINARY:BTC:900" });
+  assert.equal(result.selected.marketId, MARKET_A);
+  assert.equal(result.selected.series, "BINARY:BTC:900");
+  assert.equal(result.selected.intervalSec, 900);
+  const fiveMinute = selectCurrentBtc5mMarket({ chainNowSec: 1_000, minHeadroomSec: 600, candidates: [fifteenMinute] });
+  assert.equal(fiveMinute.selected, null);
+  assert.equal(fiveMinute.rejected[0].code, "SERIES_MISMATCH");
 });
 
 test("stale, locked, wrong-series, and incomplete markets are rejected", () => {

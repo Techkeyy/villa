@@ -1,6 +1,7 @@
 import http from "node:http";
 import { createOperatorAuth, bearerToken, OperatorAuthError } from "../src/operator/auth.mjs";
 import { OperatorConfigError } from "../src/operator/config.mjs";
+import { AccountControlError } from "../src/operator/account-control.mjs";
 import { createEngineSupervisor, OperatorControlError } from "../src/operator/supervisor.mjs";
 
 const MAX_BODY_BYTES = 16 * 1024;
@@ -57,7 +58,7 @@ function rejectArbitraryTransactionPayload(body) {
 }
 
 function authError(error) {
-  return error instanceof OperatorAuthError || error instanceof OperatorControlError || error instanceof OperatorConfigError;
+  return error instanceof OperatorAuthError || error instanceof OperatorControlError || error instanceof OperatorConfigError || error instanceof AccountControlError;
 }
 
 function createRateLimiter({ windowMs = 60_000, maxRequests = 120 } = {}) {
@@ -82,6 +83,8 @@ function createRateLimiter({ windowMs = 60_000, maxRequests = 120 } = {}) {
 export function createOperatorApiServer({
   control,
   auth,
+  accountAuth = null,
+  accountControl = null,
   allowedOrigins = [],
   logger = () => undefined,
   rateLimit = {},
@@ -135,7 +138,23 @@ export function createOperatorApiServer({
         return;
       }
 
-      const session = auth.authenticate(bearerToken(request));
+      if (request.method === "POST" && url.pathname === "/account/auth/nonce") {
+        if (!accountAuth) { send(response, 404, { error: "Account authentication is not enabled." }, origin, origins); return; }
+        const body = await readBody(request);
+        send(response, 200, accountAuth.issueNonce(body.address), origin, origins);
+        return;
+      }
+
+      if (request.method === "POST" && url.pathname === "/account/auth/verify") {
+        if (!accountAuth) { send(response, 404, { error: "Account authentication is not enabled." }, origin, origins); return; }
+        const body = await readBody(request);
+        send(response, 200, await accountAuth.verify(body), origin, origins);
+        return;
+      }
+
+      const accountRoute = url.pathname.startsWith("/account/");
+      const requestAuth = accountRoute && accountAuth ? accountAuth : auth;
+      const session = requestAuth.authenticate(bearerToken(request));
       if (!session) throw new OperatorAuthError("SESSION_REQUIRED", "Connect the authorized operator wallet to continue.");
 
       if (request.method === "GET" && url.pathname === "/state") {
@@ -148,6 +167,12 @@ export function createOperatorApiServer({
       }
       if (request.method === "GET" && url.pathname === "/activity") {
         send(response, 200, { activity: control.getActivity() }, origin, origins);
+        return;
+      }
+
+      if (request.method === "GET" && url.pathname === "/account/state") {
+        if (!accountControl) { send(response, 404, { error: "Account control is not enabled." }, origin, origins); return; }
+        send(response, 200, await accountControl.getState({ caller: session.address }), origin, origins);
         return;
       }
 
@@ -174,6 +199,30 @@ export function createOperatorApiServer({
           send(response, 202, await control.emergencyCancelAll(), origin, origins);
           return;
         }
+        if (url.pathname === "/account/session/start") {
+          if (!accountControl) { send(response, 404, { error: "Account control is not enabled." }, origin, origins); return; }
+          rejectArbitraryTransactionPayload(body);
+          send(response, 202, await accountControl.start({ caller: session.address }), origin, origins);
+          return;
+        }
+        if (url.pathname === "/account/session/pause") {
+          if (!accountControl) { send(response, 404, { error: "Account control is not enabled." }, origin, origins); return; }
+          rejectArbitraryTransactionPayload(body);
+          send(response, 202, await accountControl.pause({ caller: session.address }), origin, origins);
+          return;
+        }
+        if (url.pathname === "/account/session/resume") {
+          if (!accountControl) { send(response, 404, { error: "Account control is not enabled." }, origin, origins); return; }
+          rejectArbitraryTransactionPayload(body);
+          send(response, 202, await accountControl.resume({ caller: session.address }), origin, origins);
+          return;
+        }
+        if (url.pathname === "/account/session/stop") {
+          if (!accountControl) { send(response, 404, { error: "Account control is not enabled." }, origin, origins); return; }
+          rejectArbitraryTransactionPayload(body);
+          send(response, 202, await accountControl.stop({ caller: session.address }), origin, origins);
+          return;
+        }
       }
       send(response, 404, { error: "Operator route not found." }, origin, origins);
     } catch (error) {
@@ -185,14 +234,14 @@ export function createOperatorApiServer({
   });
 }
 
-export function createProductionOperatorServer(env = process.env, { readOnlyReader, runnerFactory } = {}) {
+export function createProductionOperatorServer(env = process.env, { readOnlyReader, runnerFactory, accountAuth, accountControl } = {}) {
   const auth = createOperatorAuth({ authorizedAddress: env.OPERATOR_ADDRESS });
   const control = createEngineSupervisor({
     env,
     runnerFactory,
     readOnlyReader: readOnlyReader ?? (async () => (await import("../src/dashboard/live-adapter.mjs")).buildLiveEnvelope()),
   });
-  return createOperatorApiServer({ control, auth, allowedOrigins: originsFrom(env) });
+  return createOperatorApiServer({ control, auth, accountAuth, accountControl, allowedOrigins: originsFrom(env) });
 }
 
 if (process.argv[1] && process.argv[1].endsWith("operator-api.mjs")) {

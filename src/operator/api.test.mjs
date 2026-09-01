@@ -147,3 +147,71 @@ test("unarmed production API boots without a private key and never reaches the w
     server.close();
   }
 });
+
+test("optional account control routes are wallet-authenticated and reject arbitrary relay fields", async () => {
+  const account = privateKeyToAccount(generatePrivateKey());
+  const calls = [];
+  const server = createOperatorApiServer({
+    control: { async getState() { return { state: "STOPPED", executionEnabled: false }; } },
+    auth: createOperatorAuth({ authorizedAddress: account.address }),
+    accountControl: {
+      async getState(input) { calls.push(["state", input]); return { state: "STOPPED", safety: { signerInBrowser: false } }; },
+      async start(input) { calls.push(["start", input]); return { state: "RUNNING" }; },
+      async stop(input) { calls.push(["stop", input]); return { state: "STOPPED" }; },
+    },
+    allowedOrigins: ["http://allowed.test"],
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const base = `http://127.0.0.1:${server.address().port}`;
+  try {
+    const nonce = await request(base, "/auth/nonce", { method: "POST", body: { address: account.address } });
+    const signature = await account.signMessage({ message: nonce.body.message });
+    const verified = await request(base, "/auth/verify", { method: "POST", body: { ...nonce.body, signature } });
+    const token = verified.body.token;
+    const state = await request(base, "/account/state", { token });
+    assert.equal(state.status, 200);
+    assert.equal(calls[0][1].caller.toLowerCase(), account.address.toLowerCase());
+    const started = await request(base, "/account/session/start", { method: "POST", token, body: {} });
+    assert.equal(started.status, 202);
+    assert.equal(calls[1][0], "start");
+    const arbitrary = await request(base, "/account/session/start", { method: "POST", token, body: { destination: account.address } });
+    assert.equal(arbitrary.status, 400);
+    assert.equal(arbitrary.body.code, "ARBITRARY_CALL_DENIED");
+    assert.equal(calls.length, 2);
+  } finally {
+    server.close();
+  }
+});
+
+test("account control can use a separate owner-auth session", async () => {
+  const operator = privateKeyToAccount(generatePrivateKey());
+  const owner = privateKeyToAccount(generatePrivateKey());
+  const calls = [];
+  const server = createOperatorApiServer({
+    control: { async getState() { return { state: "STOPPED", executionEnabled: false }; } },
+    auth: createOperatorAuth({ authorizedAddress: operator.address }),
+    accountAuth: createOperatorAuth({ authorizedAddress: owner.address }),
+    accountControl: {
+      async getState(input) { calls.push(input); return { state: "STOPPED" }; },
+      async start() { return { state: "RUNNING" }; },
+      async stop() { return { state: "STOPPED" }; },
+    },
+    allowedOrigins: ["http://allowed.test"],
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const base = `http://127.0.0.1:${server.address().port}`;
+  try {
+    const nonce = await request(base, "/account/auth/nonce", { method: "POST", body: { address: owner.address } });
+    assert.equal(nonce.status, 200);
+    const signature = await owner.signMessage({ message: nonce.body.message });
+    const verified = await request(base, "/account/auth/verify", { method: "POST", body: { ...nonce.body, signature } });
+    assert.equal(verified.status, 200);
+    const state = await request(base, "/account/state", { token: verified.body.token });
+    assert.equal(state.status, 200);
+    assert.equal(calls[0].caller.toLowerCase(), owner.address.toLowerCase());
+  } finally {
+    server.close();
+  }
+});

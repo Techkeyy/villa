@@ -1,5 +1,5 @@
 /**
- * Pure fact gate for a genuinely current BTC 5m Shannon market.
+ * Pure fact gate for a genuinely current BTC binary Shannon market.
  *
  * Market IDs are supplied by the live indexer/RPC read and are never
  * hardcoded. The selector verifies the exact configured series and requires
@@ -43,7 +43,7 @@ function requiredFact(candidate, names, label) {
   throw new LpMarketSelectionError("FACT_MISSING", `${label} was not verified for the live market`);
 }
 
-function candidateFacts(candidate) {
+function candidateFacts(candidate, { expectedAsset = LP_MARKET_ASSET, expectedIntervalSec = LP_MARKET_INTERVAL_SEC, series = LP_MARKET_SERIES } = {}) {
   const row = candidate?.row ?? candidate?.market ?? candidate;
   const onchain = candidate?.onchain ?? {};
   const marketIdValue = marketId(candidate?.marketId ?? row?.marketId ?? row?.info?.marketId ?? row?.id);
@@ -51,7 +51,7 @@ function candidateFacts(candidate) {
   const intervalSec = finite(row?.intervalSec ?? row?.info?.intervalSec, "market intervalSec");
   const expirySec = finite(candidate?.expirySec ?? onchain?.expiry ?? row?.expiry ?? row?.info?.expiry, "market expiry");
   const status = onchain?.status ?? candidate?.status ?? row?.status;
-  if (asset !== LP_MARKET_ASSET || intervalSec !== LP_MARKET_INTERVAL_SEC) throw new LpMarketSelectionError("SERIES_MISMATCH", `market must be ${LP_MARKET_SERIES}`);
+  if (asset !== String(expectedAsset).toUpperCase() || intervalSec !== Number(expectedIntervalSec)) throw new LpMarketSelectionError("SERIES_MISMATCH", `market must be ${series}`);
   if (!statusIsTrading(status) || onchain?.isResolved || onchain?.isVoided) throw new LpMarketSelectionError("MARKET_NOT_TRADING", "market is not currently Trading");
   if (candidate?.poolFinalized === true || onchain?.poolFinalized === true) throw new LpMarketSelectionError("POOL_FINALIZED", "market pool is already finalized and cannot accept a bounded order proof");
   const grid = requiredFact(candidate, ["grid", "bookParams", "params"], "order grid");
@@ -61,7 +61,7 @@ function candidateFacts(candidate) {
   if (minimumOrderRaw === undefined || minimumOrderRaw === null) throw new LpMarketSelectionError("MIN_ORDER_MISSING", "minimum order quantity was not verified");
   return {
     marketId: marketIdValue,
-    series: LP_MARKET_SERIES,
+    series,
     asset,
     intervalSec,
     expirySec,
@@ -78,7 +78,7 @@ function candidateFacts(candidate) {
 }
 
 /** Select the earliest current candidate after all exact-series fact checks. */
-export function selectCurrentBtc5mMarket({ candidates = [], chainNowSec, minHeadroomSec = LP_MARKET_MIN_HEADROOM_SEC } = {}) {
+export function selectCurrentBtcMarket({ candidates = [], chainNowSec, minHeadroomSec = LP_MARKET_MIN_HEADROOM_SEC, asset = LP_MARKET_ASSET, intervalSec = LP_MARKET_INTERVAL_SEC, series = `BINARY:${String(asset).toUpperCase()}:${Number(intervalSec)}` } = {}) {
   const now = finite(chainNowSec, "chainNowSec");
   const headroom = finite(minHeadroomSec, "minHeadroomSec");
   if (!Array.isArray(candidates)) throw new LpMarketSelectionError("CANDIDATES_INVALID", "market candidates must be an array");
@@ -86,7 +86,7 @@ export function selectCurrentBtc5mMarket({ candidates = [], chainNowSec, minHead
   const accepted = [];
   for (const candidate of candidates) {
     try {
-      const facts = candidateFacts(candidate);
+      const facts = candidateFacts(candidate, { expectedAsset: String(asset).toUpperCase(), expectedIntervalSec: Number(intervalSec), series });
       const secondsRemaining = facts.expirySec - now;
       if (secondsRemaining < headroom) throw new LpMarketSelectionError("HEADROOM_INSUFFICIENT", `market has only ${Math.floor(secondsRemaining)}s of headroom`);
       accepted.push({ ...facts, secondsRemaining });
@@ -97,11 +97,16 @@ export function selectCurrentBtc5mMarket({ candidates = [], chainNowSec, minHead
   accepted.sort((left, right) => left.expirySec - right.expirySec || left.marketId.localeCompare(right.marketId));
   return Object.freeze({
     version: LP_MARKET_SELECTION_VERSION,
-    series: LP_MARKET_SERIES,
+    series,
     chainNowSec: now,
     minHeadroomSec: headroom,
     selected: accepted[0] ?? null,
     accepted: Object.freeze(accepted),
     rejected: Object.freeze(rejected),
   });
+}
+
+/** Backward-compatible frozen selector for the original BTC 5m engine path. */
+export function selectCurrentBtc5mMarket(args = {}) {
+  return selectCurrentBtcMarket({ ...args, asset: LP_MARKET_ASSET, intervalSec: LP_MARKET_INTERVAL_SEC, series: LP_MARKET_SERIES });
 }
