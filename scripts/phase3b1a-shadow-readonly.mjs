@@ -26,6 +26,7 @@ const OPERATOR = VILLA_ACCOUNT_CONFIG.operator;
 const MARKET_INTERVAL_SEC = Number(process.env.MARKET_INTERVAL_SEC ?? 300);
 if (!Number.isSafeInteger(MARKET_INTERVAL_SEC) || MARKET_INTERVAL_SEC < 1) throw new Error("MARKET_INTERVAL_SEC must be a positive integer");
 const MARKET_SERIES = process.env.MARKET_SERIES ?? `BINARY:BTC:${MARKET_INTERVAL_SEC}`;
+const MARKET_ID_FILTER = String(process.env.MARKET_ID ?? "").trim().toLowerCase() || null;
 const RPC_URL = process.env.RPC_URL || VILLA_ACCOUNT_CONFIG.rpcUrl || "https://dream-rpc.somnia.network";
 const INDEXER_URL = process.env.INDEXER_URL || "https://dev.smk.somnia.host/v1/graphql";
 const WS_RPC_URL = process.env.WS_RPC_URL || "wss://api.infra.testnet.somnia.network/ws";
@@ -59,6 +60,7 @@ async function discover() {
     if (String(row.asset ?? row.info?.asset ?? "").toUpperCase() !== "BTC" || Number(row.intervalSec ?? row.info?.intervalSec) !== MARKET_INTERVAL_SEC) continue;
     const marketId = row.marketId ?? row.info?.marketId ?? row.id;
     if (!marketId) continue;
+    if (MARKET_ID_FILTER && String(marketId).toLowerCase() !== MARKET_ID_FILTER) continue;
     const onchain = await exchange.client.getMarketOnchain(marketId);
     if (Number(onchain.status) !== 1 || onchain.isResolved || onchain.isVoided) continue;
     const params = await exchange.client.getBinaryBookParams(onchain.pool);

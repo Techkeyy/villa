@@ -1,116 +1,91 @@
 # VILLA private operator engine
 
-This runbook prepares the owner-controlled long-running engine service. It is
-not a deployment authorization and it does not place the execution signer on a
-remote machine.
+VILLA has a separate private one-shot engine for the owner-controlled VPS.
+This is a custody and execution boundary, not a public API deployment. The
+current Phase 3B2A checkpoint installs the real typed writer and keeps
+execution explicitly disabled.
 
 ## Boundary
 
-- Vercel serves the public product overview, read-only replay surface, and the
-  small `/api/operator-config` config response.
-- The private engine runs `scripts/villa-bounded.mjs` through
-  `scripts/operator-api.mjs` on an owner-controlled VPS.
-- The browser receives state and sends authenticated control requests. It never
-  receives a signer, private key, wallet seed, or raw private service log.
-- The MVP is single-operator testnet software. It is not a multi-user custody
-  platform.
+- Vercel and the public dashboard remain signer-free and read-only.
+- `villa-operator-api.service` runs as the separate `villa` user and exposes
+  only the existing authenticated control-plane surface.
+- `villa-engine.service` runs as the separate `villa-engine` user with
+  `NoNewPrivileges`, private filesystem defaults, no public listener, and a
+  one-shot invocation of `scripts/lp-one-cycle.mjs`.
+- The signer credential is external to the repository and public API. systemd
+  makes it available only as the private `operator-key` credential to the
+  private engine process.
 
-## Unarmed control-plane preparation
+The engine binds one immutable session to the configured owner, VillaAccount,
+canonical operator, Shannon chain `50312`, BTC 24-hour series, exact market,
+and one session ID. It reads the account and market from chain/venue sources,
+then revalidates readiness, risk, capital, protocol permissions, order state,
+and reconciliation before it can create a writer.
 
-For the current unarmed phase, start only the control plane on the
-owner-controlled VPS. A private key is not required while execution is
-disabled:
+## Typed writer boundary
+
+The writer accepts only a policy-prepared VILLA intent. It derives the exact
+`VillaAccount` ABI call and target internally. There is no public or external
+generic transaction interface and no caller-controlled recipient, selector,
+calldata, native value, withdrawal, ownership mutation, or operator mutation.
+
+The allowlist is limited to:
+
+`operatorPlaceOrder`, `operatorCancelOrder`, `operatorReduceOrder`,
+`operatorMintSet`, `operatorBurnSet`, `operatorRedeem`, and
+`operatorClaimVault`.
+
+Each future write is simulated, revalidated, checked against latest and
+pending nonce state, serialized as the sole in-flight write, journaled, and
+waited to a definitive receipt. `PENDING`, `CONFIRMED`, `REVERTED`, and
+`UNKNOWN` are explicit states. An uncertain result or restart blocks further
+writes until authoritative reconciliation; the engine never blindly retries.
+
+## Current safe mode
+
+The VPS service must contain:
 
 ```text
-npm ci --omit=dev
-npm run operator:dev
-```
-
-The service must bind on a private or reverse-proxied interface. Put HTTPS and
-access control in front of it. Allow the Vercel origin exactly, with no wildcard
-origin:
-
-```text
-PORT=8782
-VILLA_BIND_HOST=127.0.0.1
-VILLA_ALLOWED_ORIGINS=https://villa-ten-ashen.vercel.app
+VILLA_EXECUTION_MODE=WET
 VILLA_EXECUTION_ENABLED=false
-OPERATOR_ADDRESS=<authorized wallet address>
 ```
 
-The existing read-only network variables may also be supplied to the private
-engine as required by the verified live adapter:
+The WET mode name selects the private runtime implementation. The false flag
+is checked before wallet-client creation or invocation. A dry one-shot loads
+and verifies the private signer, reads the exact account and market, runs the
+read-only feasibility and final preflight, builds the bounded mint,
+SELL_YES, cancel, and burn intents, and stops at the writer boundary.
+
+Expected dry result:
 
 ```text
-RPC_URL=<private VPS value>
-WS_RPC_URL=<private VPS value>
-INDEXER_URL=<private VPS value>
-PRICE_FEED_URL=<private VPS value>
-NETWORK=<private VPS value>
-VENUE_ID=<private VPS value>
+result: DRY_READY
+code: EXECUTION_DISABLED
+broadcastAttempts: 0
+writes: 0
 ```
 
-Do not commit these values. Do not install `OPERATOR_PRIVATE_KEY`,
-`TAKER_PRIVATE_KEY`, a mnemonic, or a seed phrase during this phase. The API
-can boot, authenticate, and expose safe read/control-plane state without a
-signer. START remains `EXECUTION_DISABLED`, no writer is spawned, and no
-transaction can be sent.
+The hard caps remain unchanged: account capital `1,002,000` raw, maximum
+order/mint/pending exposure `250,000` raw, at most two open orders, a
+900-second session, and 12 transactions.
 
-Only after a separately approved wet phase may the owner add
-`OPERATOR_PRIVATE_KEY` to a restricted VPS secret store. It must never enter
-Vercel, the browser bundle, API responses, screenshots, or service logs.
+## Public API and frontend
 
-## Frontend connection
+`GET /health` remains a non-writable service check. The existing wallet
+signature routes authenticate the operator for control-plane reads/actions;
+message signing does not send a blockchain transaction. With execution false,
+`POST /session/start` returns `EXECUTION_DISABLED` and must not spawn a
+writer.
 
-After the private service has a verified HTTPS URL, the Vercel project may set
-this non-secret frontend variable:
+The public frontend may know only the HTTPS engine origin through
+`VILLA_ENGINE_API_URL`. It never receives the signer, wallet client, private
+credential, or private engine logs. The API origin remains configured with the
+exact allowed Vercel origin and no wildcard.
 
-```text
-VILLA_ENGINE_API_URL=https://operator.example.invalid
-```
+## Phase boundary
 
-The value must be the HTTPS origin of the private operator API. It is safe for
-the browser to know this URL, but the API must still require the short-lived
-wallet-signature session for state and control routes.
-
-## API and control semantics
-
-- `GET /health` is a non-writable service check.
-- `POST /auth/nonce` and `POST /auth/verify` implement wallet message-signature
-  authentication. Signing sends no blockchain transaction.
-- `GET /state`, `/config`, and `/activity` require a bearer session.
-- `POST /session/start` refuses with `EXECUTION_DISABLED` unless
-  `VILLA_EXECUTION_ENABLED` is exactly `true`. The default and the current
-  deployment phase are unarmed: no writer is spawned, no order is created, and
-  no transaction can be sent. Only an explicitly approved wet phase may set
-  the flag to the exact string `true`, after the owner has reviewed the VPS
-  custody and safety controls.
-- When explicitly enabled, `POST /session/start` launches the existing bounded
-  runner after lower-only configuration validation and a live Risk Governor
-  preflight.
-- `POST /session/pause` cancels session-owned resting orders and stops new
-  quoting until an explicit resume.
-- `POST /session/resume` releases a real paused runner.
-- `POST /session/stop` performs the runner cleanup and reconciliation path.
-- `POST /orders/cancel-all` performs the same safe cleanup with the explicit
-  emergency reason. It does not liquidate unmatched inventory.
-
-The service exposes explicit operator states including `STOPPED`, `STARTING`,
-`WATCHING`, `QUOTING`, `NO_QUOTE`, `REDUCE_ONLY`, `HALTED`, `PAUSED`,
-`ROLLING_OVER`, `SETTLING`, `STOPPING`, and `ERROR`.
-
-## Readiness checks
-
-Before any owner deployment, verify locally:
-
-```text
-npm run operator:test
-npm test
-npm run dashboard:test
-npm run dashboard:build
-```
-
-The current phase stops at local validation. The exact next human action is to
-review and approve the private VPS custody step, then deploy the private engine
-with HTTPS and the exact Vercel origin. No signer deployment is performed by
-this phase.
+This checkpoint does not create a wet session, select a replacement market,
+mint, place or cancel an order, burn, redeem, withdraw, enable execution, or
+send a chain transaction. A separate owner-approved phase is required before
+changing the execution flag or starting a wet one-shot.

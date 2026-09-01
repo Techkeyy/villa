@@ -28,6 +28,18 @@ export const OWNER_WIZARD_1H_INITIAL_HEADROOM_SEC = 1500;
 export const OWNER_WIZARD_1H_TX1_HEADROOM_SEC = 1200;
 export const OWNER_WIZARD_1H_FINAL_PREFLIGHT_HEADROOM_SEC = 900;
 export const OWNER_WIZARD_1H_FINAL_HANDOFF_HEADROOM_SEC = 900;
+export const OWNER_WIZARD_4H_SERIES = "BINARY:BTC:14400";
+export const OWNER_WIZARD_4H_INITIAL_HEADROOM_SEC = 2100;
+export const OWNER_WIZARD_4H_TX1_HEADROOM_SEC = 1800;
+export const OWNER_WIZARD_4H_FINAL_PREFLIGHT_HEADROOM_SEC = 1500;
+export const OWNER_WIZARD_4H_FINAL_HANDOFF_HEADROOM_SEC = 1500;
+// The adaptive first-wet-proof helper evaluates every live BTC interval and
+// ranks only candidates that pass the complete read-only owner-prep envelope.
+// Keep these independent from the historical interval-specific policies above.
+export const OWNER_WIZARD_AUTO_INITIAL_HEADROOM_SEC = 1500;
+export const OWNER_WIZARD_AUTO_TX1_HEADROOM_SEC = 1200;
+export const OWNER_WIZARD_AUTO_FINAL_PREFLIGHT_HEADROOM_SEC = 900;
+export const OWNER_WIZARD_AUTO_FINAL_HANDOFF_HEADROOM_SEC = 900;
 
 // These are invalidated owner-prep candidates, not reusable fixtures. The
 // server also keeps the set in memory so a candidate cannot return after a
@@ -37,6 +49,8 @@ export const INVALIDATED_OWNER_MARKETS = Object.freeze(new Set([
   "0x000000000000000000000000000000000000000000000000000000000000f5ee",
   "0x000000000000000000000000000000000000000000000000000000000000f5fe",
   "0x000000000000000000000000000000000000000000000000000000000000fee9",
+  "0x000000000000000000000000000000000000000000000000000000000000fee7",
+  "0x0000000000000000000000000000000000000000000000000000000000010050",
 ]));
 
 const ADDRESS_RE = /^0x[0-9a-f]{40}$/i;
@@ -58,6 +72,30 @@ const rawString = (value) => {
 
 export function isInvalidatedOwnerMarket(marketId) {
   return INVALIDATED_OWNER_MARKETS.has(lower(marketId));
+}
+
+/**
+ * Rank fully evaluated owner-prep candidates by the least disruptive proof
+ * that still leaves the most time. The helper supplies `valid` only after
+ * all market, account, risk, quote, policy, and owner-call checks pass.
+ */
+export function rankOwnerPreparationCandidates(candidates = [], { minimumHeadroomSec = OWNER_WIZARD_AUTO_INITIAL_HEADROOM_SEC } = {}) {
+  const minimum = Number(minimumHeadroomSec);
+  if (!Array.isArray(candidates) || !Number.isFinite(minimum)) return Object.freeze([]);
+  const ranked = candidates
+    .filter((candidate) => candidate?.valid === true && Number(candidate?.evaluated?.headroomSec) >= minimum)
+    .slice()
+    .sort((left, right) => {
+      const headroom = Number(right.evaluated.headroomSec) - Number(left.evaluated.headroomSec);
+      if (headroom) return headroom;
+      const path = (left.evaluated.projectedPath === "A" ? 0 : 1) - (right.evaluated.projectedPath === "A" ? 0 : 1);
+      if (path) return path;
+      const leftActions = Array.isArray(left.evaluated.projected?.sequence?.actions) ? left.evaluated.projected.sequence.actions.length : Number.MAX_SAFE_INTEGER;
+      const rightActions = Array.isArray(right.evaluated.projected?.sequence?.actions) ? right.evaluated.projected.sequence.actions.length : Number.MAX_SAFE_INTEGER;
+      if (leftActions !== rightActions) return leftActions - rightActions;
+      return lower(left.candidate?.marketId ?? left.evaluated.marketId).localeCompare(lower(right.candidate?.marketId ?? right.evaluated.marketId));
+    });
+  return Object.freeze(ranked);
 }
 
 function add(blockers, code, reason) {

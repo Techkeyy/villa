@@ -51,4 +51,21 @@ test("browser wallet hotfix does not redefine injected providers or auto-submit"
   assert.match(source, /await loadState\(true\)/);
   assert.match(source, /readSequence/);
   assert.match(source, /current\.walletContext\?\.connected === true/);
+  assert.match(source, /async function restoreServerWalletContext/);
+  assert.match(source, /current\.walletContext\?\.connected !== true/);
+  assert.match(source, /pending\?\.action === "prepare"/);
+  assert.match(source, /\/api\/recover\/prepare/);
+  assert.match(source, /current\.stage !== "FINAL_PREFLIGHT" && current\.stage !== "BLOCKED"/);
+  assert.match(source, /PENDING_TRANSACTION_KEY/);
+  assert.match(source, /\/api\/submitted\//);
+  assert.match(source, /\/api\/recover\/approve/);
+  assert.match(source, /SUBMITTING/);
+  assert.match(source, /WAITING_FOR_CONFIRMATION/);
+});
+
+test("owner-prep server recovers exact confirmed prepare transactions", async () => {
+  const source = await fs.readFile(new URL("../../scripts/phase3b1b1-owner-prep-wizard.mjs", import.meta.url), "utf8");
+  assert.match(source, /function preparedMarketIdFromTransaction/);
+  assert.match(source, /\/api\/recover\/prepare/);
+  assert.match(source, /exchange\.client\.getMarketOnchain\(marketId\)/);
 });

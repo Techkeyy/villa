@@ -2,6 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   OWNER_WIZARD_ACCOUNT,
+  OWNER_WIZARD_AUTO_FINAL_HANDOFF_HEADROOM_SEC,
+  OWNER_WIZARD_AUTO_FINAL_PREFLIGHT_HEADROOM_SEC,
+  OWNER_WIZARD_AUTO_INITIAL_HEADROOM_SEC,
+  OWNER_WIZARD_AUTO_TX1_HEADROOM_SEC,
   OWNER_WIZARD_CAPITAL_RAW,
   OWNER_WIZARD_CHAIN_ID,
   OWNER_WIZARD_FINAL_HEADROOM_SEC,
@@ -16,6 +20,11 @@ import {
   OWNER_WIZARD_1H_INITIAL_HEADROOM_SEC,
   OWNER_WIZARD_1H_SERIES,
   OWNER_WIZARD_1H_TX1_HEADROOM_SEC,
+  OWNER_WIZARD_4H_FINAL_HANDOFF_HEADROOM_SEC,
+  OWNER_WIZARD_4H_FINAL_PREFLIGHT_HEADROOM_SEC,
+  OWNER_WIZARD_4H_INITIAL_HEADROOM_SEC,
+  OWNER_WIZARD_4H_SERIES,
+  OWNER_WIZARD_4H_TX1_HEADROOM_SEC,
   OWNER_WIZARD_MINT_RAW,
   OWNER_WIZARD_OPERATOR,
   OWNER_WIZARD_OWNER,
@@ -24,6 +33,7 @@ import {
   evaluateOwnerWizardSnapshot,
   finalOwnerHandoffBlockers,
   isInvalidatedOwnerMarket,
+  rankOwnerPreparationCandidates,
   validateHumanOwnerTransaction,
   validateOwnerWalletContext,
 } from "./lp-owner-wizard.mjs";
@@ -50,6 +60,40 @@ test("1h owner preparation uses the fresh-market and final handoff gates", () =>
   assert.equal(OWNER_WIZARD_1H_TX1_HEADROOM_SEC, 1200);
   assert.equal(OWNER_WIZARD_1H_FINAL_PREFLIGHT_HEADROOM_SEC, 900);
   assert.equal(OWNER_WIZARD_1H_FINAL_HANDOFF_HEADROOM_SEC, 900);
+});
+
+test("4h owner preparation uses the independent first wet-proof gates", () => {
+  assert.equal(OWNER_WIZARD_4H_SERIES, "BINARY:BTC:14400");
+  assert.equal(OWNER_WIZARD_4H_INITIAL_HEADROOM_SEC, 2100);
+  assert.equal(OWNER_WIZARD_4H_TX1_HEADROOM_SEC, 1800);
+  assert.equal(OWNER_WIZARD_4H_FINAL_PREFLIGHT_HEADROOM_SEC, 1500);
+  assert.equal(OWNER_WIZARD_4H_FINAL_HANDOFF_HEADROOM_SEC, 1500);
+});
+
+test("adaptive owner preparation uses the single longest-headroom gates", () => {
+  assert.equal(OWNER_WIZARD_AUTO_INITIAL_HEADROOM_SEC, 1500);
+  assert.equal(OWNER_WIZARD_AUTO_TX1_HEADROOM_SEC, 1200);
+  assert.equal(OWNER_WIZARD_AUTO_FINAL_PREFLIGHT_HEADROOM_SEC, 900);
+  assert.equal(OWNER_WIZARD_AUTO_FINAL_HANDOFF_HEADROOM_SEC, 900);
+});
+
+test("adaptive ranking prefers the longest valid market, then lower-impact proof", () => {
+  const candidate = (marketId, headroomSec, projectedPath = "B", actionCount = 4, valid = true) => ({
+    candidate: { marketId },
+    valid,
+    evaluated: { marketId, headroomSec, projectedPath, projected: { sequence: { actions: Array.from({ length: actionCount }, () => ({})) } } },
+  });
+  const ranked = rankOwnerPreparationCandidates([
+    candidate("0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", 2200),
+    candidate("0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", 3100),
+    candidate("0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", 3200, "B", 4, false),
+    candidate("0xdddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd", 3100, "A", 2),
+  ]);
+  assert.deepEqual(ranked.map((item) => item.candidate.marketId), [
+    "0xdddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  ]);
 });
 
 function feasibility(overrides = {}) {
@@ -89,6 +133,8 @@ test("invalidated stale owner-prep markets are rejected", () => {
   assert.equal(isInvalidatedOwnerMarket(`0x${"0".repeat(60)}f5ee`), true);
   assert.equal(isInvalidatedOwnerMarket(`0x${"0".repeat(60)}f5fe`), true);
   assert.equal(isInvalidatedOwnerMarket(`0x${"0".repeat(60)}fee9`), true);
+  assert.equal(isInvalidatedOwnerMarket(`0x${"0".repeat(60)}fee7`), true);
+  assert.equal(isInvalidatedOwnerMarket(`0x${"0".repeat(59)}10050`), true);
   assert.equal(isInvalidatedOwnerMarket(MARKET), false);
 });
 

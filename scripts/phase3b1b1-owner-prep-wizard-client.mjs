@@ -13,9 +13,9 @@ const SHANNON_CHAIN = {
   nativeCurrency: { name: "Somnia Test Token", symbol: "STT", decimals: 18 },
   rpcUrls: ["https://dream-rpc.somnia.network"],
 };
-const state = { current: null, wallet: null, provider: null, providerName: "", providerEventsAttached: false, busy: false, walletErrorCode: null, walletErrorReason: "", readSequence: 0 };
+const state = { current: null, wallet: null, provider: null, providerName: "", providerEventsAttached: false, busy: false, reauthorizing: false, pendingTransaction: null, walletErrorCode: null, walletErrorReason: "", readSequence: 0 };
 const walletDiscovery = { announced: [], requestSent: false, handlerReached: false };
-window.__VILLA_OWNER_WIZARD__ = Object.freeze({ buildId: "phase3b1b1-owner-prep-v2", localhostOnly: true, executionEnabled: false });
+  window.__VILLA_OWNER_WIZARD__ = Object.freeze({ buildId: "phase3b1b1-auto-market-selection-v1", localhostOnly: true, executionEnabled: false });
 
 const $ = (id) => document.getElementById(id);
 const show = (id, visible) => $(id)?.toggleAttribute("hidden", !visible);
@@ -23,6 +23,27 @@ const lower = (value) => String(value ?? "").toLowerCase();
 const formatRaw = (value) => value === null || value === undefined ? "-" : `${(Number(value) / 1_000_000).toFixed(3)} tUSDC`;
 const formatNumber = (value, digits = 4) => Number.isFinite(Number(value)) ? Number(value).toFixed(digits) : "-";
 const wait = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+const PENDING_TRANSACTION_KEY = "villa.owner-prep.pending-transaction";
+const TX_HASH_RE = /^0x[0-9a-f]{64}$/i;
+
+function loadPendingTransaction() {
+  try {
+    const pending = JSON.parse(window.localStorage?.getItem(PENDING_TRANSACTION_KEY) || "null");
+    return (pending?.action === "approve" || pending?.action === "prepare") && TX_HASH_RE.test(String(pending.txHash || "")) ? pending : null;
+  } catch { return null; }
+}
+
+function savePendingTransaction(transaction) {
+  state.pendingTransaction = transaction;
+  try { window.localStorage?.setItem(PENDING_TRANSACTION_KEY, JSON.stringify(transaction)); } catch { /* local recovery remains best effort */ }
+}
+
+function clearPendingTransaction() {
+  state.pendingTransaction = null;
+  try { window.localStorage?.removeItem(PENDING_TRANSACTION_KEY); } catch { /* no-op */ }
+}
+
+state.pendingTransaction = loadPendingTransaction();
 
 function setStatus(title, copy, tone = "info") {
   $("status-title").textContent = title;
@@ -31,7 +52,7 @@ function setStatus(title, copy, tone = "info") {
 }
 
 function stageLabel(stage) {
-  return ({ WAITING_FOR_MARKET: "WAITING FOR MARKET", REVIEW: "APPROVE MARKET", APPROVAL_CONFIRMING: "REVALIDATING", PREPARE_REVIEW: "PREPARE MARKET", PREPARE_CONFIRMING: "FINAL PREFLIGHT", BLOCKED: "BLOCKED" })[stage] || stage;
+  return ({ WAITING_FOR_MARKET: "WAITING FOR MARKET", REVIEW: "APPROVE MARKET", SUBMITTING: "SUBMITTING", REVALIDATING: "REVALIDATING", APPROVAL_CONFIRMING: "WAITING FOR CONFIRMATION", PREPARE_REVIEW: "PREPARE MARKET", PREPARE_CONFIRMING: "FINAL PREFLIGHT", BLOCKED: "BLOCKED" })[stage] || stage;
 }
 
 function renderDiagnostics() {
@@ -48,6 +69,7 @@ function renderReview(review, stage) {
   show("review-panel", visible);
   if (!visible) return;
   $("market-id").textContent = review.marketId || "-";
+  $("interval").textContent = review.intervalLabel || (review.intervalSec ? `${review.intervalSec}s` : "-");
   $("headroom").textContent = review.headroomSec === null ? "-" : `${Math.max(0, Math.floor(review.headroomSec))}s remaining`;
   $("expiry").textContent = review.expirySec ? new Date(Number(review.expirySec) * 1000).toISOString() : "-";
   $("spot").textContent = formatNumber(review.spot, 3);
@@ -58,6 +80,7 @@ function renderReview(review, stage) {
   $("quote").textContent = `${quote.action || "-"} at ${formatRaw(quote.priceRaw).replace(" tUSDC", "")} · ${formatRaw(quote.quantityRaw)}`;
   $("planned-path").textContent = review.plannedPath === "A" ? "A · BUY_YES → cancel → reconcile" : review.plannedPath === "B" ? "B · mint → SELL_YES → cancel → burn" : "-";
   $("planned-mint").textContent = formatRaw(review.plannedMintRaw);
+  $("selection-reason").textContent = review.selectionReason || "-";
   const actionReady = (stage === "REVIEW" || stage === "PREPARE_REVIEW") && Boolean(review.action) && state.wallet?.ok === true && !state.busy;
   $("action-button").disabled = !actionReady;
   $("action-button").textContent = stage === "PREPARE_REVIEW" ? "Prepare this market" : "Approve this market";
@@ -88,11 +111,18 @@ function renderOutcome(current) {
 
 function render(current) {
   state.current = current;
+  if (current.transaction?.status === "SUBMITTED" && TX_HASH_RE.test(String(current.transaction.txHash || ""))) {
+    savePendingTransaction({ action: current.transaction.action === "PROTOCOL_APPROVAL" ? "prepare" : "approve", marketId: current.transaction.marketId, txHash: current.transaction.txHash });
+  } else if (current.transaction?.status === "CONFIRMED") {
+    clearPendingTransaction();
+  }
   $("stage").textContent = stageLabel(current.stage);
   if (current.stage === "WAITING_FOR_MARKET") {
     const walletConnected = current.walletContext?.connected === true || state.wallet?.ok === true;
     setStatus(walletConnected ? "WAITING_FOR_MARKET" : "Waiting for wallet connection", current.message || (walletConnected ? "The authorized owner wallet is connected. Looking for a fresh BTC market." : "Connect the authorized Rabby wallet before fresh-market discovery."));
   }
+  else if (current.stage === "SUBMITTING") setStatus("SUBMITTING", "Review the fixed owner call in Rabby. VILLA does not sign automatically.");
+  else if (current.stage === "REVALIDATING") setStatus("REVALIDATING", "The confirmed owner approval is being checked against the live market facts.");
   else if (current.stage === "REVIEW") setStatus("Fresh market ready for review", "Check the exact market facts and connect the authorized owner wallet before approving.", "safe");
   else if (current.stage === "PREPARE_REVIEW") setStatus("Action 1 confirmed", "The market was revalidated immediately. Review the second exact owner call.", "safe");
   else if (current.stage === "APPROVAL_CONFIRMING" || current.stage === "PREPARE_CONFIRMING") setStatus("Waiting for receipt", "Keep Rabby and this tab open. No next action is shown until the receipt is confirmed.");
@@ -227,6 +257,26 @@ async function invalidateServer() {
   try { return await post("/api/invalidate"); } catch { return null; }
 }
 
+async function recoverPendingTransaction() {
+  const pending = state.pendingTransaction || loadPendingTransaction();
+  if (!pending || state.recovering) return null;
+  state.pendingTransaction = pending;
+  state.recovering = true;
+  try {
+    setStatus("WAITING_FOR_CONFIRMATION", "Rechecking the submitted owner transaction on Shannon.");
+    const recoveryPath = pending.action === "prepare" ? "/api/recover/prepare" : "/api/recover/approve";
+    const recovered = await post(recoveryPath, { txHash: pending.txHash });
+    if (recovered.receipt?.status !== "pending") clearPendingTransaction();
+    render(recovered);
+    return recovered;
+  } catch (error) {
+    if (error.state) render(error.state);
+    return null;
+  } finally {
+    state.recovering = false;
+  }
+}
+
 async function authorizeWalletContext(context) {
   await invalidateServer();
   const payload = await post("/api/wallet-connected", { address: context.address, chainId: 50312 });
@@ -234,7 +284,25 @@ async function authorizeWalletContext(context) {
   state.wallet = { ok: true, address: context.address, chainId: context.chainId, reason: "" };
   renderWallet();
   await loadState(true);
+  await recoverPendingTransaction();
   return payload;
+}
+
+async function restoreServerWalletContext() {
+  if (state.reauthorizing || state.busy || !state.provider || state.wallet?.ok !== true) return;
+  state.reauthorizing = true;
+  try {
+    const context = await inspectWallet(state.provider);
+    await invalidateServer();
+    await post("/api/wallet-connected", { address: context.address, chainId: 50312 });
+    await loadState(true);
+  } catch (error) {
+    const code = error.walletCode || classifyWalletError(error, "connection");
+    setWalletFailure(code === "NETWORK_NOT_CONFIGURED" ? "WRONG_NETWORK" : code, error);
+    await invalidateServer();
+  } finally {
+    state.reauthorizing = false;
+  }
 }
 
 async function inspectWallet(provider = state.provider) {
@@ -309,6 +377,10 @@ async function loadState(force = false) {
     const current = await response.json();
     if (requestId !== state.readSequence) return;
     render(current);
+    if (current.walletContext?.connected !== true && state.wallet?.ok === true && state.provider && !state.busy && !state.reauthorizing) {
+      void restoreServerWalletContext();
+    }
+    if (state.pendingTransaction?.txHash && current.stage !== "FINAL_PREFLIGHT" && current.stage !== "BLOCKED") void recoverPendingTransaction();
   } catch (error) {
     setStatus("Local read unavailable", sanitizeProviderReason(error), "error");
   }
@@ -334,18 +406,25 @@ async function performOwnerAction() {
     await post("/api/wallet-connected", { address: context.address, chainId: 50312 });
     const payload = await post(`/api/action/${action}`);
     const transaction = payload.walletTransaction;
+    render(payload);
     renderTransactionReview(transaction);
     setStatus("Review in Rabby", "Confirm only this fixed owner call in your wallet. VILLA never signs automatically.");
     const chainId = await requestWallet(state.provider, "eth_chainId");
     const accounts = await requestWallet(state.provider, "eth_accounts");
     if (lower(chainId) !== CHAIN_ID || lower(accounts?.[0]) !== OWNER) throw new Error("Wallet account or network changed before submission.");
     const txHash = await requestWallet(state.provider, "eth_sendTransaction", [{ from: transaction.from, to: transaction.to, data: transaction.data, value: "0x0" }]);
-    render({ ...state.current, stage: action === "approve" ? "APPROVAL_CONFIRMING" : "PREPARE_CONFIRMING", message: "Waiting for the confirmed owner receipt." });
+    savePendingTransaction({ action, marketId: transaction.marketId, txHash });
+    const submitted = await post(`/api/submitted/${action}`, { txHash });
+    render(submitted);
+    renderTransactionReview(transaction);
     const receipt = await post(`/api/receipt/${action}`, { txHash });
     render(receipt);
+    clearPendingTransaction();
     show("wallet-review-panel", false);
   } catch (error) {
-    try { await post(`/api/failure/${action}`); } catch { /* preserve the original local error */ }
+    if (!state.pendingTransaction?.txHash) {
+      try { await post(`/api/failure/${action}`); } catch { /* preserve the original local error */ }
+    }
     if (error.state) render(error.state); else { setStatus("No owner action submitted", sanitizeProviderReason(error), "warning"); await loadState(); }
   } finally {
     state.busy = false;
