@@ -141,19 +141,35 @@ export function resolveMintRecovery({ config, journal, accountState, caps = DEFA
     if (!sameAddress(record.account, config.account) || String(record.marketId ?? "").toLowerCase() !== config.marketId) fail("JOURNAL_SCOPE_MISMATCH", "a durable transaction record belongs to another account or market");
   }
   const mintRecords = records.filter((record) => record.action === "MINT_COMPLETE_SET");
-  const otherRecords = records.filter((record) => record.action !== "MINT_COMPLETE_SET");
-  if (otherRecords.length > 0) fail("PRIOR_SESSION_WRITE", "a prior non-mint write cannot be adopted automatically");
+  const placeRecords = records.filter((record) => record.action === "PLACE_ORDER");
+  const cancelRecords = records.filter((record) => record.action === "CANCEL_ORDER");
+  const burnRecords = records.filter((record) => record.action === "BURN_COMPLETE_SET");
+  const otherRecords = records.filter((record) => !["MINT_COMPLETE_SET", "PLACE_ORDER", "CANCEL_ORDER", "BURN_COMPLETE_SET"].includes(record.action));
+  if (otherRecords.length > 0) fail("PRIOR_SESSION_WRITE", "a prior non-bounded write cannot be adopted automatically");
+  if (mintRecords.length > 1 || placeRecords.length > 1 || cancelRecords.length > 1 || burnRecords.length > 1) fail("DUPLICATE_SESSION_WRITE", "more than one bounded action of the same type cannot be adopted automatically");
   if (mintRecords.length === 0) {
+    if (records.length > 0) fail("PRIOR_SESSION_WRITE", "a prior bounded write has no confirmed mint provenance");
     if (yesRaw !== 0n || noRaw !== 0n) fail("UNEXPECTED_INVENTORY", "account inventory exists without a matching confirmed mint");
     if (capitalRaw !== 1_002_000n) fail("CAPITAL_MISMATCH", "fresh account capital is not the 1.002 tUSDC fixture");
-    return Object.freeze({ mint: "REQUIRED", skipMint: false, amountRaw: null, capitalRaw, yesRaw, noRaw });
+    return Object.freeze({ mint: "REQUIRED", skipMint: false, skipPlace: false, skipCancel: false, skipBurn: false, complete: false, amountRaw: null, capitalRaw, yesRaw, noRaw, recoveredPlace: null, recoveredOrderId: null });
   }
-  if (mintRecords.length !== 1) fail("DUPLICATE_MINT_RECORD", "more than one durable mint cannot be adopted automatically");
   const mint = mintRecords[0];
   if (mint.state !== "CONFIRMED" || mint.functionName !== "operatorMintSet") fail("MINT_NOT_CONFIRMED", "the matching mint is not authoritatively confirmed");
   const amountRaw = raw(mint.amountRaw, "confirmed mint amount");
   if (amountRaw <= 0n || amountRaw > caps.MAX_MINT_AMOUNT) fail("MINT_AMOUNT_MISMATCH", "confirmed mint amount is outside the bounded policy");
+  const place = placeRecords[0] ?? null;
+  const cancel = cancelRecords[0] ?? null;
+  const burn = burnRecords[0] ?? null;
+  if (place && (place.state !== "CONFIRMED" || place.functionName !== "operatorPlaceOrder" || place.side !== "SELL_YES" || raw(place.amountRaw, "confirmed order quantity") !== amountRaw)) fail("PLACE_NOT_CONFIRMED", "the recovered order is not the exact bounded SELL_YES action");
+  if (cancel && (cancel.state !== "CONFIRMED" || cancel.functionName !== "operatorCancelOrder")) fail("CANCEL_NOT_CONFIRMED", "the recovered cancellation is not authoritatively confirmed");
+  if (burn && (burn.state !== "CONFIRMED" || burn.functionName !== "operatorBurnSet" || raw(burn.amountRaw, "confirmed burn amount") !== amountRaw)) fail("BURN_NOT_CONFIRMED", "the recovered burn is not the exact paired cleanup");
+  if (cancel && !place) fail("RECOVERY_SEQUENCE_INVALID", "a cancellation cannot be adopted without its confirmed place action");
+  if (burn && !cancel) fail("RECOVERY_SEQUENCE_INVALID", "a burn cannot be adopted before its confirmed cancellation");
+  const recoveredOrderId = cancel ? raw(cancel.amountRaw, "confirmed order id") : null;
+  if (place && cancel && burn && yesRaw === 0n && noRaw === 0n && capitalRaw === 1_002_000n) {
+    return Object.freeze({ mint: "ALREADY_CONFIRMED", skipMint: true, skipPlace: true, skipCancel: true, skipBurn: true, complete: true, amountRaw, capitalRaw, yesRaw, noRaw, cleanupBurnAmountRaw: amountRaw, recoveredPlace: place, recoveredOrderId });
+  }
   if (yesRaw !== amountRaw || noRaw !== amountRaw) fail("INVENTORY_MINT_MISMATCH", "current inventory does not exactly match the confirmed mint");
   if (capitalRaw !== 1_002_000n - amountRaw) fail("CAPITAL_MINT_MISMATCH", "current collateral does not match the confirmed mint state");
-  return Object.freeze({ mint: "ALREADY_CONFIRMED", skipMint: true, amountRaw, capitalRaw, yesRaw, noRaw, cleanupBurnAmountRaw: amountRaw });
+  return Object.freeze({ mint: "ALREADY_CONFIRMED", skipMint: true, skipPlace: Boolean(place), skipCancel: Boolean(cancel), skipBurn: Boolean(burn), complete: false, amountRaw, capitalRaw, yesRaw, noRaw, cleanupBurnAmountRaw: amountRaw, recoveredPlace: place, recoveredOrderId });
 }

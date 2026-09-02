@@ -227,17 +227,22 @@ function preparedPlan({ policy, plan, index, capitalRaw, openOrderCount = 0, pen
 }
 
 function buildProjectedPlans({ adapter, policy, feasibility, marketId, expirySec, capitalRaw, createdAt, recovery }) {
+  if (recovery.complete) return [];
   const mintAmountRaw = recovery.amountRaw ?? raw(feasibility.mintSearch?.smallestViableMintRaw, "projected mint amount");
+  const requiresPlace = !recovery.skipPlace;
   const ask = recovery.skipMint ? feasibility.shadow?.quotePlan?.ask : feasibility.sellAfterMint?.quotePlan?.ask;
-  if ((!recovery.skipMint && (feasibility.recommendation?.path !== "B" || feasibility.sellAfterMint?.viable !== true)) || !ask?.enabled || ask.action !== "SELL_YES") fail("NO_VALID_PROJECTED_PLAN", "the live SELL_YES path is not valid");
-  const priceRaw = raw(ask.targetPriceRaw, "projected quote price");
-  const quantityRaw = raw(ask.targetQuantityRaw, "projected quote quantity");
+  if (requiresPlace && ((!recovery.skipMint && (feasibility.recommendation?.path !== "B" || feasibility.sellAfterMint?.viable !== true)) || !ask?.enabled || ask.action !== "SELL_YES")) fail("NO_VALID_PROJECTED_PLAN", "the live SELL_YES path is not valid");
   const orderExpiryNs = raw(Math.max(1, Math.floor(Number(expirySec) - 2)), "order expiry") * 1_000_000_000n;
-  const place = adapter.placeOrder({ marketId, action: "SELL_YES", priceRaw, quantityRaw, expireTimestampNs: orderExpiryNs, orderType: 3, userData: 0n });
-  const cancelTemplate = adapter.cancelOrder({ marketId, orderId: 0n });
-  const burn = adapter.burnCompleteSet({ marketId, amountRaw: mintAmountRaw });
-  const plans = recovery.skipMint ? [place, cancelTemplate, burn] : [adapter.mintCompleteSet({ marketId, amountRaw: mintAmountRaw }), place, cancelTemplate, burn];
-  return plans.map((plan, index) => preparedPlan({ policy, plan, index, capitalRaw, openOrderCount: plan === cancelTemplate ? 1 : 0, pendingExposureRaw: plan === cancelTemplate ? quantityRaw : 0n, createdAt }));
+  const specs = [];
+  if (!recovery.skipMint) specs.push({ plan: adapter.mintCompleteSet({ marketId, amountRaw: mintAmountRaw }), index: 0, openOrderCount: 0, pendingExposureRaw: 0n });
+  if (requiresPlace) {
+    const priceRaw = raw(ask.targetPriceRaw, "projected quote price");
+    const quantityRaw = raw(ask.targetQuantityRaw, "projected quote quantity");
+    specs.push({ plan: adapter.placeOrder({ marketId, action: "SELL_YES", priceRaw, quantityRaw, expireTimestampNs: orderExpiryNs, orderType: 3, userData: 0n }), index: 1, openOrderCount: 0, pendingExposureRaw: 0n });
+  }
+  if (!recovery.skipCancel) specs.push({ plan: adapter.cancelOrder({ marketId, orderId: recovery.recoveredOrderId ?? 0n }), index: 2, openOrderCount: 1, pendingExposureRaw: requiresPlace ? raw(ask.targetQuantityRaw, "projected quote quantity") : raw(recovery.recoveredPlace?.amountRaw, "recovered order quantity") });
+  if (!recovery.skipBurn) specs.push({ plan: adapter.burnCompleteSet({ marketId, amountRaw: mintAmountRaw }), index: 3, openOrderCount: 0, pendingExposureRaw: 0n });
+  return specs.map(({ plan, index, openOrderCount, pendingExposureRaw }) => preparedPlan({ policy, plan, index, capitalRaw, openOrderCount, pendingExposureRaw, createdAt }));
 }
 
 function preflightInput({ config, session, lease, feasibility, accountState, protocol, signerAddress, reconciliation }) {
@@ -345,38 +350,61 @@ export async function runPrivateLpOneShot({ env = process.env, args = {}, depend
         protocol: { marketApproved: protocol.marketApproved, moduleOperator: protocol.moduleOperator, poolOperator: protocol.poolOperator, collateralAllowanceRaw: protocol.collateralAllowance },
         preflight: { ...preflight, blockers: ["EXECUTION_DISABLED"] },
         planActions: plans.map((plan) => ({ functionName: plan.functionName, action: plan.intent.action, txIndex: plan.intent.txIndex, marketId: plan.intent.marketId, destination: plan.destination, broadcast: plan.broadcast })),
-        recovery: { mint: recovery.mint, skippedMint: recovery.skipMint, nextAction: recovery.skipMint ? "PLACE_ORDER" : "MINT", cleanupBurnAmountRaw: recovery.cleanupBurnAmountRaw ?? null },
+        recovery: { mint: recovery.mint, skippedMint: recovery.skipMint, skippedPlace: recovery.skipPlace, skippedCancel: recovery.skipCancel, skippedBurn: recovery.skipBurn, complete: recovery.complete, nextAction: recovery.complete ? "STOPPED" : recovery.skipBurn ? "RECONCILE_FINAL" : recovery.skipCancel ? "BURN" : recovery.skipPlace ? "CANCEL_ORDER" : recovery.skipMint ? "PLACE_ORDER" : "MINT", cleanupBurnAmountRaw: recovery.cleanupBurnAmountRaw ?? null },
         privateWriter: "installed",
         genericTransactionPath: false,
       };
       if (!executionEnabled) return baseResult;
+      if (recovery.complete) return { ...baseResult, result: "COMPLETED", code: "WET_ONE_SHOT_ALREADY_COMPLETE", broadcast: false, writes: 0, broadcastAttempts: 0 };
 
       const walletClient = createWalletClient({ account: signerInfo.signer, chain: somniaShannon, transport: http(rpcUrl, { timeout: 15_000 }) });
       activeSession = transitionLpSession(activeSession, "RUNNING");
       const writer = createAccountBoundPrivateWriter({ session: activeSession, lease: { ...lease, held: true }, policy, signer: signerInfo.signer, publicClient, walletClient, executionEnabled: true, readLatestNonce: async () => publicClient.getTransactionCount({ address: signerInfo.address, blockTag: "latest" }), readPendingNonce: async () => publicClient.getTransactionCount({ address: signerInfo.address, blockTag: "pending" }), readReceipt: async (hash) => publicClient.getTransactionReceipt({ hash }), journalPath });
       const records = [];
       const mintPlan = plans.find((plan) => plan.functionName === "operatorMintSet") ?? null;
-      const place = plans.find((plan) => plan.functionName === "operatorPlaceOrder");
-      const cancelTemplate = plans.find((plan) => plan.functionName === "operatorCancelOrder");
-      const burnTemplate = plans.find((plan) => plan.functionName === "operatorBurnSet");
-      if (!place || !cancelTemplate || !burnTemplate) fail("RECOVERY_PLAN_INVALID", "the bounded recovery plan is missing a required action");
+      const place = plans.find((plan) => plan.functionName === "operatorPlaceOrder") ?? null;
+      const cancelTemplate = plans.find((plan) => plan.functionName === "operatorCancelOrder") ?? null;
+      const burnTemplate = plans.find((plan) => plan.functionName === "operatorBurnSet") ?? null;
+      if ((!recovery.skipPlace && !place) || (!recovery.skipCancel && !cancelTemplate) || (!recovery.skipBurn && !burnTemplate)) fail("RECOVERY_PLAN_INVALID", "the bounded recovery plan is missing a required action");
       const mintAmountRaw = recovery.amountRaw ?? raw(mintPlan?.intent?.amountRaw, "mint amount");
       if (mintPlan) records.push(await writer.enqueue(mintPlan));
       const afterMint = await adapter.readAccountState({ marketId: config.marketId });
       if (afterMint.inventory.yesRaw < mintAmountRaw || afterMint.inventory.noRaw < mintAmountRaw) fail("MINT_RECONCILIATION_FAILED", "authoritative reread did not show the confirmed complete set");
-      records.push(await writer.enqueue(place));
-      const afterPlace = await adapter.readAccountState({ marketId: config.marketId });
-      if (afterPlace.orders.status !== "VERIFIED" || afterPlace.orders.orders.length !== 1) fail("PLACE_RECONCILIATION_FAILED", "place action did not produce exactly one account-owned order");
-      const orderId = afterPlace.orders.orders[0].orderId;
-      const cancel = preparedPlan({ policy, plan: adapter.cancelOrder({ marketId: config.marketId, orderId }), index: cancelTemplate.intent.txIndex, capitalRaw, openOrderCount: 1, pendingExposureRaw: place.args[3], createdAt: activeSession.createdAt });
-      records.push(await writer.enqueue(cancel));
+      let orderId = recovery.recoveredOrderId;
+      let orderProof = null;
+      if (recovery.skipPlace) {
+        if (!recovery.skipCancel) {
+          if (afterMint.orders.status !== "VERIFIED" || afterMint.orders.orders.length !== 1) fail("PLACE_RECONCILIATION_FAILED", "the recovered place did not leave exactly one account-owned order");
+          const recoveredOrder = afterMint.orders.orders[0];
+          const priorPlace = recovery.recoveredPlace;
+          if (!sameAddress(recoveredOrder.owner, config.account) || recoveredOrder.isBid !== false || String(recoveredOrder.priceRaw) !== String(priorPlace.priceRaw) || String(recoveredOrder.quantityRemainingRaw) !== String(priorPlace.amountRaw)) fail("RECOVERED_ORDER_MISMATCH", "the live order does not match the confirmed bounded SELL_YES transaction");
+          orderId = recoveredOrder.orderId;
+          orderProof = { orderId, owner: recoveredOrder.owner, isBid: recoveredOrder.isBid, side: priorPlace.side, priceRaw: recoveredOrder.priceRaw, quantityRaw: recoveredOrder.quantityRemainingRaw, expireTimestampNs: recoveredOrder.expireTimestampNs, signer: signerInfo.address };
+        } else if (orderId === null || orderId === undefined) fail("RECOVERED_ORDER_ID_MISSING", "the confirmed cancellation does not contain the exact order id");
+      } else {
+        records.push(await writer.enqueue(place));
+        const afterPlace = await adapter.readAccountState({ marketId: config.marketId });
+        if (afterPlace.orders.status !== "VERIFIED" || afterPlace.orders.orders.length !== 1) fail("PLACE_RECONCILIATION_FAILED", "place action did not produce exactly one account-owned order");
+        const placedOrder = afterPlace.orders.orders[0];
+        orderId = placedOrder.orderId;
+        orderProof = { orderId, owner: placedOrder.owner, isBid: placedOrder.isBid, side: place.intent.side, priceRaw: placedOrder.priceRaw, quantityRaw: placedOrder.quantityRemainingRaw, expireTimestampNs: placedOrder.expireTimestampNs, signer: signerInfo.address };
+      }
+      if (!recovery.skipCancel) {
+        const pendingExposureRaw = recovery.skipPlace ? raw(recovery.recoveredPlace.amountRaw, "recovered order quantity") : raw(place.intent.amountRaw, "placed order quantity");
+        const cancel = preparedPlan({ policy, plan: adapter.cancelOrder({ marketId: config.marketId, orderId }), index: cancelTemplate.intent.txIndex, capitalRaw, openOrderCount: 1, pendingExposureRaw, createdAt: activeSession.createdAt });
+        records.push(await writer.enqueue(cancel));
+      }
       const afterCancel = await adapter.readAccountState({ marketId: config.marketId });
       if (afterCancel.orders.status !== "VERIFIED" || afterCancel.orders.orders.length !== 0) fail("CANCEL_RECONCILIATION_FAILED", "cancel action did not leave a verified empty order set");
       const burnAmount = afterCancel.inventory ? (afterCancel.inventory.yesRaw < afterCancel.inventory.noRaw ? afterCancel.inventory.yesRaw : afterCancel.inventory.noRaw) : 0n;
-      if (burnAmount <= 0n) fail("BURN_NOT_SAFE", "authoritative reread did not show paired inventory for burn");
-      const burn = preparedPlan({ policy, plan: adapter.burnCompleteSet({ marketId: config.marketId, amountRaw: burnAmount }), index: burnTemplate.intent.txIndex, capitalRaw, createdAt: activeSession.createdAt });
-      records.push(await writer.enqueue(burn));
-      return { ...baseResult, result: "COMPLETED", code: "WET_ONE_SHOT_COMPLETE", broadcast: true, writes: records.length, broadcastAttempts: records.length, records };
+      if (burnAmount !== mintAmountRaw) fail("BURN_NOT_SAFE", "authoritative reread did not show exactly the paired inventory amount for burn");
+      if (!recovery.skipBurn) {
+        const burn = preparedPlan({ policy, plan: adapter.burnCompleteSet({ marketId: config.marketId, amountRaw: burnAmount }), index: burnTemplate.intent.txIndex, capitalRaw, createdAt: activeSession.createdAt });
+        records.push(await writer.enqueue(burn));
+      }
+      const finalAccount = await adapter.readAccountState({ marketId: config.marketId });
+      if (!recovery.skipBurn && (finalAccount.capital.directCollateralRaw !== 1_002_000n || finalAccount.inventory.yesRaw !== 0n || finalAccount.inventory.noRaw !== 0n || finalAccount.orders.status !== "VERIFIED" || finalAccount.orders.orders.length !== 0)) fail("FINAL_RECONCILIATION_FAILED", "final account state did not return to the exact clean baseline");
+      return { ...baseResult, result: "COMPLETED", code: "WET_ONE_SHOT_COMPLETE", broadcast: records.length > 0, writes: records.length, broadcastAttempts: records.length, orderProof, final: { collateralRaw: finalAccount.capital.directCollateralRaw, yesRaw: finalAccount.inventory.yesRaw, noRaw: finalAccount.inventory.noRaw, openOrders: finalAccount.orders.orders.length }, records };
     } finally {
       const stopping = activeSession.state === "RUNNING" ? transitionLpSession(activeSession, "STOPPING") : activeSession;
       const stopped = transitionLpSession(stopping, "STOPPED");

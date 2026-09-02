@@ -208,6 +208,24 @@ export function createAccountBoundPrivateWriter({
     try {
       receipt = await walletClient.waitForTransactionReceipt({ hash: txHash });
     } catch (error) {
+      // Some Shannon RPC paths can time out in the wallet client while the
+      // public client can already see the receipt. Recheck chain truth once
+      // before failing closed; never infer confirmation from the timeout.
+      let fallbackReceipt = null;
+      if (typeof readReceipt === "function") {
+        try {
+          fallbackReceipt = await Promise.race([
+            Promise.resolve(readReceipt(txHash)),
+            new Promise((resolve) => setTimeout(() => resolve(null), 10_000)),
+          ]);
+        } catch {
+          fallbackReceipt = null;
+        }
+      }
+      const fallbackState = receiptState(fallbackReceipt);
+      if (fallbackState !== "UNKNOWN") {
+        return update(txHash, { state: fallbackState, receiptStatus: fallbackReceipt.status, receiptBlock: blockNumber(fallbackReceipt), revertReason: fallbackState === "REVERTED" ? (fallbackReceipt.revertReason ?? null) : null, reconciledAt: now() });
+      }
       halted = true;
       update(txHash, { state: "UNKNOWN", reason: "receipt outcome is unknown", errorCode: error?.code ?? "RECEIPT_TIMEOUT" });
       throw new LpPrivateWriterError("UNKNOWN", `transaction ${txHash} requires reconciliation before another write`);

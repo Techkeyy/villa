@@ -20,6 +20,17 @@ function confirmedMint() {
   return { hash: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", action: "MINT_COMPLETE_SET", account: ACCOUNT, marketId: MARKET, state: "CONFIRMED", functionName: "operatorMintSet", amountRaw: "1000", receiptStatus: "success", receiptBlock: "7" };
 }
 
+function confirmedPlace() {
+  return { hash: "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", action: "PLACE_ORDER", account: ACCOUNT, marketId: MARKET, state: "CONFIRMED", functionName: "operatorPlaceOrder", amountRaw: "1000", priceRaw: "356000", side: "SELL_YES", receiptStatus: "success", receiptBlock: "8" };
+}
+
+function confirmedCancel() {
+  return { hash: "0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", action: "CANCEL_ORDER", account: ACCOUNT, marketId: MARKET, state: "CONFIRMED", functionName: "operatorCancelOrder", amountRaw: "166020696663386049266", receiptStatus: "success", receiptBlock: "9" };
+}
+
+function confirmedBurn() {
+  return { hash: "0xdddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd", action: "BURN_COMPLETE_SET", account: ACCOUNT, marketId: MARKET, state: "CONFIRMED", functionName: "operatorBurnSet", amountRaw: "1000", receiptStatus: "success", receiptBlock: "10" };
+}
 function journal(records) {
   return { pending: 0, unknown: 0, reverted: 0, records };
 }
@@ -48,6 +59,25 @@ test("confirmed mint recovery adopts exact inventory and skips duplicate mint", 
   assert.equal(result.cleanupBurnAmountRaw, 1000n);
 });
 
+test("confirmed place recovery skips only the already confirmed mint and place", () => {
+  const result = resolveMintRecovery({ config: CONFIG, journal: journal([confirmedMint(), confirmedPlace()]), accountState: state() });
+  assert.equal(result.skipMint, true);
+  assert.equal(result.skipPlace, true);
+  assert.equal(result.skipCancel, false);
+  assert.equal(result.skipBurn, false);
+  assert.equal(result.complete, false);
+  assert.equal(result.recoveredOrderId, null);
+  assert.equal(result.recoveredPlace.side, "SELL_YES");
+});
+
+test("fully confirmed bounded sequence is terminal and cannot be repeated", () => {
+  const result = resolveMintRecovery({ config: CONFIG, journal: journal([confirmedMint(), confirmedPlace(), confirmedCancel(), confirmedBurn()]), accountState: state({ capitalRaw: 1_002_000n, yesRaw: 0n, noRaw: 0n }) });
+  assert.equal(result.complete, true);
+  assert.equal(result.skipPlace, true);
+  assert.equal(result.skipCancel, true);
+  assert.equal(result.skipBurn, true);
+  assert.equal(result.recoveredOrderId, 166020696663386049266n);
+});
 test("confirmed mint recovery blocks mismatched inventory", () => {
   assert.throws(() => resolveMintRecovery({ config: CONFIG, journal: journal([confirmedMint()]), accountState: state({ yesRaw: 999n }) }), { code: "INVENTORY_MINT_MISMATCH" });
 });

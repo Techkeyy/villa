@@ -110,6 +110,36 @@ test("private writer accepts typed VILLA intents and derives the only account ta
   assert.equal(JSON.parse(fs.readFileSync(journalPath, "utf8")).records[0].receiptBlock, "9");
 });
 
+test("receipt timeout falls back to an authoritative public receipt once", async () => {
+  const privateKey = generatePrivateKey();
+  const account = privateKeyToAccount(privateKey);
+  const { journalPath } = tempFile();
+  let fallbackReads = 0;
+  const writer = createAccountBoundPrivateWriter({
+    session: session(account.address),
+    lease: lease(account.address),
+    policy: policy(),
+    signer: account,
+    publicClient: {
+      async simulateContract(request) { return { request }; },
+    },
+    walletClient: {
+      chain: { id: 50312 },
+      async writeContract() { return "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"; },
+      async waitForTransactionReceipt() { throw Object.assign(new Error("wallet wait timed out"), { code: "TIMEOUT" }); },
+    },
+    executionEnabled: true,
+    readLatestNonce: async () => 4,
+    readPendingNonce: async () => 4,
+    readReceipt: async () => { fallbackReads += 1; return { status: "success", blockNumber: 10n }; },
+    journalPath,
+  });
+  const result = await writer.enqueue({ ...plan(), signer: account.address });
+  assert.equal(result.state, "CONFIRMED");
+  assert.equal(result.receiptBlock, "10");
+  assert.equal(fallbackReads, 1);
+  assert.equal(writer.getState().halted, false);
+});
 test("unsupported function and arbitrary transaction-shaped input are rejected before simulation", async () => {
   const privateKey = generatePrivateKey();
   const account = privateKeyToAccount(privateKey);
