@@ -16,8 +16,48 @@ function createPlan(operator) {
 
 function common(privateKey, overrides = {}) {
   const signer = privateKeyToAccount(privateKey);
-  return { session: { account: ACCOUNT, owner: OWNER, operator: signer.address, sessionId: "writer-safety", currentMarketId: MARKET }, policy: { validate: () => ({ allowed: true }) }, signer, publicClient: { async simulateContract(request) { return { request }; } }, walletClient: { chain: { id: 50312 }, async writeContract() { return "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"; }, async waitForTransactionReceipt() { return { status: 1, blockNumber: 12n }; } }, executionEnabled: true, readLatestNonce: async () => 1, readPendingNonce: async () => 1, ...overrides };
+  return { session: { account: ACCOUNT, owner: OWNER, operator: signer.address, sessionId: "writer-safety", currentMarketId: MARKET, leaseId: "lease-writer-safety" }, lease: { held: true, account: ACCOUNT, owner: OWNER, operator: signer.address, sessionId: "writer-safety", leaseId: "lease-writer-safety" }, policy: { validate: () => ({ allowed: true }) }, signer, publicClient: { async simulateContract(request) { return { request }; } }, walletClient: { chain: { id: 50312 }, async writeContract() { return "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"; }, async waitForTransactionReceipt() { return { status: 1, blockNumber: 12n }; } }, executionEnabled: true, readLatestNonce: async () => 1, readPendingNonce: async () => 1, ...overrides };
 }
+
+test("writer requires an immutable session before any wallet call", () => {
+  const privateKey = generatePrivateKey();
+  let simulations = 0;
+  const base = common(privateKey, {
+    session: null,
+    lease: null,
+    publicClient: { async simulateContract() { simulations += 1; return { request: {} }; } },
+  });
+  assert.throws(() => createAccountBoundPrivateWriter(base), { code: "SESSION_REQUIRED" });
+  assert.equal(simulations, 0);
+});
+
+test("writer requires a held session-bound lease before simulation or broadcast", () => {
+  const privateKey = generatePrivateKey();
+  let simulations = 0;
+  const base = common(privateKey, {
+    lease: null,
+    publicClient: { async simulateContract() { simulations += 1; return { request: {} }; } },
+  });
+  assert.throws(() => createAccountBoundPrivateWriter(base), { code: "ACCOUNT_LEASE_REQUIRED" });
+  assert.equal(simulations, 0);
+});
+
+
+test("lease expiry blocks a queued action before simulation or broadcast", async () => {
+  const privateKey = generatePrivateKey();
+  let now = 100;
+  let simulations = 0;
+  const base = common(privateKey, {
+    now: () => now,
+    publicClient: { async simulateContract() { simulations += 1; return { request: {} }; } },
+  });
+  base.lease = { ...base.lease, expiresAt: 200 };
+  const writer = createAccountBoundPrivateWriter(base);
+  now = 201;
+  await assert.rejects(() => writer.enqueue(createPlan(privateKeyToAccount(privateKey).address)), { code: "ACCOUNT_LEASE_REQUIRED" });
+  assert.equal(simulations, 0);
+});
+
 
 test("reverted receipt is terminal and is never retried", async () => {
   const privateKey = generatePrivateKey();

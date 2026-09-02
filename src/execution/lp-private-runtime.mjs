@@ -25,9 +25,10 @@ import {
   VILLA_POOL_READ_ABI,
 } from "./lp-adapter.mjs";
 import { createAccountBoundPrivateWriter } from "./lp-private-writer.mjs";
+import { reconcileDurableJournal, resolveMintRecovery } from "./lp-recovery.mjs";
 import { evaluateWetExecutionPreflight } from "./lp-preflight.mjs";
 import { reconcileLpSession } from "./lp-reconciliation.mjs";
-import { createFileAccountLeaseStore, createLpExecutionSession, transitionLpSession } from "./lp-session.mjs";
+import { attachLease, createFileAccountLeaseStore, createLpExecutionSession, transitionLpSession } from "./lp-session.mjs";
 import { DEFAULT_PHASE_3B1_CAPS, createLpTransactionPolicy } from "./lp-transaction-policy.mjs";
 
 const execFileAsync = promisify(execFile);
@@ -205,14 +206,6 @@ async function readProtocolState({ publicClient, account, identity, marketId, po
   return { marketApproved: Boolean(marketApproved), moduleOperator: Boolean(moduleOperator), poolOperator: Boolean(poolOperator), collateralAllowance: raw(collateralAllowance, "collateral allowance") };
 }
 
-function journalObservation(journalPath) {
-  if (!journalPath || !fs.existsSync(journalPath)) return { records: [], pending: 0, unknown: 0 };
-  let value;
-  try { value = JSON.parse(fs.readFileSync(journalPath, "utf8")); } catch { fail("JOURNAL_CORRUPT", "private transaction journal is unreadable; recovery is blocked"); }
-  const records = Array.isArray(value?.records) ? value.records : [];
-  return { records, pending: records.filter((record) => record.state === "PENDING").length, unknown: records.filter((record) => record.state === "UNKNOWN").length };
-}
-
 function accountStateForPreflight({ account, owner, operator, accountState }) {
   return {
     account,
@@ -233,23 +226,18 @@ function preparedPlan({ policy, plan, index, capitalRaw, openOrderCount = 0, pen
   return prepared;
 }
 
-function buildProjectedPlans({ adapter, policy, feasibility, marketId, expirySec, capitalRaw, createdAt }) {
-  const mintAmountRaw = raw(feasibility.mintSearch?.smallestViableMintRaw, "projected mint amount");
-  const ask = feasibility.sellAfterMint?.quotePlan?.ask;
-  if (feasibility.recommendation?.path !== "B" || feasibility.sellAfterMint?.viable !== true || !ask?.enabled || ask.action !== "SELL_YES") fail("NO_VALID_PROJECTED_PLAN", "the live projected mint and SELL_YES path is not valid");
+function buildProjectedPlans({ adapter, policy, feasibility, marketId, expirySec, capitalRaw, createdAt, recovery }) {
+  const mintAmountRaw = recovery.amountRaw ?? raw(feasibility.mintSearch?.smallestViableMintRaw, "projected mint amount");
+  const ask = recovery.skipMint ? feasibility.shadow?.quotePlan?.ask : feasibility.sellAfterMint?.quotePlan?.ask;
+  if ((!recovery.skipMint && (feasibility.recommendation?.path !== "B" || feasibility.sellAfterMint?.viable !== true)) || !ask?.enabled || ask.action !== "SELL_YES") fail("NO_VALID_PROJECTED_PLAN", "the live SELL_YES path is not valid");
   const priceRaw = raw(ask.targetPriceRaw, "projected quote price");
   const quantityRaw = raw(ask.targetQuantityRaw, "projected quote quantity");
   const orderExpiryNs = raw(Math.max(1, Math.floor(Number(expirySec) - 2)), "order expiry") * 1_000_000_000n;
-  const mint = adapter.mintCompleteSet({ marketId, amountRaw: mintAmountRaw });
   const place = adapter.placeOrder({ marketId, action: "SELL_YES", priceRaw, quantityRaw, expireTimestampNs: orderExpiryNs, orderType: 3, userData: 0n });
   const cancelTemplate = adapter.cancelOrder({ marketId, orderId: 0n });
   const burn = adapter.burnCompleteSet({ marketId, amountRaw: mintAmountRaw });
-  return [
-    preparedPlan({ policy, plan: mint, index: 0, capitalRaw, createdAt }),
-    preparedPlan({ policy, plan: place, index: 1, capitalRaw, openOrderCount: 0, pendingExposureRaw: 0n, createdAt }),
-    preparedPlan({ policy, plan: cancelTemplate, index: 2, capitalRaw, openOrderCount: 1, pendingExposureRaw: quantityRaw, createdAt }),
-    preparedPlan({ policy, plan: burn, index: 3, capitalRaw, createdAt }),
-  ];
+  const plans = recovery.skipMint ? [place, cancelTemplate, burn] : [adapter.mintCompleteSet({ marketId, amountRaw: mintAmountRaw }), place, cancelTemplate, burn];
+  return plans.map((plan, index) => preparedPlan({ policy, plan, index, capitalRaw, openOrderCount: plan === cancelTemplate ? 1 : 0, pendingExposureRaw: plan === cancelTemplate ? quantityRaw : 0n, createdAt }));
 }
 
 function preflightInput({ config, session, lease, feasibility, accountState, protocol, signerAddress, reconciliation }) {
@@ -298,7 +286,7 @@ export async function runPrivateLpOneShot({ env = process.env, args = {}, depend
   const publicClient = dependencies.publicClient ?? createPublicClient({ chain: somniaShannon, transport: http(rpcUrl, { timeout: 15_000 }) });
   const exchange = dependencies.exchange ?? createExchange({ account: config.account, env });
   const journalPath = env.VILLA_WRITER_JOURNAL || path.join(env.VILLA_STATE_DIR || "/var/lib/villa-engine", "transactions.json");
-  const journal = journalObservation(journalPath);
+  const journal = await reconcileDurableJournal({ journalPath, publicClient, config });
   if (journal.pending > 0 || journal.unknown > 0) return { version: LP_PRIVATE_RUNTIME_VERSION, result: "BLOCKED", code: "RESTART_RECONCILIATION_REQUIRED", broadcast: false, writes: 0, signer: { verified: true, address: signerInfo.address }, journal: { pending: journal.pending, unknown: journal.unknown } };
 
   try {
@@ -315,9 +303,8 @@ export async function runPrivateLpOneShot({ env = process.env, args = {}, depend
     const accountState = dependencies.accountState ?? await adapter.readAccountState({ marketId: config.marketId });
     if (!sameAddress(accountState.identity.owner, config.owner) || !sameAddress(accountState.identity.operator, config.operator)) fail("ACCOUNT_IDENTITY_MISMATCH", "VillaAccount owner/operator reads do not match the bound session");
     if (!sameAddress(accountState.identity.collateralToken, VILLA_ACCOUNT_CONFIG.collateralToken)) fail("COLLATERAL_CONFIG_MISMATCH", "VillaAccount collateral token differs from trusted Shannon configuration");
-    const capitalRaw = raw(accountState.capital.directCollateralRaw, "account capital");
-    if (capitalRaw !== VILLA_ACCOUNT_CONFIG ? capitalRaw : capitalRaw) { /* keep the comparison below explicit for audit readability */ }
-    if (capitalRaw !== 1_002_000n) fail("CAPITAL_MISMATCH", "the bound account capital is not the verified 1.002 tUSDC fixture");
+    const recovery = resolveMintRecovery({ config, journal, accountState });
+    const capitalRaw = recovery.capitalRaw;
     if (accountState.orders.status !== "VERIFIED" || accountState.orders.orders.length !== 0) fail("OPEN_ORDER_STATE_UNKNOWN", "the account does not have a verified empty order set");
     const bytecode = await publicClient.getBytecode({ address: config.account });
     if (!bytecode || bytecode === "0x") fail("ACCOUNT_RUNTIME_UNVERIFIED", "the bound VillaAccount has no deployed runtime bytecode");
@@ -332,16 +319,17 @@ export async function runPrivateLpOneShot({ env = process.env, args = {}, depend
     if (reconciliation.status !== "RECONCILED") fail("RECONCILIATION_REQUIRED", "authoritative account reconciliation did not pass");
     const leaseStore = dependencies.leaseStore ?? createFileAccountLeaseStore({ directory: env.VILLA_LEASE_DIR || env.VILLA_STATE_DIR || "/var/lib/villa-engine", leaseDurationMs: 30_000 });
     const lease = leaseStore.acquire(session, { reconciled: true });
+    let activeSession = attachLease(session, lease);
     try {
-      const preflight = evaluateWetExecutionPreflight(preflightInput({ config, session, lease, feasibility, accountState, protocol, signerAddress: signerInfo.address, reconciliation }));
+      const preflight = evaluateWetExecutionPreflight(preflightInput({ config, session: activeSession, lease, feasibility, accountState, protocol, signerAddress: signerInfo.address, reconciliation }));
       if (!preflight.reasons.every((reason) => reason === "EXECUTION_DISABLED")) {
         return { version: LP_PRIVATE_RUNTIME_VERSION, result: "BLOCKED", code: "PREFLIGHT_DENIED", broadcast: false, writes: 0, signer: { verified: true, address: signerInfo.address }, market: { marketId: config.marketId, series: config.marketSeries }, preflight, protocol };
       }
-      const policy = createLpTransactionPolicy({ session, caps: DEFAULT_PHASE_3B1_CAPS, now: () => session.createdAt });
-      const plans = buildProjectedPlans({ adapter, policy, feasibility, marketId: config.marketId, expirySec: feasibility.market.expirySec, capitalRaw, createdAt: session.createdAt });
+      const policy = createLpTransactionPolicy({ session: activeSession, caps: DEFAULT_PHASE_3B1_CAPS, now: () => activeSession.createdAt });
+      const plans = buildProjectedPlans({ adapter, policy, feasibility, marketId: config.marketId, expirySec: feasibility.market.expirySec, capitalRaw, createdAt: activeSession.createdAt, recovery });
       const baseResult = {
         version: LP_PRIVATE_RUNTIME_VERSION,
-        result: "DRY_READY",
+        result: recovery.skipMint ? "RECOVERY_READY" : "DRY_READY",
         code: "EXECUTION_DISABLED",
         broadcast: false,
         writes: 0,
@@ -353,36 +341,45 @@ export async function runPrivateLpOneShot({ env = process.env, args = {}, depend
         chainId: config.chainId,
         sessionId: config.sessionId,
         market: { marketId: config.marketId, series: config.marketSeries, intervalSec: config.intervalSec, expirySec: feasibility.market.expirySec, headroomSec: feasibility.market.headroomSec, status: Number(shadow.riskSnapshot?.market?.status ?? 0), pool: accountMarket.pool },
-        capital: { raw: capitalRaw, expectedRaw: 1_002_000n, pass: capitalRaw === 1_002_000n },
+        capital: { raw: capitalRaw, expectedRaw: 1_002_000n, pass: capitalRaw <= 1_002_000n },
         protocol: { marketApproved: protocol.marketApproved, moduleOperator: protocol.moduleOperator, poolOperator: protocol.poolOperator, collateralAllowanceRaw: protocol.collateralAllowance },
         preflight: { ...preflight, blockers: ["EXECUTION_DISABLED"] },
         planActions: plans.map((plan) => ({ functionName: plan.functionName, action: plan.intent.action, txIndex: plan.intent.txIndex, marketId: plan.intent.marketId, destination: plan.destination, broadcast: plan.broadcast })),
+        recovery: { mint: recovery.mint, skippedMint: recovery.skipMint, nextAction: recovery.skipMint ? "PLACE_ORDER" : "MINT", cleanupBurnAmountRaw: recovery.cleanupBurnAmountRaw ?? null },
         privateWriter: "installed",
         genericTransactionPath: false,
       };
       if (!executionEnabled) return baseResult;
 
       const walletClient = createWalletClient({ account: signerInfo.signer, chain: somniaShannon, transport: http(rpcUrl, { timeout: 15_000 }) });
-      const writer = createAccountBoundPrivateWriter({ session, policy, signer: signerInfo.signer, publicClient, walletClient, executionEnabled: true, readLatestNonce: async () => publicClient.getTransactionCount({ address: signerInfo.address, blockTag: "latest" }), readPendingNonce: async () => publicClient.getTransactionCount({ address: signerInfo.address, blockTag: "pending" }), readReceipt: async (hash) => publicClient.getTransactionReceipt({ hash }), journalPath });
+      activeSession = transitionLpSession(activeSession, "RUNNING");
+      const writer = createAccountBoundPrivateWriter({ session: activeSession, lease: { ...lease, held: true }, policy, signer: signerInfo.signer, publicClient, walletClient, executionEnabled: true, readLatestNonce: async () => publicClient.getTransactionCount({ address: signerInfo.address, blockTag: "latest" }), readPendingNonce: async () => publicClient.getTransactionCount({ address: signerInfo.address, blockTag: "pending" }), readReceipt: async (hash) => publicClient.getTransactionReceipt({ hash }), journalPath });
       const records = [];
-      records.push(await writer.enqueue(plans[0]));
+      const mintPlan = plans.find((plan) => plan.functionName === "operatorMintSet") ?? null;
+      const place = plans.find((plan) => plan.functionName === "operatorPlaceOrder");
+      const cancelTemplate = plans.find((plan) => plan.functionName === "operatorCancelOrder");
+      const burnTemplate = plans.find((plan) => plan.functionName === "operatorBurnSet");
+      if (!place || !cancelTemplate || !burnTemplate) fail("RECOVERY_PLAN_INVALID", "the bounded recovery plan is missing a required action");
+      const mintAmountRaw = recovery.amountRaw ?? raw(mintPlan?.intent?.amountRaw, "mint amount");
+      if (mintPlan) records.push(await writer.enqueue(mintPlan));
       const afterMint = await adapter.readAccountState({ marketId: config.marketId });
-      const place = plans[1];
+      if (afterMint.inventory.yesRaw < mintAmountRaw || afterMint.inventory.noRaw < mintAmountRaw) fail("MINT_RECONCILIATION_FAILED", "authoritative reread did not show the confirmed complete set");
       records.push(await writer.enqueue(place));
       const afterPlace = await adapter.readAccountState({ marketId: config.marketId });
       if (afterPlace.orders.status !== "VERIFIED" || afterPlace.orders.orders.length !== 1) fail("PLACE_RECONCILIATION_FAILED", "place action did not produce exactly one account-owned order");
       const orderId = afterPlace.orders.orders[0].orderId;
-      const cancel = preparedPlan({ policy, plan: adapter.cancelOrder({ marketId: config.marketId, orderId }), index: 2, capitalRaw, openOrderCount: 1, pendingExposureRaw: place.args[3], createdAt: session.createdAt });
+      const cancel = preparedPlan({ policy, plan: adapter.cancelOrder({ marketId: config.marketId, orderId }), index: cancelTemplate.intent.txIndex, capitalRaw, openOrderCount: 1, pendingExposureRaw: place.args[3], createdAt: activeSession.createdAt });
       records.push(await writer.enqueue(cancel));
       const afterCancel = await adapter.readAccountState({ marketId: config.marketId });
       if (afterCancel.orders.status !== "VERIFIED" || afterCancel.orders.orders.length !== 0) fail("CANCEL_RECONCILIATION_FAILED", "cancel action did not leave a verified empty order set");
       const burnAmount = afterCancel.inventory ? (afterCancel.inventory.yesRaw < afterCancel.inventory.noRaw ? afterCancel.inventory.yesRaw : afterCancel.inventory.noRaw) : 0n;
       if (burnAmount <= 0n) fail("BURN_NOT_SAFE", "authoritative reread did not show paired inventory for burn");
-      const burn = preparedPlan({ policy, plan: adapter.burnCompleteSet({ marketId: config.marketId, amountRaw: burnAmount }), index: 3, capitalRaw, createdAt: session.createdAt });
+      const burn = preparedPlan({ policy, plan: adapter.burnCompleteSet({ marketId: config.marketId, amountRaw: burnAmount }), index: burnTemplate.intent.txIndex, capitalRaw, createdAt: activeSession.createdAt });
       records.push(await writer.enqueue(burn));
       return { ...baseResult, result: "COMPLETED", code: "WET_ONE_SHOT_COMPLETE", broadcast: true, writes: records.length, broadcastAttempts: records.length, records };
     } finally {
-      const stopped = transitionLpSession(session, "STOPPED");
+      const stopping = activeSession.state === "RUNNING" ? transitionLpSession(activeSession, "STOPPING") : activeSession;
+      const stopped = transitionLpSession(stopping, "STOPPED");
       leaseStore.release(stopped, { reconciled: true });
     }
   } finally {

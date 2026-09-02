@@ -13,7 +13,11 @@ const OPERATOR = "0x3333333333333333333333333333333333333333";
 const MARKET = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 
 function session(operator = OPERATOR) {
-  return { account: ACCOUNT, operator, owner: OWNER, sessionId: "private-writer-test", currentMarketId: MARKET };
+  return { account: ACCOUNT, operator, owner: OWNER, sessionId: "private-writer-test", currentMarketId: MARKET, leaseId: "lease-private-writer-test" };
+}
+
+function lease(operator = OPERATOR) {
+  return { held: true, account: ACCOUNT, operator, owner: OWNER, sessionId: "private-writer-test", leaseId: "lease-private-writer-test" };
 }
 
 function plan(functionName = "operatorMintSet", action = "MINT_COMPLETE_SET", txIndex = 0) {
@@ -72,6 +76,7 @@ test("private writer accepts typed VILLA intents and derives the only account ta
   const { journalPath } = tempFile();
   const writer = createAccountBoundPrivateWriter({
     session: session(account.address),
+    lease: lease(account.address),
     policy: policy(),
     signer: account,
     publicClient: {
@@ -111,6 +116,7 @@ test("unsupported function and arbitrary transaction-shaped input are rejected b
   let simulations = 0;
   const writer = createAccountBoundPrivateWriter({
     session: session(account.address),
+    lease: lease(account.address),
     policy: policy(),
     signer: account,
     publicClient: { async simulateContract() { simulations += 1; return { request: {} }; } },
@@ -131,6 +137,7 @@ test("latest/pending nonce conflict halts before a second wallet invocation", as
   let writes = 0;
   const writer = createAccountBoundPrivateWriter({
     session: session(account.address),
+    lease: lease(account.address),
     policy: policy(),
     signer: account,
     publicClient: { async simulateContract(request) { return { request }; } },

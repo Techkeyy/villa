@@ -66,6 +66,7 @@ function validPlan(plan) {
  */
 export function createAccountBoundPrivateWriter({
   session,
+  lease,
   policy,
   signer,
   publicClient,
@@ -79,6 +80,13 @@ export function createAccountBoundPrivateWriter({
 } = {}) {
   if (executionEnabled !== true) throw new LpPrivateWriterError("EXECUTION_DISABLED", "the private writer cannot be created while execution is disabled");
   if (!session || typeof session.account !== "string" || typeof session.operator !== "string") throw new LpPrivateWriterError("SESSION_REQUIRED", "an immutable account-bound session is required");
+  const leaseIsHeld = () => Boolean(lease?.held) &&
+    String(lease.account ?? "").toLowerCase() === session.account.toLowerCase() &&
+    String(lease.sessionId ?? "") === String(session.sessionId ?? "") &&
+    (!session.leaseId || String(lease.leaseId ?? "") === String(session.leaseId)) &&
+    (lease.state === undefined || lease.state === "HELD") &&
+    (lease.expiresAt === undefined || Number(lease.expiresAt) > Number(now()));
+  if (!leaseIsHeld()) throw new LpPrivateWriterError("ACCOUNT_LEASE_REQUIRED", "a held account lease bound to the session is required");
   if (!signer || String(signer.address ?? "").toLowerCase() !== session.operator.toLowerCase()) throw new LpPrivateWriterError("SIGNER_MISMATCH", "private signer does not match the session operator");
   if (!policy || typeof policy.validate !== "function") throw new LpPrivateWriterError("POLICY_REQUIRED", "the central transaction policy is required");
   if (!publicClient || typeof publicClient.simulateContract !== "function") throw new LpPrivateWriterError("SIMULATOR_REQUIRED", "a public simulation client is required");
@@ -164,6 +172,7 @@ export function createAccountBoundPrivateWriter({
 
   async function execute(plan) {
     if (halted) throw new LpPrivateWriterError("WRITER_HALTED", "private writer is halted until unknown state is reconciled");
+    if (!leaseIsHeld()) throw new LpPrivateWriterError("ACCOUNT_LEASE_REQUIRED", "the account lease is no longer held for this session");
     if (!validPlan(plan)) throw new LpPrivateWriterError("INTENT_REQUIRED", "writer accepts only a policy-prepared VILLA intent");
     const validation = policy.validate(plan, { nowMs: now() });
     if (!validation?.allowed) throw new LpPrivateWriterError(validation?.code ?? "POLICY_DENIED", validation?.reason ?? "transaction policy denied the intent");
@@ -172,7 +181,7 @@ export function createAccountBoundPrivateWriter({
     const intentId = plan.intent.intentId ?? `${plan.intent.sessionId}:${txIndex}`;
     const provisionalHash = `intent-${plan.intent.sessionId}-${txIndex}-${sequence}`;
     sequence += 1;
-    records.set(provisionalHash, { hash: provisionalHash, intentId, sessionId: plan.intent.sessionId, action: plan.intent.action, account: session.account, marketId: plan.intent.marketId, nonce: txNonce, state: "PENDING", createdAt: now(), updatedAt: now(), receiptBlock: null, revertReason: null });
+    records.set(provisionalHash, { hash: provisionalHash, intentId, sessionId: plan.intent.sessionId, action: plan.intent.action, account: session.account, marketId: plan.intent.marketId, amountRaw: plan.intent.amountRaw === null || plan.intent.amountRaw === undefined ? null : String(plan.intent.amountRaw), priceRaw: plan.intent.priceRaw === null || plan.intent.priceRaw === undefined ? null : String(plan.intent.priceRaw), side: plan.intent.side ?? null, nonce: txNonce, state: "PENDING", createdAt: now(), updatedAt: now(), receiptBlock: null, revertReason: null });
     persist();
 
     let txHash;

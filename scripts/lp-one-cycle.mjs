@@ -43,7 +43,7 @@ if (process.exitCode === undefined && !args.oneCycle) {
   try {
     const result = await runPrivateLpOneShotEntry({ env: process.env, args });
     output(result, result.result === "BLOCKED" ? process.stderr : process.stdout);
-    process.exitCode = result.result === "DRY_READY" || result.result === "COMPLETED" ? 0 : 2;
+    process.exitCode = ["DRY_READY", "RECOVERY_READY", "COMPLETED"].includes(result.result) ? 0 : 2;
   } catch (error) {
     output({ result: "BLOCKED", code: error?.code ?? "PRIVATE_RUNTIME_FAILED", broadcast: false, writes: 0, reason: error?.message ?? "private runtime failed closed" }, process.stderr);
     process.exitCode = 2;
