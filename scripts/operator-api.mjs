@@ -155,7 +155,9 @@ export function createOperatorApiServer({
       const accountRoute = url.pathname.startsWith("/account/");
       const requestAuth = accountRoute && accountAuth ? accountAuth : auth;
       const session = requestAuth.authenticate(bearerToken(request));
-      if (!session) throw new OperatorAuthError("SESSION_REQUIRED", "Connect the authorized operator wallet to continue.");
+      if (!session) throw new OperatorAuthError("SESSION_REQUIRED", accountRoute
+        ? "Authenticate the connected owner wallet to continue."
+        : "Authenticate the VILLA operator service to continue.");
 
       if (request.method === "GET" && url.pathname === "/state") {
         send(response, 200, await control.getState(), origin, origins);

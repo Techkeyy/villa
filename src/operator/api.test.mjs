@@ -170,6 +170,10 @@ test("production release wires owner-authenticated safe account control", async 
   await once(server, "listening");
   const base = "http://127.0.0.1:" + server.address().port;
   try {
+    const accountRejected = await request(base, "/account/state");
+    assert.equal(accountRejected.status, 401);
+    assert.match(accountRejected.body.error, /owner wallet/i);
+    assert.doesNotMatch(accountRejected.body.error, /operator wallet/i);
     const nonce = await request(base, "/account/auth/nonce", { method: "POST", body: { address: owner.address } });
     assert.equal(nonce.status, 200);
     const signature = await owner.signMessage({ message: nonce.body.message });
@@ -248,6 +252,10 @@ test("account control can use a separate owner-auth session", async () => {
   await once(server, "listening");
   const base = `http://127.0.0.1:${server.address().port}`;
   try {
+    const accountRejected = await request(base, "/account/state");
+    assert.equal(accountRejected.status, 401);
+    assert.match(accountRejected.body.error, /owner wallet/i);
+    assert.doesNotMatch(accountRejected.body.error, /operator wallet/i);
     const nonce = await request(base, "/account/auth/nonce", { method: "POST", body: { address: owner.address } });
     assert.equal(nonce.status, 200);
     const signature = await owner.signMessage({ message: nonce.body.message });

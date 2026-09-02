@@ -47,6 +47,7 @@ let appState = {
   controlBusy: false,
   account: null,
   transactionStatus: "IDLE",
+  controlSession: null,
   owner: "",
   currentAccountAddress: "",
   chainId: null,
@@ -141,6 +142,23 @@ const formatMarket = (market = {}) => {
   return `${asset} ${interval}s`;
 };
 
+const formatStrategyAmount = (raw) => formatAmount(raw, 6, 3);
+
+function sessionMarket(session) {
+  const series = String(session?.marketSeries ?? "");
+  const match = /^BINARY:([^:]+):(\d+)$/.exec(series);
+  return match ? { asset: match[1], intervalSec: Number(match[2]) } : null;
+}
+
+function strategyMarketLabel() {
+  const session = appState.controlSession;
+  if (!session || !["RUNNING", "PAUSED", "STOPPING", "ERROR"].includes(String(session.state || appState.controlState).toUpperCase())) {
+    return "Selected automatically at Start";
+  }
+  const market = sessionMarket(session);
+  if (!market) return session.currentMarketId ? "Market · " + shorten(session.currentMarketId) : "Selected automatically at Start";
+  return formatMarket(market) + (session.currentMarketId ? " · " + shorten(session.currentMarketId) : "");
+}
 const formatProbability = (value) => Number.isFinite(Number(value)) ? `${(Number(value) * 100).toFixed(2)}%` : "Unavailable";
 
 function element(id) {
@@ -187,6 +205,7 @@ function humanError(error) {
   if (error?.code === "CONTROL_UNAVAILABLE") return "The safe strategy control service is unavailable. Your account and funds are unchanged.";
   if (error?.code === "PUBLIC_CONTROL_PLANE_DISABLED") return "Strategy control is not enabled for this public release. Your account and funds are unchanged.";
   if (error?.code === "EXECUTION_DISABLED") return "Safe mode is active. No strategy session or writer was started.";
+  if (error?.code === "SESSION_REQUIRED") return "Connect your owner wallet to continue.";
   if (error?.code === "ACCOUNT_PREFLIGHT_BLOCKED") return "The account preflight did not pass. No strategy session was started.";
   if (error?.code === "SIGNATURE_FAILED") return "The wallet signature could not be completed. Nothing changed.";
   if (error?.code === "OPERATOR_UNAVAILABLE") return "VILLA operator configuration is unavailable. Retry.";
@@ -319,6 +338,7 @@ function renderControlControls() {
   const start = element("start-villa");
   const stop = element("stop-villa");
   const status = element("control-plane-status");
+  text("strategy-market", strategyMarketLabel());
   text("control-state", controlStateLabel(state));
   if (start) start.disabled = !ready || appState.busy || appState.controlBusy || active;
   toggle("stop-villa", stoppable);
@@ -334,8 +354,9 @@ function controlClientForWallet() {
   return controlClient;
 }
 
-function setControlView(state, copy = "") {
-  appState = { ...appState, controlState: state, controlBusy: false };
+function setControlView(state, copy = "", result = null) {
+  const session = result?.session ?? (result?.marketSeries || result?.currentMarketId ? result : null);
+  appState = { ...appState, controlState: state, controlBusy: false, controlSession: session || appState.controlSession };
   renderControlControls();
   if (copy) setMessage("control-message", copy, state === "ERROR" ? "warning" : "safe");
 }
@@ -355,7 +376,7 @@ async function handleStartStrategy() {
   try {
     const result = await controlClientForWallet().start();
     const nextState = String(result.state || "RUNNING").toUpperCase();
-    setControlView(nextState, "Strategy control accepted.");
+    setControlView(nextState, "Strategy control accepted.", result);
     showTransaction("SUCCESS", "Strategy control accepted", "The account-bound control plane returned a safe session state.");
   } catch (error) {
     setControlView("STOPPED");
@@ -375,7 +396,7 @@ async function handleStopStrategy() {
   showTransaction("READY", "Stopping strategy", "New expansion will stop before the account-bound cleanup path runs.");
   try {
     const result = await controlClientForWallet().stop();
-    setControlView(String(result.state || "STOPPED").toUpperCase(), "Strategy stopped. Capital remains in your VILLA account.");
+    setControlView(String(result.state || "STOPPED").toUpperCase(), "Strategy stopped. Capital remains in your VILLA account.", result);
     showTransaction("SUCCESS", "Strategy stopped", "The control plane stopped the session. Withdrawal remains a separate owner action.");
   } catch (error) {
     setControlView(appState.controlState === "STOPPING" ? "STOPPING" : "ERROR");
@@ -441,11 +462,11 @@ function updateWorkspace(account, walletBalance) {
   text("account-owner", shorten(account.owner));
   text("account-verification", "Owner verified");
   text("wallet-balance", `${formatAmount(walletBalance)} tUSDC`);
-  text("allocated-balance", `${formatAmount(allocated)} tUSDC`);
-  text("available-balance", `${formatAmount(allocated)} tUSDC`);
+  text("allocated-balance", `${formatStrategyAmount(allocated)} tUSDC`);
+  text("available-balance", `${formatStrategyAmount(allocated)} tUSDC`);
   text("withdrawable-balance", `${formatAmount(allocated)} tUSDC`);
   text("withdrawable-inline", `${formatAmount(allocated)} tUSDC`);
-  text("strategy-allocated", `${formatAmount(allocated)} tUSDC`);
+  text("strategy-allocated", `${formatStrategyAmount(allocated)} tUSDC`);
   text("minimum-deposit-label", funded ? "Minimum top-up" : "Minimum initial deposit");
   text("minimum-deposit", formatRawExact(funded ? MIN_TOP_UP_RAW : MIN_INITIAL_DEPOSIT_RAW));
   toggle("phase3b1-diagnostics", DEBUG_ENABLED && funded);
@@ -464,7 +485,7 @@ function updateWorkspace(account, walletBalance) {
     authStatus.textContent = authorized ? "AUTHORIZED" : unexpectedOperator ? "UNRECOGNIZED" : "NOT AUTHORIZED";
   }
   text("authorization-copy", authorized
-    ? "VILLA can perform approved liquidity actions. Only your wallet can withdraw."
+    ? "Your wallet is verified. VILLA uses a private account-bound operator for approved DreamDEX liquidity actions. Only your wallet can withdraw."
     : unexpectedOperator
       ? "This account has a different automation address. VILLA actions are paused until you review it."
       : "VILLA is not authorized to use this account.");
@@ -600,6 +621,7 @@ async function connectWallet(accounts = null) {
     chainStatus: "UNKNOWN",
     discoveryStatus: "IDLE",
     account: null,
+    controlSession: null,
     currentAccountAddress: "",
     transactionStatus: "IDLE",
     error: null,
