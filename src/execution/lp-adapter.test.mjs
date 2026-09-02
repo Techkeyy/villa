@@ -70,6 +70,28 @@ test("account reads remain account-scoped across capital, inventory, positions, 
   assert.ok(calls.slice(1).every(([, input]) => input.account === ACCOUNT));
 });
 
+test("market-scoped inventory keeps a finalized f920 residual out of a fresh market", async () => {
+  const f920 = `0x${"0".repeat(60)}f920`;
+  const fresh = `0x${"0".repeat(60)}abcd`;
+  const marketRecords = new Map([
+    [f920, { collateral: TOKEN, market: TOKEN, pool: POOL, yesId: 11n, noId: 12n, tradingStart: 1n, expiry: 999n }],
+    [fresh, { collateral: TOKEN, market: TOKEN, pool: POOL, yesId: 21n, noId: 22n, tradingStart: 1n, expiry: 999n }],
+  ]);
+  const identityValues = { owner: OWNER, operator: OPERATOR, collateralToken: TOKEN, outcomeToken: TOKEN, binaryModule: TOKEN, binarySettlement: TOKEN, maxOrderQuantity: 1000n, maxOrderCollateral: 1000n };
+  const publicClient = {
+    async readContract(request) {
+      if (identityValues[request.functionName] !== undefined) return identityValues[request.functionName];
+      if (request.functionName === "markets") return marketRecords.get(request.args[0]);
+      if (request.functionName === "balanceOf") return String(request.args[1]) === "11" ? 1000n : 0n;
+      throw new Error(`unexpected read ${request.functionName}`);
+    },
+  };
+  const reader = createViemLpAccountReader({ publicClient });
+  const historical = await reader.readOutcomeInventory({ account: ACCOUNT, marketId: f920 });
+  const current = await reader.readOutcomeInventory({ account: ACCOUNT, marketId: fresh });
+  assert.deepEqual({ yesRaw: historical.yesRaw, noRaw: historical.noRaw, yesId: historical.yesId, noId: historical.noId }, { yesRaw: 1000n, noRaw: 0n, yesId: 11n, noId: 12n });
+  assert.deepEqual({ yesRaw: current.yesRaw, noRaw: current.noRaw, yesId: current.yesId, noId: current.noId }, { yesRaw: 0n, noRaw: 0n, yesId: 21n, noId: 22n });
+});
 test("mismatched reader data fails closed", async () => {
   const badReader = readerFixture();
   badReader.readCapital = async () => ({ account: OWNER, directCollateralRaw: 1n });

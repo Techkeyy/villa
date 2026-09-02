@@ -36,10 +36,10 @@ export const OWNER_WIZARD_4H_FINAL_HANDOFF_HEADROOM_SEC = 1500;
 // The adaptive first-wet-proof helper evaluates every live BTC interval and
 // ranks only candidates that pass the complete read-only owner-prep envelope.
 // Keep these independent from the historical interval-specific policies above.
-export const OWNER_WIZARD_AUTO_INITIAL_HEADROOM_SEC = 1500;
-export const OWNER_WIZARD_AUTO_TX1_HEADROOM_SEC = 1200;
-export const OWNER_WIZARD_AUTO_FINAL_PREFLIGHT_HEADROOM_SEC = 900;
-export const OWNER_WIZARD_AUTO_FINAL_HANDOFF_HEADROOM_SEC = 900;
+export const OWNER_WIZARD_AUTO_INITIAL_HEADROOM_SEC = 3600;
+export const OWNER_WIZARD_AUTO_TX1_HEADROOM_SEC = 2700;
+export const OWNER_WIZARD_AUTO_FINAL_PREFLIGHT_HEADROOM_SEC = 2700;
+export const OWNER_WIZARD_AUTO_FINAL_HANDOFF_HEADROOM_SEC = 2700;
 
 // These are invalidated owner-prep candidates, not reusable fixtures. The
 // server also keeps the set in memory so a candidate cannot return after a

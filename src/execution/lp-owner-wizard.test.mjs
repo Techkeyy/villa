@@ -71,10 +71,10 @@ test("4h owner preparation uses the independent first wet-proof gates", () => {
 });
 
 test("adaptive owner preparation uses the single longest-headroom gates", () => {
-  assert.equal(OWNER_WIZARD_AUTO_INITIAL_HEADROOM_SEC, 1500);
-  assert.equal(OWNER_WIZARD_AUTO_TX1_HEADROOM_SEC, 1200);
-  assert.equal(OWNER_WIZARD_AUTO_FINAL_PREFLIGHT_HEADROOM_SEC, 900);
-  assert.equal(OWNER_WIZARD_AUTO_FINAL_HANDOFF_HEADROOM_SEC, 900);
+  assert.equal(OWNER_WIZARD_AUTO_INITIAL_HEADROOM_SEC, 3600);
+  assert.equal(OWNER_WIZARD_AUTO_TX1_HEADROOM_SEC, 2700);
+  assert.equal(OWNER_WIZARD_AUTO_FINAL_PREFLIGHT_HEADROOM_SEC, 2700);
+  assert.equal(OWNER_WIZARD_AUTO_FINAL_HANDOFF_HEADROOM_SEC, 2700);
 });
 
 test("adaptive ranking prefers the longest valid market, then lower-impact proof", () => {
@@ -84,10 +84,10 @@ test("adaptive ranking prefers the longest valid market, then lower-impact proof
     evaluated: { marketId, headroomSec, projectedPath, projected: { sequence: { actions: Array.from({ length: actionCount }, () => ({})) } } },
   });
   const ranked = rankOwnerPreparationCandidates([
-    candidate("0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", 2200),
-    candidate("0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", 3100),
-    candidate("0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", 3200, "B", 4, false),
-    candidate("0xdddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd", 3100, "A", 2),
+    candidate("0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", 4200),
+    candidate("0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", 4300),
+    candidate("0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", 4400, "B", 4, false),
+    candidate("0xdddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd", 4300, "A", 2),
   ]);
   assert.deepEqual(ranked.map((item) => item.candidate.marketId), [
     "0xdddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
