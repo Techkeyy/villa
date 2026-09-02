@@ -23,6 +23,7 @@
     "phase3b1a5:topup-plan": "node scripts/phase3b1a5-owner-topup-prep.mjs",
     "phase3b1a:owner-prep": "node scripts/phase3b1a-owner-prep.mjs",
     "phase3b1b1:owner-prep": "node scripts/phase3b1b1-owner-prep-wizard.mjs",
+    "phase3b1b2.3:redeem-cleanup": "node --env-file=.env scripts/lp-redeem-cleanup-one-shot.mjs --confirm-redeem",
     "dashboard:build": "node scripts/dashboard-build.mjs",
     "dashboard:test": "node --test src/dashboard/*.test.mjs",
     "fair-value": "node --env-file=.env scripts/fair-value-snapshot.mjs",
