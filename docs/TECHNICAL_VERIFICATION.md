@@ -8,7 +8,7 @@ Evidence is from this repo's installed SDK (`node_modules/@somnia-chain/markets-
 
 | Capability | Status | Evidence | Test | Conclusion | Implementation consequence |
 | --- | --- | --- | --- | --- | --- |
-| Desktop path | VERIFIED | `[Environment]::GetFolderPath('Desktop')` → `C:\Users\HomePC\Desktop` | PowerShell | Create `villa` here only | Repo lives at `C:\Users\HomePC\Desktop\villa` |
+| Workspace | VERIFIED | Local desktop workspace | PowerShell | Existing project workspace | Repo remains the VILLA repository |
 | Node ≥ 20 | VERIFIED | v24.14.0 | `node --version` | OK | Use Node, not a second runtime |
 | Git | VERIFIED | 2.53.0 | `git --version` | OK | Public GitHub later |
 | SDK install | VERIFIED | package 0.28.1 on disk | `npm install` | Current floor 0.28.0 in docs | Pin ^0.28.1 |

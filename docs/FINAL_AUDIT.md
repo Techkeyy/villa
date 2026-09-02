@@ -1,7 +1,7 @@
 # VILLA final release audit
 
 Audit date: 2026-09-02
-Repository: C:\Users\HomePC\Desktop\villa
+Repository: public VILLA repository
 Branch: master
 Audit status: FINAL RELEASE PASS; public GitHub and Vercel production verification completed.
 

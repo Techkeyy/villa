@@ -26,9 +26,9 @@ surface, plus a clearly labelled public replay mode for judges and visitors.
 The implementation is guided by these actual files from the supplied design
 skill:
 
-1. `C:\Users\HomePC\Desktop\skill\design-skill\SKILL.md`
-2. `C:\Users\HomePC\Desktop\skill\design-skill\references\design-system.md`
-3. `C:\Users\HomePC\Desktop\skill\design-skill\scripts\audit_ui_text.py`
+1. `design-skill instructions`
+2. `design-system reference`
+3. `design text-audit script`
 
 The first two files were read completely before UI changes. The audit script is
 part of the implementation gate and will be run after the redesign.
@@ -105,7 +105,7 @@ The browser and Vercel receive public state only.
 
 ## 7. Validation evidence required before completion
 
-- `scripts/audit_ui_text.py C:\Users\HomePC\Desktop\villa`
+- Run the design text-audit script against the `dashboard` directory.
 - `npm test`
 - `npm run dashboard:test`
 - `npm run dashboard:build`

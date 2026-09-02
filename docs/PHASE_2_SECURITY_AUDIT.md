@@ -79,7 +79,7 @@ Before public enabled status, an owner or authorized tester must complete the re
 
 ## Actual Audit-skill evidence
 
-The required skill was found and read at `C:\Users\HomePC\Desktop\skill\audit-skill\SKILL.md`. Its project-audit phases were reapplied to the Phase 2 finalization worktree before publication.
+The required skill was found and read at `audit-skill instructions`. Its project-audit phases were reapplied to the Phase 2 finalization worktree before publication.
 
 ### Phase 0: claims inventory
 
