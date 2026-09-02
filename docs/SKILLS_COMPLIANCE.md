@@ -56,7 +56,7 @@ unchanged. Post-fix checks:
 - all three scene buttons visible at 390px;
 - `python C:\Users\HomePC\Desktop\skill\design-skill\scripts\audit_ui_text.py dashboard`
   passed with 0 long-dash errors and 0 small-text warnings;
-- `npm run dashboard:test` passed 30/30;
+- `npm run dashboard:test` passed 95/95;
 - `npm run dashboard:build` passed;
 - browser console error/warning log was empty for the inspected replay page.
 

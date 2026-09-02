@@ -112,7 +112,7 @@ export function createAccountBoundControlPlane({
 
   async function start({ caller = null } = {}) {
     const evaluated = await evaluate(caller);
-    if (!publicEnabled) throw new AccountControlError("ACCOUNT_WET_PROOF_PENDING", "public Start is disabled until the account-bound wet proof passes", 423);
+    if (!publicEnabled) throw new AccountControlError("PUBLIC_CONTROL_PLANE_DISABLED", "public account control is disabled by release policy", 423);
     if (!executionEnabled) throw new AccountControlError("EXECUTION_DISABLED", "execution is disabled; no account writer was started", 423);
     if (evaluated.reasons.length > 0) throw new AccountControlError("ACCOUNT_PREFLIGHT_BLOCKED", "account preflight did not pass", 409, { reasons: evaluated.reasons });
     return sessionController.start(evaluated.facts);
@@ -127,7 +127,7 @@ export function createAccountBoundControlPlane({
 
   async function resume({ caller = null } = {}) {
     const evaluated = await evaluate(caller);
-    if (!publicEnabled) throw new AccountControlError("ACCOUNT_WET_PROOF_PENDING", "public Resume is disabled until the account-bound wet proof passes", 423);
+    if (!publicEnabled) throw new AccountControlError("PUBLIC_CONTROL_PLANE_DISABLED", "public account control is disabled by release policy", 423);
     if (!executionEnabled) throw new AccountControlError("EXECUTION_DISABLED", "execution is disabled; no account writer was started", 423);
     if (evaluated.reasons.length > 0) throw new AccountControlError("ACCOUNT_PREFLIGHT_BLOCKED", "account preflight did not pass", 409, { reasons: evaluated.reasons });
     return sessionController.resume(evaluated.facts);

@@ -1,47 +1,38 @@
 # VILLA demo rehearsal script
 
-Status: rehearsal script prepared. Recording and upload are intentionally not
-performed by this task.
+Status: ready for operator recording. Recording and upload are not performed by
+this release task.
 
-Target runtime: 2:45 to 2:55.
+Target runtime: 2:30 to 2:55.
 
-Start at the public product overview, [villa-ten-ashen.vercel.app](https://villa-ten-ashen.vercel.app/),
-then use its verified replay action for the evidence scenes. The local replay
-command is also available. The legacy Render replay URL,
-[villa-yhzx.onrender.com](https://villa-yhzx.onrender.com), is a fallback only.
-Every quote, fill, rollover, and settlement scene below is labelled REPLAY in
-the cockpit and must be described as a replay of a real Shannon verification
-session.
+Start at [villa-ten-ashen.vercel.app](https://villa-ten-ashen.vercel.app/). The
+public route is explainer-first. Use `/app` to show the LP journey and `/proof`
+to show the read-only canonical account-bound evidence.
 
 ## Run of show
 
 | Time | Screen and narration |
 | --- | --- |
-| 0:00-0:20 | Open VILLA. "Event Contract books need someone willing to quote them. VILLA is software for that liquidity operator, not another bettor screen." |
-| 0:20-0:40 | Show the LP journey on `/app`. "The product starts with the operator's wallet, account, capital, and permission. The owner keeps custody, and the public Start control is deliberately staged behind proof." |
-| 0:40-1:00 | Quote proof scene. Point to VILLA Fair and the DreamDEX midpoint. "VILLA forms its own UP probability from BTC, reference, time, and realized volatility. DreamDEX is comparison only and is not a model input." |
-| 1:00-1:20 | Point to the post-only bid and ask, then Risk Governor. "The quote planner adapts around independent value. The governor decides whether a quote is allowed." |
-| 1:20-1:45 | Show the quote event timeline. "This is a replay of a real Phase 4B Shannon checkpoint: a complete set was supplied and both post-only sides rested. The cockpit is not sending a transaction." |
-| 1:45-2:05 | Switch to rollover proof. Highlight the terminal market, successor, fresh fair value, and NO QUOTE reason. "When the old window leaves Trading, VILLA closes that scope, rediscovers a later same-series window, and refuses a quote when the venue grid leaves no safe order." |
-| 2:05-2:30 | Switch to settlement proof. Highlight the two organic fills and the NO residuals. "These are two genuine external SELL_YES fills from the bounded runner, not simulated fills." |
-| 2:30-2:48 | Highlight the redeemed claims, payout reconciliation, known zero-value residual, and wallet hygiene. "Settlement uses the exact market and payout vector. The claim amounts reconciled, and the final audit found zero unknown inventory and zero active orders." |
-| 2:48-2:55 | Show the public repo and demo URL. "The source, replay cockpit, evidence, and limitations are linked below. The current account-bound wet cycle remains pending." |
+| 0:00-0:20 | Open `/`. "DreamDEX Event Contract books need liquidity. VILLA is for the liquidity provider or operator, not a retail betting screen. It helps make prices visible while the LP keeps custody of capital." |
+| 0:20-0:45 | Point to the product explanation and LP journey. "Each LP gets a personal VillaAccount. The wallet funds it, authorizes the approved operator, and keeps owner-only withdrawal. VILLA cannot withdraw the account's capital." |
+| 0:45-1:05 | Open `/app`. Show Connect, Create, Fund, Authorize, Ready, Start, Stop, and Withdraw. "The workspace makes the handoff visible. Start is an authenticated, account-bound control request. It is not a generic wallet transaction relay, and the public release remains safe-mode." |
+| 1:05-1:25 | Return to `/` or `/proof` and explain pricing and safety. "VILLA reads the market and book, forms an independent fair value from BTC data, checks inventory and exposure, and lets the Risk Governor return ALLOW, REDUCE_ONLY, or HALT." |
+| 1:25-2:05 | Open `/proof`, keep the canonical account-bound scene selected. "This is the real Shannon proof. The LP funded the account, VILLA minted the minimum complete set, and one post-only SELL_YES order was placed. DreamDEX recorded the VillaAccount as ORDER OWNER. The separate VILLA operator was the execution signer." Point to the owner and operator panels, order ID `166020696663386049266`, price `0.356`, and quantity `1000` raw. |
+| 2:05-2:30 | Point to MINT TX, ORDER TX, CANCEL TX, and BURN TX. "The order was cancelled, paired inventory was burned, and capital reconciled to 1,002,000 raw tUSDC. YES, NO, and open orders ended at zero. The owner withdrawal path was not called." |
+| 2:30-2:55 | Point to READ ONLY and the safe-mode copy. "The public proof is inspectable without a signer. VILLA's safety boundary is the point: the account owns the capital and order, the operator has constrained permissions, and the release does not claim guaranteed profit or production execution." |
 
 ## Rehearsal checks
 
-- Say that the direct user is the liquidity provider/operator.
-- Say `REPLAY` aloud before discussing fills or redemption.
-- Make the `DreamDEX comparison only` and `not a model input` labels visible.
-- Explain the Risk Governor as a safety permission, not a price formula.
-- Do not promise a fill, profitability, production PnL, or an always-on daemon.
-- Keep the final cut under three minutes; cut implementation filenames before
-  cutting the problem, independent value, or lifecycle proof.
+- Say that the direct user is the liquidity provider or operator.
+- Say `VillaAccount` when describing capital and order ownership.
+- Say `VILLA operator` when describing the separate execution signer.
+- Keep `/proof` in read-only mode. Do not connect a wallet during the proof walkthrough.
+- Do not promise fills, profitability, yield, or positive PnL.
+- Do not start a live session, create another market cycle, or send a transaction.
+- Keep the final recording under three minutes.
 
 ## Evidence references
 
-- Quote and adaptive planner: `docs/TECHNICAL_VERIFICATION.md`, Phase 4B.
-- Organic fills and redemption: `docs/TECHNICAL_VERIFICATION.md`, Phase 6A
-  and Phase 6A.1.
-- Successor rollover: `docs/TECHNICAL_VERIFICATION.md`, Phase 5B and Phase 6A.
-- Final wallet hygiene: `docs/BACKEND_FREEZE.md` and Phase 6A.2 evidence.
-- Primary public URL: https://villa-ten-ashen.vercel.app/
+- Canonical proof record: [`ACCOUNT_BOUND_WET_PROOF.md`](ACCOUNT_BOUND_WET_PROOF.md).
+- Public proof route: https://villa-ten-ashen.vercel.app/proof.
+- Public repository: https://github.com/Techkeyy/villa.

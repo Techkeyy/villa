@@ -15,11 +15,80 @@ const A3DD = "0x000000000000000000000000000000000000000000000000000000000000a3dd
 const A3E9 = "0x000000000000000000000000000000000000000000000000000000000000a3e9";
 const A17B = "0x000000000000000000000000000000000000000000000000000000000000a17b";
 const A17D = "0x000000000000000000000000000000000000000000000000000000000000a17d";
+const ACCOUNT_BOUND_MARKET = "0x0000000000000000000000000000000000000000000000000000000000010a14";
+const ACCOUNT_BOUND_OWNER = "0xEFe0412781d3c1e7888b2DB9dEEcA3037542494d";
+const ACCOUNT_BOUND_ACCOUNT = "0x3A46446A30F945d390A41dAab0D390fBEf3d2cF2";
+const ACCOUNT_BOUND_OPERATOR = "0xaf4ee6C0c6Ff6337F4C4F07b87C8343dF73e8d37";
+const ACCOUNT_BOUND_ORDER_ID = "166020696663386049266";
 
 const FILL_EVIDENCE = Object.freeze([
   { marketId: A3DD, orderId: "55340232221128713213", action: "SELL_YES", quantityRaw: "1000", result: "NO residual", source: "Phase 6A verification record" },
   { marketId: A3E9, orderId: "18446744073709615271", action: "SELL_YES", quantityRaw: "1000", result: "NO residual", source: "Phase 6A verification record" },
 ]);
+
+function accountBoundScene() {
+  const events = [
+    { type: "ACCOUNT_FUNDED", sequence: 1, atChainSec: null, facts: { account: ACCOUNT_BOUND_ACCOUNT, capitalRaw: "1002000" } },
+    { type: "ACCOUNT_OPERATOR_AUTHORIZED", sequence: 2, atChainSec: null, facts: { account: ACCOUNT_BOUND_ACCOUNT, operator: ACCOUNT_BOUND_OPERATOR } },
+    { type: "INVENTORY_MINTED", sequence: 3, atChainSec: null, facts: { marketId: ACCOUNT_BOUND_MARKET, amountRaw: "1000" } },
+    { type: "ORDER_RESTING", sequence: 4, atChainSec: null, facts: { marketId: ACCOUNT_BOUND_MARKET, orderId: ACCOUNT_BOUND_ORDER_ID, action: "SELL_YES", priceRaw: "356000", quantityRaw: "1000", owner: ACCOUNT_BOUND_ACCOUNT } },
+    { type: "ORDER_CANCELLED", sequence: 5, atChainSec: null, facts: { marketId: ACCOUNT_BOUND_MARKET, orderId: ACCOUNT_BOUND_ORDER_ID } },
+    { type: "PAIRED_INVENTORY_BURNED", sequence: 6, atChainSec: null, facts: { marketId: ACCOUNT_BOUND_MARKET, amountRaw: "1000" } },
+    { type: "ACCOUNT_CAPITAL_RECONCILED", sequence: 7, atChainSec: null, facts: { account: ACCOUNT_BOUND_ACCOUNT, capitalRaw: "1002000", openOrders: 0 } },
+  ];
+  return {
+    mode: "REPLAY",
+    scene: "account-bound",
+    source: "Recorded 2026-09-02 Shannon account-bound wet proof, no live writes",
+    snapshot: buildDashboardSnapshot({
+      generatedAtChainSec: null,
+      system: { state: "STOPPED", network: "Somnia Shannon", walletAddress: ACCOUNT_BOUND_OPERATOR, currentSeries: "BINARY:BTC:86400", orchestratorVersion: "villa-account-bound-wet-proof-v1" },
+      market: { marketId: ACCOUNT_BOUND_MARKET, asset: "BTC", intervalSec: 86400, reference: null, currentUnderlying: null, expiry: null, timeRemainingSec: null, status: "Finalized" },
+      model: { pUp: null, pDown: null, confidence: null, volatility: null, fairValueModelVersion: "villa-fv-v1" },
+      bookQuotes: { bestBid: null, bestAsk: null, targetBid: null, targetAsk: null, restingBid: null, restingAsk: null, bidQuantity: null, askQuantity: null, quotePlanVersion: "villa-quote-v1" },
+      risk: { action: "HALT", triggeredReasons: ["MARKET_NOT_TRADING"], exposure: { directionalBalance: 0 }, capacity: null, collateral: { availableRaw: "1002000" }, gas: null },
+      inventory: { currentMarketYes: "0", currentMarketNo: "0", completeSets: "0", directionalExposure: 0, classifications: ["CLEAN_AFTER_BURN"] },
+      events,
+      lifecycle: { currentMarket: ACCOUNT_BOUND_MARKET, previousMarket: null, rolloverState: "SETTLED" },
+      accounting: { tUSDC: "1002000", STT: null, knownCollateralMovement: { status: "FINAL_COLLATERAL_RECONCILED" } },
+    }),
+    evidence: {
+      title: "Canonical account-bound wet proof",
+      note: "A bounded Shannon testnet proof. The LP account owned the capital and the order; the separate VILLA operator only executed the approved account action.",
+      identity: {
+        owner: ACCOUNT_BOUND_OWNER,
+        account: ACCOUNT_BOUND_ACCOUNT,
+        orderOwner: ACCOUNT_BOUND_ACCOUNT,
+        operator: ACCOUNT_BOUND_OPERATOR,
+      },
+      steps: [
+        "The LP funded a personal VillaAccount with 1,002,000 raw tUSDC.",
+        "The LP authorized the canonical VILLA operator for approved account actions.",
+        "VILLA minted the minimum complete set for the exact BTC 24-hour market.",
+        "VILLA placed one real post-only SELL_YES order through the VillaAccount.",
+        "DreamDEX recorded the VillaAccount as the order owner, while the VILLA operator was the caller.",
+        "The order was cancelled, the paired inventory was burned, and capital returned to 1,002,000 raw.",
+        "VILLA never called the owner withdrawal path. Execution is now disabled and the session is stopped.",
+      ],
+      facts: [
+        "Canonical market: BTC 24-hour, marketId ending 10a14",
+        "Mint confirmed, minimum amount: 1000 raw",
+        "Order confirmed: SELL_YES, price 0.356, quantity 1000 raw",
+        "Order owner matched VillaAccount: YES",
+        "Final state: 1,002,000 raw collateral, zero YES, zero NO, zero open orders",
+        "No owner withdrawal was called",
+      ],
+      fills: [],
+      transactionLabels: ["MINT TX", "ORDER TX", "CANCEL TX", "BURN TX"],
+      transactions: [
+        "0x0389fac8ca7fe56bf6b2b96324fd69dd4799845926e920fe136627445171b972",
+        "0xbb4e0d8b33259858dee23a50ce9bbd8dac60fe3b52a803fdce260a429ba89e6d",
+        "0x80a3563c92ef35fedfa61af5ae099ce5804cf74e80158615a0e7852a36078735",
+        "0xb645b3b0b9ffbc7cd72c1b40aaca0f2f344afe64fb2c6c1145fa56fe81f0b87e",
+      ],
+    },
+  };
+}
 
 function quoteScene() {
   const events = [
@@ -142,7 +211,7 @@ function settlementScene() {
   };
 }
 
-const SCENES = Object.freeze({ quote: quoteScene, rollover: rolloverScene, settlement: settlementScene });
+const SCENES = Object.freeze({ "account-bound": accountBoundScene, quote: quoteScene, rollover: rolloverScene, settlement: settlementScene });
 
 export const REPLAY_SCENES = Object.freeze(Object.keys(SCENES));
 

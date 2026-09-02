@@ -1,60 +1,49 @@
-# VILLA finish-day status
+# VILLA final release status
 
-Status: local preparation in progress. No push, wet execution, final video, or
-DoraHacks submission is performed by this work.
+Status: final release preparation after the verified account-bound wet proof.
+No new wet cycle, transaction, video recording, or DoraHacks submission is
+performed by this task.
 
-## Read-only market track
+## Canonical proof
 
-The 15-minute owner-prep helper remains local and safe-mode only. A separate
-read-only 1-hour fallback checkpoint on Somnia Shannon evaluated the
-`BINARY:BTC:3600` series because it is protocol-equivalent to the existing
-binary Event Contract path:
+The account-bound proof passed on Somnia Shannon for BTC 24-hour market `10a14`.
+The LP-funded VillaAccount owned the real post-only SELL_YES order. The
+separate VILLA operator executed approved account actions. The order was
+cancelled, paired inventory was burned, and final collateral reconciled to
+`1,002,000` raw tUSDC with zero YES, zero NO, and zero open orders.
 
-- the candidate was `Trading`, unfinalized, and bound to an exact `marketId`;
-- the live pool returned the same binary YES/NO outcome model and matching
-  outcome IDs;
-- the venue grid and order-book reads were available;
-- account capital was `1.002 tUSDC` and Risk Governor returned `ALLOW`;
-- the projected bounded path passed: `mint 0.001 tUSDC`, one post-only
-  `SELL_YES`, cancel, reconcile, burn when safe, then stop;
-- the adapter's order path remained account-scoped and post-only;
-- no owner transaction, engine write, order, or blockchain transaction was
-  sent. The account-specific market mapping remains unavailable until the
-  owner completes `prepareMarket` for that exact market.
-
-This is feasibility evidence, not a claim that the 1-hour market is still fresh
-at a later read. A new market must be rediscovered and rechecked before any
-future owner action.
-
-## Account control track
-
-`src/operator/account-control.mjs` is an optional authenticated seam around the
-existing `src/execution/lp-control.mjs` session controller. It is disabled by
-default and requires both `publicEnabled` and `executionEnabled` plus the full
-existing preflight result before delegating Start. The caller must match the
-account owner. Stop delegates only scoped tracked-order cleanup, paired cleanup
-where safe, reconciliation, and lease release. It has no withdraw or arbitrary
-transaction relay method.
-
-The production API exposes these account routes only when an account-control
-instance is explicitly injected. A separate `accountAuth` can bind the routes
-to the LP owner instead of the legacy operator-auth session. The current public
-deployment injects neither, so its public surface remains read-only and
-signer-free.
+The exact hashes and identity split are recorded in
+[`ACCOUNT_BOUND_WET_PROOF.md`](ACCOUNT_BOUND_WET_PROOF.md) and rendered on
+`/proof`.
 
 ## Product track
 
-- `/` explains the operator problem, VILLA's lifecycle, operator value,
-  DreamDEX benefit, safety controls, and the route into the console.
-- `/app` shows the LP journey from wallet connection through capital,
-  authorization, readiness, staged monitoring, settlement, and withdrawal.
-- `/proof` labels replay evidence and the pending account-bound wet cycle
-  separately.
+- `/` is the explainer-first product entry for judges, LPs, and operators.
+- `/app` shows Connect, Create, Fund, Authorize, Ready, Start, Running,
+  Stopping, Stopped, Settlement, and Withdraw as one owner journey.
+- `/proof` is a read-only canonical replay with labeled transaction evidence.
+- Start and Stop call the constrained account-control client only. Start
+  requires owner authentication and readiness; safe mode returns without a
+  writer. Stop never withdraws capital.
 
-## Release hold
+## Security track
 
-The release sequence remains: account-bound wet proof, evidence insertion,
-full regression, dependency and secret audit, production build, deployment
-smoke, clean-wallet review, then an owner-controlled push and demo recording.
-The current finish-day work stops before wet execution, push, recording, and
-submission.
+The public dashboard is signer-free. Public control requests accept no
+transaction destination, selector, calldata, or withdrawal instruction. The
+private signer remains outside the repository and outside Vercel. Persistent
+execution remains disabled by policy.
+
+## Quality track
+
+The release gate includes full regression, dashboard, operator, execution,
+recovery, writer, session, reconciliation, policy, Solidity compile, dashboard
+build, HTTP smoke, secret scan, dependency audit, diff check, and the final
+security audit.
+
+## Remaining operator actions
+
+1. Review the final local and public release state.
+2. Record and upload the short demo using `docs/DEMO_SCRIPT.md`.
+3. Paste the video URL into `docs/SUBMISSION.md` and the DoraHacks form.
+4. Complete any required team fields.
+5. Submit DoraHacks manually after reviewing every field.

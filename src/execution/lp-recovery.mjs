@@ -73,7 +73,9 @@ function transactionFacts(record, transaction, config) {
   return {
     functionName,
     marketId,
-    amountRaw: decoded.args?.[1] === undefined ? null : String(decoded.args[1]),
+    amountRaw: functionName === "operatorPlaceOrder"
+      ? (decoded.args?.[3] === undefined ? null : String(decoded.args[3]))
+      : (decoded.args?.[1] === undefined ? null : String(decoded.args[1])),
     priceRaw: decoded.args?.[2] === undefined ? null : String(decoded.args[2]),
     side: functionName === "operatorPlaceOrder" ? ["BUY_YES", "BUY_NO", "SELL_YES", "SELL_NO"][Number(decoded.args?.[1])] : null,
   };

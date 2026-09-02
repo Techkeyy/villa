@@ -171,7 +171,8 @@ test("chain reads verify exact runtime, owner, and trusted operator before UI st
   assert.match(app, /chainChanged/);
   assert.match(app, /unexpectedOperator/);
   assert.match(app, /withdraw-capital/);
-  assert.match(app, /start-villa["'][^>]*disabled/);
+  assert.match(app, /start-villa/);
+  assert.match(app, /handleStartStrategy/);
   assert.match(app, /WAITING_FOR_WALLET/);
   assert.match(app, /SUBMITTED/);
   assert.match(app, /CONFIRMING/);

@@ -1,7 +1,7 @@
 import http from "node:http";
 import { createOperatorAuth, bearerToken, OperatorAuthError } from "../src/operator/auth.mjs";
 import { OperatorConfigError } from "../src/operator/config.mjs";
-import { AccountControlError } from "../src/operator/account-control.mjs";
+import { AccountControlError, createAccountBoundControlPlane } from "../src/operator/account-control.mjs";
 import { createEngineSupervisor, OperatorControlError } from "../src/operator/supervisor.mjs";
 
 const MAX_BODY_BYTES = 16 * 1024;
@@ -234,6 +234,27 @@ export function createOperatorApiServer({
   });
 }
 
+
+function createSafeReleaseAccountControl(env) {
+  const owner = String(env.VILLA_ENGINE_OWNER ?? "");
+  const account = String(env.VILLA_ENGINE_ACCOUNT ?? "");
+  const operator = String(env.VILLA_ENGINE_OPERATOR ?? env.OPERATOR_ADDRESS ?? "");
+  const validAddress = (value) => /^0x[0-9a-fA-F]{40}$/.test(value);
+  if (![owner, account, operator].every(validAddress)) return null;
+  const sessionController = {
+    getState: () => ({ session: null }),
+    async start() { throw new AccountControlError("EXECUTION_DISABLED", "execution is disabled; no account writer was started", 423); },
+    async stop() { return { version: "villa-safe-release-control-v1", state: "STOPPED", safeMode: true, executionEnabled: false }; },
+  };
+  const control = createAccountBoundControlPlane({
+    sessionController,
+    factsReader: async () => ({ owner: { address: owner }, account: { address: account, owner, operator } }),
+    preflight: () => ({ allowed: false, reasons: ["EXECUTION_DISABLED"] }),
+    publicEnabled: true,
+    executionEnabled: false,
+  });
+  return Object.freeze({ auth: createOperatorAuth({ authorizedAddress: owner }), control });
+}
 export function createProductionOperatorServer(env = process.env, { readOnlyReader, runnerFactory, accountAuth, accountControl } = {}) {
   const auth = createOperatorAuth({ authorizedAddress: env.OPERATOR_ADDRESS });
   const control = createEngineSupervisor({
@@ -241,7 +262,8 @@ export function createProductionOperatorServer(env = process.env, { readOnlyRead
     runnerFactory,
     readOnlyReader: readOnlyReader ?? (async () => (await import("../src/dashboard/live-adapter.mjs")).buildLiveEnvelope()),
   });
-  return createOperatorApiServer({ control, auth, accountAuth, accountControl, allowedOrigins: originsFrom(env) });
+  const safeRelease = createSafeReleaseAccountControl(env);
+  return createOperatorApiServer({ control, auth, accountAuth: accountAuth ?? safeRelease?.auth ?? null, accountControl: accountControl ?? safeRelease?.control ?? null, allowedOrigins: originsFrom(env) });
 }
 
 if (process.argv[1] && process.argv[1].endsWith("operator-api.mjs")) {

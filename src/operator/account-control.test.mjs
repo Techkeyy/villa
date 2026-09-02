@@ -32,7 +32,7 @@ test("safe account control exposes readiness but never starts while public or ex
   assert.equal(state.safety.arbitraryRelay, false);
   assert.ok(state.readiness.reasons.includes("PUBLIC_CONTROL_PLANE_DISABLED"));
   assert.ok(state.readiness.reasons.includes("EXECUTION_DISABLED"));
-  await assert.rejects(() => control.start({ caller: OWNER }), { code: "ACCOUNT_WET_PROOF_PENDING" });
+  await assert.rejects(() => control.start({ caller: OWNER }), { code: "PUBLIC_CONTROL_PLANE_DISABLED" });
   assert.deepEqual(underlying.calls, []);
 });
 

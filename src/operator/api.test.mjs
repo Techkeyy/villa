@@ -148,6 +148,51 @@ test("unarmed production API boots without a private key and never reaches the w
   }
 });
 
+
+test("production release wires owner-authenticated safe account control", async () => {
+  const operator = privateKeyToAccount(generatePrivateKey());
+  const owner = privateKeyToAccount(generatePrivateKey());
+  const villaAccount = "0x1111111111111111111111111111111111111111";
+  let runnerSpawns = 0;
+  const env = {
+    OPERATOR_ADDRESS: operator.address,
+    VILLA_ENGINE_OWNER: owner.address,
+    VILLA_ENGINE_ACCOUNT: villaAccount,
+    VILLA_ENGINE_OPERATOR: operator.address,
+    VILLA_ALLOWED_ORIGINS: "http://allowed.test",
+    VILLA_EXECUTION_ENABLED: "false",
+  };
+  const server = createProductionOperatorServer(env, {
+    readOnlyReader: async () => ({ mode: "LIVE", snapshot: null }),
+    runnerFactory: async () => { runnerSpawns += 1; throw new Error("runner must not spawn"); },
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const base = "http://127.0.0.1:" + server.address().port;
+  try {
+    const nonce = await request(base, "/account/auth/nonce", { method: "POST", body: { address: owner.address } });
+    assert.equal(nonce.status, 200);
+    const signature = await owner.signMessage({ message: nonce.body.message });
+    const verified = await request(base, "/account/auth/verify", { method: "POST", body: { ...nonce.body, signature } });
+    assert.equal(verified.status, 200);
+    const token = verified.body.token;
+    const state = await request(base, "/account/state", { token });
+    assert.equal(state.status, 200);
+    assert.equal(state.body.safety.executionEnabled, false);
+    assert.equal(state.body.safety.arbitraryRelay, false);
+    assert.equal(state.body.safety.withdrawViaControl, false);
+    assert.ok(state.body.readiness.reasons.includes("EXECUTION_DISABLED"));
+    const started = await request(base, "/account/session/start", { method: "POST", token, body: {} });
+    assert.equal(started.status, 423);
+    assert.equal(started.body.code, "EXECUTION_DISABLED");
+    const stopped = await request(base, "/account/session/stop", { method: "POST", token, body: {} });
+    assert.equal(stopped.status, 202);
+    assert.equal(stopped.body.executionEnabled, false);
+    assert.equal(runnerSpawns, 0);
+  } finally {
+    server.close();
+  }
+});
 test("optional account control routes are wallet-authenticated and reject arbitrary relay fields", async () => {
   const account = privateKeyToAccount(generatePrivateKey());
   const calls = [];

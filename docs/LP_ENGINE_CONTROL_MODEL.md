@@ -1,82 +1,75 @@
 # LP engine control model
 
-Phase 3A defines the account-specific control semantics and Phase 3B0 adds the
-unarmed wet-boundary model, but neither exposes public live controls. The public
-VILLA Start action remains disabled. Phase 3A plans are `SHADOW`; Phase 3B0's
-wet writer is policy-bound and test-injected only.
+The account-bound control model is the only strategy control path exposed by
+the final VILLA product. It is authenticated, account-scoped, policy-bound, and
+safe-mode by default.
 
 ## Session identity
 
-Every future session is bound to one tuple:
+Every session is bound to one immutable tuple:
 
 ```text
-sessionId + VillaAccount + LP owner + configured operator + exact market series
+sessionId + VillaAccount + LP owner + configured operator + Shannon chain + exact market series + exact market ID
 ```
 
-The session may not change its account, owner, operator, or market identity.
-The operator signer is allowed to act only through that VillaAccount. The
-account address, not the signer address, is the identity for collateral,
-inventory, orders, fills, exposure, settlement, and rollover.
-
-An account-scoped lease permits one active controller. Expired leases require
-fresh chain/venue reconciliation before recovery. A process restart creates a
-new session identity after that reconciliation; it never silently changes the
-account or reuses an unverified transaction intent.
+The account address is the identity for collateral, inventory, orders, fills,
+exposure, settlement, and rollover. An account-scoped lease permits one active
+controller. Expired leases require authoritative chain and venue
+reconciliation before recovery.
 
 ## START
 
-START is accepted only after the wet preflight returns `allowed: true`. It must
-verify Shannon, the account runtime, the account owner, the configured
-operator, signer identity, current market identity, owner-approved market
-permission, required protocol approval, capital minimum and hard cap, risk
-limits, verified order/inventory state, reconciled transaction state, and the
-absence of another controlling session.
+The browser first authenticates the connected LP owner with a short-lived
+message signature. It then sends an empty-body request to the account control
+route. The server reads fresh account facts and runs the existing wet preflight.
+The browser supplies no destination, selector, calldata, amount, withdrawal
+instruction, or market override.
 
-In Phase 3A START creates a shadow session and computes one account-bound plan.
-In Phase 3B0 the future wet session is still not armed: policy validation and
-the writer are exercised only with injected test senders. No phase here submits
-a transaction, changes account state, or starts a public control path. A failed
-preflight returns explicit reason codes, including
-`OPERATOR_NOT_AUTHORIZED`, `INSUFFICIENT_CAPITAL`, `MARKET_NOT_APPROVED`,
-`STALE_MARKET_ID`, `UNKNOWN_TRANSACTION`, and `ACCOUNT_LEASE_NOT_HELD`.
-
-## PAUSE
-
-PAUSE stops all new quote planning and quote replacement for the session. It
-does not withdraw capital, redeem positions, change account permissions, or
-switch to another market. The session journal retains the last verified
-account, inventory, order, and risk facts.
-
-In Phase 3A shadow mode there are no resting orders to cancel. In a separately
-approved future live mode, PAUSE requests cancellation only for the session's
-tracked orders, reconciles each exact order, and then keeps the session paused.
-It does not use broad cancellation and it does not touch unmanaged orders.
+Start requires a verified owner/account pair, sufficient policy capital, the
+fixed operator authorization, a fresh eligible market, `ALLOW` risk, a valid
+quote plan, clean order and inventory state, reconciled transactions, an
+available account lease, and a safe private runtime. With execution disabled,
+Start returns `EXECUTION_DISABLED`, starts no writer, and sends no transaction.
 
 ## STOP
 
-STOP is terminal for the current session. It prevents new planning and writes,
-requests cancellation of all tracked session orders in a serialized queue,
-reconciles account inventory and settlement state, records any directional
-residual under its exact market ID, and leaves the LP owner in control of the
-account. It never withdraws LP capital, selects a withdrawal destination, or
-liquidates unmatched inventory.
+Stop is terminal for the current session. It blocks new expansion, requests
+cancellation only for tracked account-owned orders, reconciles inventory and
+settlement state, performs paired cleanup only when independently safe, and
+releases the account lease after reconciliation. It never withdraws capital or
+changes owner permission.
 
-In shadow mode STOP records the plan as stopped and sends nothing. In the
-future wet boundary STOP blocks new writes, cancels only known session-owned
-orders, optionally burns only a verified paired increment, reconciles the
-terminal state, and releases the lease only after reconciliation passes. It
-never withdraws. A later session must pass fresh discovery and readiness
-checks; it cannot resume a stale plan or reuse an old market ID after rollover.
+## Public safety boundary
+
+The browser control client uses only these operations:
+
+```text
+POST /account/auth/nonce
+POST /account/auth/verify
+GET  /account/state
+POST /account/session/start   {}
+POST /account/session/stop    {}
+```
+
+The operator API rejects arbitrary transaction-shaped request fields. The
+private signer stays inside the private engine process. Persistent unrestricted
+execution remains disabled in the public release.
 
 ## State transitions
 
 ```text
-STOPPED -> STARTING -> SHADOWING
-                         |  \
-                       PAUSE  STOP
-                         |      \
-                      PAUSED -> STOPPED
+STOPPED -> STARTING -> RUNNING
+             |             |
+             v             v
+          ERROR        STOPPING -> STOPPED
 ```
 
-There is no implicit resume after PAUSE and no automatic restart after STOP.
-The public UI does not expose these transitions in Phase 3A.
+The UI keeps the human state simple: ready, safe mode, running, stopping, or
+needs attention. Technical refusal reasons remain secondary diagnostics.
+
+## Explicit limitations
+
+The final public deployment is not an always-on autonomous production daemon.
+The tested account-bound writer and cleanup paths remain private runtime
+components. A future production enablement requires a separate owner-approved
+security and operational gate.

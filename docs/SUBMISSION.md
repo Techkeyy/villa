@@ -1,118 +1,127 @@
-# VILLA DoraHacks submission draft
+# VILLA DoraHacks submission copy
 
-Status: prepared, not submitted. The public repository and replay demo are
-verified; the video link remains a placeholder until the operator records and
-uploads the final demonstration.
+Status: READY FOR OPERATOR REVIEW. This copy is prepared but not submitted.
+The demo video field remains for the operator to complete after recording.
 
 ## Project fields
 
 | Field | Prepared value |
 | --- | --- |
 | Project name | VILLA |
-| Tagline | Independent liquidity intelligence for DreamDEX Event Contracts |
+| One-line description | Account-bound liquidity infrastructure for DreamDEX Event Contracts on Somnia Shannon |
 | Public repository | https://github.com/Techkeyy/villa |
-| Working prototype / demo | https://villa-ten-ashen.vercel.app/ |
-| Demo video | `PENDING_2_TO_3_MINUTE_VIDEO_URL` |
+| Live app | https://villa-ten-ashen.vercel.app/ |
+| Proof page | https://villa-ten-ashen.vercel.app/proof |
 | Network | Somnia Shannon testnet, chain ID 50312 |
-| Team/member fields | Complete in the authenticated DoraHacks form; not exposed on the public detail page |
-
-## Short description
-
-VILLA is an operator-facing liquidity product for DreamDEX binary Event
-Contracts. It independently estimates UP probability from the underlying
-price, reference, time remaining, and realized volatility, then combines that
-view with deterministic risk limits, adaptive post-only quoting, inventory,
-settlement, and successor-market lifecycle logic. The first page explains the
-product in plain language, while the LP workspace shows the owner journey and
-the proof page separates replay evidence from current execution status.
-
-## Longer description
-
-Event Contract books need liquidity, but a maker that simply mirrors the book
-does not have an independent view of value. VILLA is built for the liquidity
-provider who supplies capital and wants a repeatable desk process: discover a
-live window, calculate fair value from BTC data rather than the DreamDEX
-midpoint, check the Risk Governor, plan inventory-aware quotes, reconcile fills,
-redeem settled value, and rediscover the next same-series window.
-
-DreamDEX remains the venue. VILLA uses the official markets SDK on Somnia
-Shannon for Event Contract reads and bounded testnet writes. The public
-experience is explainer-first, with an observational replay surface and a
-separate operator cockpit. It never receives a signer or private key. A
-wallet-authenticated account-control seam is prepared around the existing
-account-bound session controller, but public Start and autonomous execution
-remain disabled pending a fresh account-bound wet proof.
+| Demo video | `ADD_OPERATOR_VIDEO_URL_AFTER_RECORDING` |
 
 ## Problem
 
-The exchange plumbing can place orders, but robust autonomous liquidity still
-needs answers to six operator questions: what is the contract worth, how should
-inventory change the quote, when should quoting stop, how are pending orders
-stressed, what happens after expiry, and how does capital reach the next window?
-Empty books and unresolved lifecycle state leave capital idle or expose it to
-unbounded operational risk.
+Event Contract markets need liquidity so traders can find a price. For the
+liquidity provider, making that market means repeating pricing decisions,
+checking risk and inventory, managing orders, and cleaning up after fills,
+rollover, or settlement. The operational burden can leave books thin and
+capital state difficult to inspect.
 
-## What VILLA adds above the official maker plumbing
+## Solution
 
-- independent `villa-fv-v1` fair value, not book-mid pricing;
-- confidence and data-quality aware outputs;
-- `villa-risk-v1` deterministic ALLOW, REDUCE_ONLY, and HALT decisions;
-- worst-case pending-order exposure accounting;
-- `villa-quote-v1` adaptive spread, inventory skew, and exact binary grid math;
-- bounded post-only execution with reconciliation and cleanup;
-- complete-set inventory, settlement redemption, and successor rollover;
-- an explainable operator cockpit with honest replay and `PNL_UNAVAILABLE`.
+VILLA is an operator-facing liquidity product for DreamDEX binary Event
+Contracts. It gives each LP a personal on-chain `VillaAccount`, then combines
+independent BTC fair value, deterministic risk controls, post-only quote
+planning, inventory accounting, lifecycle management, and an inspectable proof
+surface.
 
-## Verified evidence
+The LP owns the capital and the DreamDEX order. A separate canonical VILLA
+operator may execute only approved account-bound actions. The operator cannot
+withdraw LP funds or submit an arbitrary destination or calldata request.
 
-- live Shannon post-only BUY rested and was cancelled;
-- complete-set mint, post-only `SELL_YES`, exact cancel, and `burnSet` passed;
-- a bounded two-sided quote checkpoint rested and reconciled both sides;
-- two genuine external `SELL_YES` fills were recovered and redeemed;
-- successor discovery crossed a same-series BTC window without mixing market IDs;
-- final wallet hygiene reported zero active orders and zero unknown inventory;
-- the historical Phase 7A audit passed 404/404 tests, with 30/30 dashboard tests;
-- the current finish-day control-plane regression adds owner-scope, preflight,
-  public-gate, and arbitrary-relay rejection coverage;
-- no profitability or complete realized PnL claim is made.
+## How it works
 
-Detailed hashes and conditions are in `docs/TECHNICAL_VERIFICATION.md`.
+1. Connect a wallet to Somnia Shannon.
+2. Create and fund a personal VillaAccount.
+3. Authorize the canonical VILLA operator.
+4. Read the exact DreamDEX market, book, account, and risk state.
+5. Form fair value and a bounded post-only quote plan.
+6. Monitor fills, inventory, rollover, and settlement.
+7. Stop, reconcile, and leave owner withdrawal as a separate wallet action.
 
-## UX and ecosystem impact
+The product is for liquidity providers and operators, not retail bettors. Its
+economic objective is potential spread capture. It makes no promise of profit,
+yield, or positive PnL.
 
-The direct user is the liquidity operator. The cockpit exposes fair value,
-venue comparison, quote posture, risk reasons, inventory, lifecycle events, and
-settlement facts without requiring the operator to read logs. More reliable
-liquidity can make DreamDEX Event Contract books more useful to ordinary
-traders, while VILLA remains above and complementary to DreamDEX infrastructure.
+## Why DreamDEX
 
-## SDK and documentation feedback
+DreamDEX provides the Event Contract markets, order books, and settlement
+lifecycle. VILLA adds a repeatable LP process above that venue: a clearer maker
+workflow, explicit risk decisions, account-scoped inventory, and evidence that
+a real order belonged to the LP account.
 
-The useful implementation findings are constructive: current SDK and bot-kit
-versions can differ, live venue IDs move, recycled pools require `marketId`
-identity, `strike = 0` requires an opening-price path, chain time matters for
-expiry and freshness, and finalized losing token residuals need explicit
-classification. The current SDK is usable, but these edges deserve first-class
-examples in the Event Contract documentation.
+## Why Somnia
 
-## Honest limitations
+Somnia Shannon provides a fast testnet environment for the account, venue, and
+lifecycle proof. VILLA uses chain ID `50312`, the official markets SDK, and
+account-bound reads and writes through the fixed protocol configuration.
 
-- this is a bounded Shannon testnet proof, not an indefinite production daemon;
-- full realized maker PnL and all cash-flow components are not implemented;
-- restart recovery is bounded and explicit;
-- the current account-bound Start/Stop cycle is prepared but not publicly armed;
-- Event Contract session-key authorization is not verified for VILLA's MVP;
-- organic fills are market-dependent and are not manufactured;
-- public hosting must remain explainer-first, read-only, and signer-free.
+## Innovation
+
+The core differentiator is the identity split. The LP's VillaAccount owns
+collateral and orders, while the VILLA operator only acts within the approved
+account boundary. That makes custody, order ownership, and operator execution
+visible as separate facts instead of treating one server wallet as the product.
+
+## Verified testnet evidence
+
+The canonical proof used BTC 24-hour market `0x0000000000000000000000000000000000000000000000000000000000010a14`.
+
+- VillaAccount: `0x3A46446A30F945d390A41dAab0D390fBEf3d2cF2`.
+- Owner wallet: `0xEFe0412781d3c1e7888b2DB9dEEcA3037542494d`.
+- VILLA operator: `0xaf4ee6C0c6Ff6337F4C4F07b87C8343dF73e8d37`.
+- One minimum `1000` raw mint.
+- One post-only `SELL_YES` order at `0.356`, quantity `1000` raw.
+- Order ID `166020696663386049266`.
+- DreamDEX order owner matched the VillaAccount.
+- Cancel and paired burn completed.
+- Final collateral was `1,002,000` raw tUSDC, with zero YES, zero NO, and zero open orders.
+
+The exact transaction hashes are in [`docs/ACCOUNT_BOUND_WET_PROOF.md`](ACCOUNT_BOUND_WET_PROOF.md) and the public `/proof` route. The public app is safe-mode and the proof surface is read-only.
+
+## Security and non-custodial architecture
+
+The browser receives no execution credential. Start authenticates the owner wallet
+with a short-lived message signature and sends only an empty-body account-bound
+control request. The server owns fresh facts and preflight. Public control
+requests reject arbitrary transaction fields. The private engine keeps its
+signer outside the repository and outside Vercel. Persistent execution remains
+disabled in this release.
+
+Stop blocks new expansion, cleans only tracked account-owned orders, reconciles
+state, and never withdraws capital. Owner withdrawal is direct, owner-scoped,
+and destination-free.
+
+## Tech stack
+
+- Node.js and native ESM.
+- `viem` for Ethereum-compatible chain reads and typed account operations.
+- `@somnia-chain/markets-sdk` for DreamDEX market data and protocol access.
+- Static dashboard and replay API for the public frontend.
+- Account adapter, fair-value model, Risk Governor, quote planner, inventory
+  lifecycle, settlement, lease, reconciliation, and typed private writer.
+- Vercel for the public dashboard and a separate private engine boundary.
+
+## Limitations
+
+This is a bounded Shannon testnet MVP for a single canonical operator
+configuration. Market data changes, full realized PnL is not claimed, and the
+public release does not run persistent autonomous execution. Multi-LP operations
+and broader venue coverage remain future work.
 
 ## Submission checklist
 
-- [x] Public repository URL inserted and opens without login.
-- [x] Public HTTPS replay URL inserted and opens without login.
-- [x] Optional live read checked; if unavailable, the page reports it honestly.
-- [ ] 2 to 3 minute video recorded and uploaded by the operator.
-- [ ] Team/member fields completed in DoraHacks.
-- [ ] Optional SDK/docs feedback attached or pasted.
-- [ ] Dora deadline timezone confirmed; until then use the documented
-  `TIMEZONE_NOT_EXPLICIT` policy and submit early.
-- [ ] Operator presses Submit BUIDL manually after reviewing every field.
+- [x] Public repository prepared.
+- [x] Public app and proof URLs prepared.
+- [x] Canonical account-bound proof documented.
+- [x] README and demo script updated.
+- [ ] Operator records and uploads the 2 to 3 minute video.
+- [ ] Operator completes DoraHacks team fields.
+- [ ] Operator pastes the final video link.
+- [ ] Operator presses Submit only after reviewing every field.

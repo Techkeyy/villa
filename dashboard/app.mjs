@@ -26,11 +26,13 @@ import { deriveWalletStatus, renderAccountJourney } from "./account-journey.mjs"
 import { createAddLiquidityHandler, runAddLiquidity } from "./liquidity-flow.mjs";
 import { evaluateVerifiedOwnerAccountReadiness, isVerifiedOwnerAccountReady } from "./account-readiness.mjs";
 import { createAuthorizationHandler, runAuthorization } from "./authorization-flow.mjs";
+import { ControlClientError, createAccountControlClient } from "./control-client.mjs";
 
 const page = window.location.pathname.replace(/\/+$/, "") || "/";
 const ACCOUNT_HINT_PREFIX = "villa.account.owner.";
 
 let provider = null;
+let controlClient = null;
 let accountArtifact = null;
 let walletInitialized = false;
 let proofInitialized = false;
@@ -41,6 +43,8 @@ let appState = {
   walletStatus: "DISCONNECTED",
   chainStatus: "UNKNOWN",
   discoveryStatus: "IDLE",
+  controlState: "STOPPED",
+  controlBusy: false,
   account: null,
   transactionStatus: "IDLE",
   owner: "",
@@ -56,7 +60,7 @@ if (DEBUG_ENABLED) {
   window.__VILLA_BUILD__ = Object.freeze({
     phase: "phase2-discovery-reset",
     renderer: "account-journey-v2",
-    buildId: "phase2-readiness-runtime-fix",
+    buildId: "account-bound-release-v1",
   });
   if (!window.__VILLA_BUILD_LOGGED__) {
     window.__VILLA_BUILD_LOGGED__ = true;
@@ -180,6 +184,11 @@ function humanError(error) {
   if (error?.code === "ACCOUNT_STATE_INVALID") return error.message;
   if (error?.code === "ACTION_BUSY") return "A liquidity action is already in progress. Please wait.";
   if (error?.code === "ACCOUNT_NOT_READY") return "Your VILLA account is not ready. Refresh account verification and try again.";
+  if (error?.code === "CONTROL_UNAVAILABLE") return "The safe strategy control service is unavailable. Your account and funds are unchanged.";
+  if (error?.code === "PUBLIC_CONTROL_PLANE_DISABLED") return "Strategy control is not enabled for this public release. Your account and funds are unchanged.";
+  if (error?.code === "EXECUTION_DISABLED") return "Safe mode is active. No strategy session or writer was started.";
+  if (error?.code === "ACCOUNT_PREFLIGHT_BLOCKED") return "The account preflight did not pass. No strategy session was started.";
+  if (error?.code === "SIGNATURE_FAILED") return "The wallet signature could not be completed. Nothing changed.";
   if (error?.code === "OPERATOR_UNAVAILABLE") return "VILLA operator configuration is unavailable. Retry.";
   if (error?.code === "INVALID_OWNER") return "Connect your wallet before adding liquidity.";
   if (error?.code === "INVALID_AMOUNT") return error.message;
@@ -257,6 +266,8 @@ function setConnected(connected) {
       chainId: null,
       chainStatus: "UNKNOWN",
       discoveryStatus: "IDLE",
+      controlState: "STOPPED",
+      controlBusy: false,
       account: null,
       transactionStatus: "IDLE",
       error: null,
@@ -287,6 +298,92 @@ function setAppState(patch) {
     visiblePanels: rendered.visiblePanels,
   });
   return rendered;
+}
+
+function accountReadyForControl() {
+  return Boolean(appState.account)
+    && isVerifiedOwnerAccountReady(appState)
+    && appState.account.operator === normalizeAddress(VILLA_ACCOUNT_CONFIG.operator)
+    && appState.account.balance > 0n;
+}
+
+function controlStateLabel(state) {
+  return ({ RUNNING: "Running", PAUSED: "Paused", STOPPING: "Stopping", ERROR: "Needs attention" })[state] || "Safe mode";
+}
+
+function renderControlControls() {
+  const state = appState.controlState || "STOPPED";
+  const active = ["RUNNING", "PAUSED", "STOPPING"].includes(state);
+  const stoppable = active || state === "ERROR";
+  const ready = accountReadyForControl();
+  const start = element("start-villa");
+  const stop = element("stop-villa");
+  const status = element("control-plane-status");
+  text("control-state", controlStateLabel(state));
+  if (start) start.disabled = !ready || appState.busy || appState.controlBusy || active;
+  toggle("stop-villa", stoppable);
+  if (stop) stop.disabled = appState.busy || appState.controlBusy || state === "STOPPING";
+  if (status) {
+    status.className = `status-pill ${active ? "status-safe" : "status-preview"}`;
+    status.textContent = active ? state : "SAFE CONTROL PLANE";
+  }
+}
+
+function controlClientForWallet() {
+  controlClient ??= createAccountControlClient({ provider, ownerProvider: () => appState.owner });
+  return controlClient;
+}
+
+function setControlView(state, copy = "") {
+  appState = { ...appState, controlState: state, controlBusy: false };
+  renderControlControls();
+  if (copy) setMessage("control-message", copy, state === "ERROR" ? "warning" : "safe");
+}
+
+async function handleStartStrategy() {
+  if (appState.busy || appState.controlBusy) return;
+  if (!accountReadyForControl()) {
+    const error = new AccountClientError("ACCOUNT_NOT_READY", "Your VILLA account is not ready.");
+    showActionError("control-message", error);
+    return;
+  }
+  appState = { ...appState, controlBusy: true };
+  renderControlControls();
+  setBusy(true);
+  setMessage("control-message", "");
+  showTransaction("READY", "Preparing strategy", "The control plane will authenticate this owner wallet and run the account-bound preflight.");
+  try {
+    const result = await controlClientForWallet().start();
+    const nextState = String(result.state || "RUNNING").toUpperCase();
+    setControlView(nextState, "Strategy control accepted.");
+    showTransaction("SUCCESS", "Strategy control accepted", "The account-bound control plane returned a safe session state.");
+  } catch (error) {
+    setControlView("STOPPED");
+    showActionError("control-message", error instanceof ControlClientError ? error : new ControlClientError("CONTROL_REQUEST_FAILED", error?.message || "The strategy control request failed."));
+  } finally {
+    setBusy(false);
+    renderControlControls();
+  }
+}
+
+async function handleStopStrategy() {
+  if (appState.busy || appState.controlBusy) return;
+  appState = { ...appState, controlBusy: true };
+  renderControlControls();
+  setBusy(true);
+  setMessage("control-message", "");
+  showTransaction("READY", "Stopping strategy", "New expansion will stop before the account-bound cleanup path runs.");
+  try {
+    const result = await controlClientForWallet().stop();
+    setControlView(String(result.state || "STOPPED").toUpperCase(), "Strategy stopped. Capital remains in your VILLA account.");
+    showTransaction("SUCCESS", "Strategy stopped", "The control plane stopped the session. Withdrawal remains a separate owner action.");
+  } catch (error) {
+    setControlView(appState.controlState === "STOPPING" ? "STOPPING" : "ERROR");
+    showActionError("control-message", error instanceof ControlClientError ? error : new ControlClientError("CONTROL_REQUEST_FAILED", error?.message || "The strategy stop request failed."));
+  } finally {
+    setBusy(false);
+    renderControlControls();
+  }
 }
 
 function resetAccountView() {
@@ -381,7 +478,7 @@ function updateWorkspace(account, walletBalance) {
     readinessStatus.textContent = ready ? "READY" : "SETUP REQUIRED";
   }
   text("readiness-title", ready ? "Liquidity setup complete." : "Complete account setup first.");
-  text("readiness-copy", ready ? "Your account is ready for the next integration phase. Automated execution remains disabled here." : "Add liquidity and authorize VILLA before the workspace can be marked ready.");
+  text("readiness-copy", ready ? "Your account is ready. Start asks the constrained control plane to run a fresh account-bound preflight." : "Add liquidity and authorize VILLA before the workspace can be marked ready.");
   const capitalStatus = element("capital-status");
   if (capitalStatus) {
     capitalStatus.className = `status-pill ${accountReady ? "status-safe" : "status-preview"}`;
@@ -395,6 +492,7 @@ function updateWorkspace(account, walletBalance) {
     element("add-liquidity")?.setAttribute("disabled", "");
     element("withdraw-capital")?.setAttribute("disabled", "");
   }
+  renderControlControls();
 }
 
 function showDiscoveryError(error) {
@@ -517,6 +615,7 @@ async function connectWallet(accounts = null) {
 function disconnectWallet() {
   refreshGeneration += 1;
   refreshQueued = false;
+  controlClient?.clear();
   setConnected(false);
   setMessage("wallet-message", "Wallet view disconnected. Your wallet remains in control.", "safe");
 }
@@ -685,7 +784,7 @@ async function handleRevoke() {
   try {
     const verified = await readAccount(provider, appState.account.address, accountArtifact, appState.owner);
     if (verified.operator !== normalizeAddress(VILLA_ACCOUNT_CONFIG.operator)) throw new AccountClientError("NOT_AUTHORIZED", "VILLA is not the current operator.");
-    showTransaction("READY", "Revoke VILLA automation", "This stops new VILLA actions for this account. No strategy session is active in Phase 2.");
+    showTransaction("READY", "Revoke VILLA automation", "This stops new VILLA actions for this account. No strategy session is active in this release.");
     const result = await sendTransaction(provider, actionTransaction(appState.owner, appState.account.address, accountCall.revokeOperator()), actionUpdate);
     showTransaction("CONFIRMING", "Verifying revocation", "Checking that the account operator is now zero.", result.hash);
     const after = await readAccount(provider, appState.account.address, accountArtifact, appState.owner);
@@ -742,6 +841,8 @@ function initWallet() {
   element("authorize-villa")?.addEventListener("click", handleAuthorize);
   element("revoke-villa")?.addEventListener("click", handleRevoke);
   element("withdraw-capital")?.addEventListener("click", handleWithdraw);
+  element("start-villa")?.addEventListener("click", handleStartStrategy);
+  element("stop-villa")?.addEventListener("click", handleStopStrategy);
   element("amount-to-use")?.addEventListener("input", () => setMessage("capital-message", ""));
   element("withdraw-amount")?.addEventListener("input", () => setMessage("withdraw-message", ""));
   provider?.on?.("accountsChanged", (accounts) => {
@@ -752,6 +853,7 @@ function initWallet() {
   if (provider?.request) connectWallet(request(provider, "eth_accounts")).catch(() => {
     // A passive restore should not make a disconnected wallet look broken.
   });
+  renderControlControls();
 }
 
 function renderProof(payload) {
@@ -759,14 +861,19 @@ function renderProof(payload) {
   const evidence = payload?.evidence ?? {};
   const facts = Array.isArray(evidence.facts) ? evidence.facts : [];
   const transactions = Array.isArray(evidence.transactions) ? evidence.transactions : [];
+  const transactionLabels = Array.isArray(evidence.transactionLabels) ? evidence.transactionLabels : [];
+  const steps = Array.isArray(evidence.steps) ? evidence.steps : [];
+  const identity = evidence.identity ?? {};
   const events = Array.isArray(snapshot.activity?.events) ? snapshot.activity.events : [];
   const state = snapshot.system?.state || "Unavailable";
   const risk = snapshot.risk?.action || "Unavailable";
   const market = formatMarket(snapshot.market);
   const factsMarkup = facts.length ? facts.map((fact) => `<li>${escapeHtml(fact)}</li>`).join("") : "<li>No recorded facts for this scene.</li>";
+  const stepsMarkup = steps.length ? steps.map((step, index) => `<li><strong>${String(index + 1).padStart(2, "0")}</strong><span>${escapeHtml(step)}</span></li>`).join("") : "<li>No plain-language journey was retained for this scene.</li>";
   const eventMarkup = events.length ? events.map((event) => `<li><strong>${escapeHtml(event.type)}</strong><br /><span>${escapeHtml(event.facts?.reason || event.facts?.action || "Recorded checkpoint")}</span></li>`).join("") : "<li>No event timeline retained.</li>";
-  const txMarkup = transactions.length ? transactions.map((hash) => `<li class="transaction">${escapeHtml(hash)}</li>`).join("") : "<li>No transaction hashes were retained for this replay.</li>";
-  return `<section class="proof-overview"><div class="panel"><p class="panel-label">${escapeHtml(payload.mode || "REPLAY")}</p><h2>${escapeHtml(evidence.title || "Recorded evidence")}</h2><p>${escapeHtml(evidence.note || payload.source || "Read-only replay evidence.")}</p></div><div class="panel proof-source"><strong>Recorded source</strong><span>${escapeHtml(payload.source || "Local verification record")}</span><br /><br /><strong>Snapshot</strong><span>${escapeHtml(market)} · ${escapeHtml(state)} · Risk ${escapeHtml(risk)}</span></div></section><section class="evidence-grid"><section class="panel"><p class="panel-label">WHAT WAS VERIFIED</p><h2>Evidence facts</h2><ul class="evidence-list">${factsMarkup}</ul></section><section class="panel"><p class="panel-label">LIFECYCLE</p><h2>Recorded checkpoints</h2><ul class="evidence-list">${eventMarkup}</ul></section><section class="panel"><p class="panel-label">TRANSACTIONS</p><h2>Reference hashes</h2><ul class="evidence-list">${txMarkup}</ul></section><section class="panel"><p class="panel-label">BOUNDARY</p><h2>Read only</h2><p class="empty-copy">This page reads a local evidence envelope. It does not connect to the engine, request a signature, place an order, or send a blockchain transaction.</p></section></section>`;
+  const txMarkup = transactions.length ? transactions.map((hash, index) => `<li class="transaction"><strong>${escapeHtml(transactionLabels[index] || `Transaction ${index + 1}`)}</strong><br />${escapeHtml(hash)}</li>`).join("") : "<li>No transaction hashes were retained for this replay.</li>";
+  const identityMarkup = identity.account ? `<section class="panel proof-identity"><p class="panel-label">OWNERSHIP BOUNDARY</p><h2>Capital and order owner</h2><div class="identity-compare"><div><span>VillaAccount</span><strong>${escapeHtml(identity.account)}</strong><small>Owns the capital and the DreamDEX order</small></div><div><span>VILLA operator</span><strong>${escapeHtml(identity.operator || "Unavailable")}</strong><small>Separate signer allowed to execute approved actions</small></div></div><p class="identity-owner">Owner wallet: <span>${escapeHtml(identity.owner || "Unavailable")}</span></p></section>` : "";
+  return `<section class="proof-overview"><div class="panel"><p class="panel-label">${escapeHtml(payload.mode || "REPLAY")}</p><h2>${escapeHtml(evidence.title || "Recorded evidence")}</h2><p>${escapeHtml(evidence.note || payload.source || "Read-only replay evidence.")}</p></div><div class="panel proof-source"><strong>Recorded source</strong><span>${escapeHtml(payload.source || "Local verification record")}</span><br /><br /><strong>Snapshot</strong><span>${escapeHtml(market)} · ${escapeHtml(state)} · Risk ${escapeHtml(risk)}</span></div></section>${identityMarkup}<section class="proof-steps panel"><p class="panel-label">THE JOURNEY</p><h2>What happened, in plain language</h2><ol class="proof-step-list">${stepsMarkup}</ol></section><section class="evidence-grid"><section class="panel"><p class="panel-label">WHAT WAS VERIFIED</p><h2>Evidence facts</h2><ul class="evidence-list">${factsMarkup}</ul></section><section class="panel"><p class="panel-label">LIFECYCLE</p><h2>Recorded checkpoints</h2><ul class="evidence-list">${eventMarkup}</ul></section><section class="panel"><p class="panel-label">TRANSACTIONS</p><h2>Reference hashes</h2><ul class="evidence-list">${txMarkup}</ul></section><section class="panel"><p class="panel-label">BOUNDARY</p><h2>Read only</h2><p class="empty-copy">This page reads a local evidence envelope. It does not connect to the engine, request a signature, place an order, or send a blockchain transaction.</p></section></section>`;
 }
 
 function initProof() {

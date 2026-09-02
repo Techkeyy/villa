@@ -354,6 +354,7 @@ test("dashboard server serves current source assets and the v2 build marker", as
       ["/app", "index.html"],
       ["/app.mjs", "app.mjs"],
       ["/account-journey.mjs", "account-journey.mjs"],
+      ["/control-client.mjs", "control-client.mjs"],
     ];
     for (const [url, file] of assets) {
       const response = await fetch(`${baseUrl}${url}`);
@@ -367,7 +368,7 @@ test("dashboard server serves current source assets and the v2 build marker", as
     const app = await (await fetch(`${baseUrl}/app.mjs`)).text();
     assert.match(app, /__VILLA_BUILD__/);
     assert.match(app, /account-journey-v2/);
-  assert.match(app, /phase2-readiness-runtime-fix/);
+    assert.match(app, /account-bound-release-v1/);
     assert.match(app, /renderAccountJourney/);
   } finally {
     child.kill();

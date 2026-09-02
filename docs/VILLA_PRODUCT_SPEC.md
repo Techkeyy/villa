@@ -1,64 +1,81 @@
-# VILLA Product Specification
+# VILLA product specification
 
-Status: Phase 2 live owner-account proof complete; Phase 3 engine connection not started
+Status: final release. Account-bound wet proof verified on Somnia Shannon;
+persistent public execution remains disabled.
 
 ## Product definition
 
-VILLA is an open liquidity-provider product for DreamDEX Event Contracts. It helps an LP allocate capital, authorize a narrowly scoped automation path when that path is proven, and monitor VILLA market-making activity across short-duration BTC Event Contract markets.
+VILLA is liquidity infrastructure for DreamDEX Event Contracts. It is built
+for liquidity providers and operators who want a repeatable way to price BTC
+event markets, manage bounded exposure, and inspect the full lifecycle.
 
-The intended product flow is:
+The product flow is:
 
-`CONNECT WALLET -> ADD LIQUIDITY -> AUTHORIZE VILLA -> START -> MARKET-MAKE -> MONITOR -> STOP -> SETTLE -> WITHDRAW`
+`CONNECT WALLET -> CREATE VILLA ACCOUNT -> ADD LIQUIDITY -> AUTHORIZE VILLA -> READY -> START -> RUNNING -> STOP -> SETTLE -> WITHDRAW`
 
-The user is a liquidity provider or operator, not a retail bettor. VILLA does not promise profit. It prices markets, quotes liquidity, manages risk, rolls between markets, and provides evidence for the LP to review.
+VILLA does not promise profit, yield, or positive PnL.
 
 ## Product contract
 
 - The LP remains the capital owner and retains withdrawal and revocation authority.
-- A user never gives VILLA a private key.
 - One LP must never control another LP's capital.
-- The existing proven VILLA engine remains the pricing, quoting, risk, inventory, rollover, and settlement reference.
-- The existing shared execution wallet is not an open LP product boundary.
-- Owner-scoped capital controls are proven for one Shannon testnet account.
-- The public engine surface remains read-only and safe-mode only.
+- Every LP receives an isolated `VillaAccount` before capital is accepted.
+- The proven VILLA engine remains the pricing, quoting, risk, inventory,
+  rollover, and settlement reference.
+- The canonical operator is fixed by audited configuration and can act only
+  through the approved account-bound path.
+- The public app is explainer-first, wallet-mediated, and safe-mode.
+- The public proof route is read-only and documents the real 10a14 proof.
 
 ## Architecture decision
 
-The Phase 0 feasibility choice is `PER_USER_VILLA_ACCOUNT_REQUIRED`.
+The product uses `PER_USER_VILLA_ACCOUNT_REQUIRED`.
 
-Phase 2 implements direct deployment of an isolated owner-controlled
-VillaAccount before capital is accepted. The owner account boundary is proven
-for one Shannon testnet lifecycle, including exact deposit, authorization,
-revocation, and owner-only withdrawal. The current DreamDEX Event Contract
-surface still does not prove complete multi-LP delegation for placing,
-cancelling, minting, merging, and settling on behalf of every LP.
+The LP account owns collateral and DreamDEX orders. A separate VILLA operator
+can execute approved account actions only after owner authorization and a fresh
+account-bound preflight. The control plane has no arbitrary destination,
+calldata, withdrawal, or generic transaction relay input.
 
-This choice remains a product boundary, not a change to the frozen VILLA
-engine. The account actions are wallet-mediated Shannon testnet functionality;
-the autonomous engine remains disconnected and Start VILLA remains disabled.
+Start authenticates the owner wallet with a short-lived message signature, then
+sends an empty-body command to the account control route. Stop prevents new
+expansion, cleans only tracked account-owned orders, reconciles state, and
+never withdraws capital. The public release keeps execution disabled.
 
-## In scope for the product
+## User-facing surfaces
 
-- Plain-language explanation of the LP value proposition.
-- Wallet connection and LP onboarding context.
-- Capital allocation, strategy, risk, orders, activity, settlement, and withdrawal concepts.
-- Clear running, paused, halted, stopped, and pending-settlement states.
-- Verified Shannon proof and replay evidence on a separate surface.
-- Honest status, permissions, errors, and safety controls.
+- `/` explains the problem, product, LP value, DreamDEX benefit, and safety model.
+- `/app` guides Connect, Create, Fund, Authorize, Ready, Start, Stop, and Withdraw.
+- `/proof` shows the canonical proof and supporting replay scenes without control calls.
 
-## Not in scope for this phase
+## In scope for the release
 
-- Per-LP account-to-engine delegation and autonomous live execution.
-- A pooled vault.
-- New custody keys.
-- Arbitrary users operating through the existing shared execution wallet.
-- Changes to villa-fv-v1, villa-risk-v1, villa-quote-v1, inventory, rollover, or settlement semantics.
-- Wet production execution, real funds, video recording, or DoraHacks submission.
+- Plain-language product explanation.
+- Wallet and owner-scoped LP onboarding.
+- Exact account capital actions, authorization, revocation, and owner withdrawal.
+- Readiness, safe Start/Stop controls, and clear safe-mode errors.
+- Fair-value, risk, quote, inventory, settlement, and rollover references.
+- Judge-friendly proof and public release documentation.
+
+## Not in scope
+
+- Persistent unrestricted execution.
+- A pooled vault or shared LP capital.
+- Arbitrary user-selected transactions.
+- New custody keys or browser signer handling.
+- Multi-LP production operations.
+- Another wet trading cycle for release presentation.
+
+## Verified release proof
+
+The canonical 10a14 testnet proof confirms a real account-owned order,
+post-order cancellation, paired burn, and final reconciliation. The exact
+identities and hashes are in `docs/ACCOUNT_BOUND_WET_PROOF.md`.
 
 ## Success criteria
 
-1. A first-time visitor can explain what VILLA does without reading backend documentation.
-2. An LP can find the product entry point, understand the capital boundary, and see what remains unavailable.
-3. The application never implies that a disabled capital action succeeded.
-4. Proof and replay evidence are available without competing with the LP's main workflow.
-5. The product language stays factual about testnet evidence and avoids profitability claims.
+1. A first-time visitor understands VILLA without reading backend documentation.
+2. An LP can find the product entry point and understand the capital boundary.
+3. The app never implies that a disabled action succeeded.
+4. Start and Stop expose only constrained account-control requests.
+5. The proof page distinguishes capital/order ownership from operator execution.
+6. Public release claims stay factual about testnet evidence and limitations.
