@@ -183,8 +183,8 @@ The final local release gate recorded:
 | Dashboard | 95/95 release run passing |
 | Operator | 25/25 release run passing |
 | Execution | 210/210 baseline passing |
-| Recovery | 12/12 focused passing |
-| Writer, session, reconciliation, policy | 25/25 focused passing |
+| Recovery | 13/13 focused passing |
+| Writer, session, reconciliation, policy | 72/72 focused passing |
 | Dashboard build | Passing |
 | Solidity account artifact compile | Passing |
 | Secret scan | Clean |

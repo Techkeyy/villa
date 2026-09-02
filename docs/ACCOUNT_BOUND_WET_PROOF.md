@@ -74,8 +74,8 @@ The final release gate recorded these results after public publication and produ
 | Dashboard | 95/95 release run |
 | Operator | 25/25 release run |
 | Execution | 210/210 baseline |
-| Focused recovery | 12/12 |
-| Focused writer/session/reconciliation/policy | 25/25 |
+| Focused recovery | 13/13 |
+| Focused writer/session/reconciliation/policy | 72/72 |
 | Solidity account artifact compile | PASS |
 | Secret scan | CLEAN |
 | Production dependency audit | 0 vulnerabilities |
