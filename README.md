@@ -2,7 +2,7 @@
 
 VILLA is account-bound liquidity infrastructure for DreamDEX Event Contracts on Somnia Shannon. It helps liquidity providers price BTC event markets, manage bounded exposure, and keep each market lifecycle visible.
 
-> Become a DreamDEX liquidity provider without giving up custody of your capital.
+> Provide liquidity on DreamDEX without giving up custody.
 
 [Live app](https://villa-ten-ashen.vercel.app/) · [Verified proof](https://villa-ten-ashen.vercel.app/proof) · [Public repository](https://github.com/Techkeyy/villa)
 
@@ -106,6 +106,10 @@ The final account-bound proof is the BTC 24-hour market ending in `10a14` on Sha
 - one post-only `SELL_YES` order at `0.356`, quantity `1000` raw;
 - order ID `166020696663386049266`;
 - order owner verified as the `VillaAccount`;
+- MINT TX: `0x0389fac8ca7fe56bf6b2b96324fd69dd4799845926e920fe136627445171b972`;
+- ORDER TX: `0xbb4e0d8b33259858dee23a50ce9bbd8dac60fe3b52a803fdce260a429ba89e6d`;
+- CANCEL TX: `0x80a3563c92ef35fedfa61af5ae099ce5804cf74e80158615a0e7852a36078735`;
+- BURN TX: `0xb645b3b0b9ffbc7cd72c1b40aaca0f2f344afe64fb2c6c1145fa56fe81f0b87e`;
 - cancellation, paired burn, and final reconciliation.
 
 The final account state was `1,002,000` raw tUSDC, zero YES, zero NO, and zero open orders. The owner withdrawal path was not called. The session stopped, the lease was released, and execution remained disabled.

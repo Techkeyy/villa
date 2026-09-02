@@ -47,7 +47,21 @@ button, a { -webkit-tap-highlight-color: transparent; }
 [hidden] { display: none !important; }
 .section { max-width: var(--max); margin: 0 auto; padding: 94px 28px; }
 .section-narrow { max-width: var(--narrow); margin-left: auto; margin-right: auto; padding-left: 28px; padding-right: 28px; }
-.hero { position: relative; max-width: none; margin: 0; padding: 104px max(28px, calc((100vw - var(--max)) / 2 + 28px)) 102px; background: radial-gradient(circle at 82% 22%, rgba(214, 231, 255, .72), transparent 32%), linear-gradient(135deg, #ffffff 0%, #f8fbff 62%, #edf4ff 100%); border-bottom: 1px solid var(--line); }
+.hero { position: relative; isolation: isolate; overflow: hidden; max-width: none; margin: 0; padding: 104px max(28px, calc((100vw - var(--max)) / 2 + 28px)) 102px; background: radial-gradient(circle at 82% 22%, rgba(214, 231, 255, .72), transparent 32%), linear-gradient(135deg, #ffffff 0%, #f8fbff 62%, #edf4ff 100%); border-bottom: 1px solid var(--line); }
+.hero::before { position: absolute; inset: 0; z-index: -2; background: linear-gradient(112deg, transparent 18%, rgba(255, 255, 255, .72) 48%, transparent 78%); content: ""; opacity: .72; animation: hero-sheen 18s ease-in-out infinite alternate; pointer-events: none; }
+.hero-atmosphere { position: absolute; inset: 0; z-index: -1; overflow: hidden; pointer-events: none; }
+.hero-atmosphere span { position: absolute; display: block; }
+.hero-orbit { border: 1px solid rgba(30, 91, 198, .14); border-radius: 50%; transform: rotate(-14deg); animation: hero-orbit 22s ease-in-out infinite alternate; }
+.hero-orbit-one { width: min(52vw, 700px); height: min(52vw, 700px); top: -46%; right: -7%; }
+.hero-orbit-two { width: min(33vw, 460px); height: min(33vw, 460px); top: -17%; right: 10%; border-color: rgba(30, 91, 198, .1); animation-delay: -8s; animation-duration: 26s; }
+.hero-flow { height: 1px; background: linear-gradient(90deg, transparent, rgba(30, 91, 198, .22), rgba(109, 164, 238, .08), transparent); transform-origin: center; --hero-flow-angle: -17deg; animation: hero-flow 16s ease-in-out infinite; }
+.hero-flow-one { width: 82%; top: 31%; right: -10%; }
+.hero-flow-two { width: 66%; top: 64%; left: -12%; opacity: .62; --hero-flow-angle: 16deg; animation-name: hero-flow-two; animation-delay: -7s; animation-duration: 20s; }
+.hero-copy, .hero-visual { position: relative; z-index: 1; }
+@keyframes hero-sheen { from { transform: translateX(-14%); } to { transform: translateX(14%); } }
+@keyframes hero-orbit { from { opacity: .58; transform: translate3d(0, 0, 0) rotate(-14deg); } to { opacity: .92; transform: translate3d(-18px, 12px, 0) rotate(-8deg); } }
+@keyframes hero-flow { 0%, 100% { opacity: .2; transform: translateX(-3%) rotate(var(--hero-flow-angle)); } 50% { opacity: .78; transform: translateX(5%) rotate(var(--hero-flow-angle)); } }
+@keyframes hero-flow-two { 0%, 100% { opacity: .2; transform: translateX(3%) rotate(var(--hero-flow-angle)); } 50% { opacity: .68; transform: translateX(-5%) rotate(var(--hero-flow-angle)); } }
 .split-layout { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(360px, .95fr); gap: 86px; align-items: center; }
 .eyebrow { margin: 0 0 16px; color: var(--blue); font-size: 11px; font-weight: 800; letter-spacing: .14em; line-height: 1.4; }
 h1, h2, h3, p { margin-top: 0; }
@@ -265,6 +279,10 @@ h3 { margin-bottom: 9px; font-size: 19px; line-height: 1.2; letter-spacing: -.02
   .site-nav .button { min-height: 36px; }
   .section, .section-narrow, .hero { padding-right: 20px; padding-left: 20px; }
   .hero { padding-top: 68px; padding-bottom: 72px; }
+  .hero-orbit-one { width: 104vw; height: 104vw; top: -15%; right: -47%; }
+  .hero-orbit-two { width: 72vw; height: 72vw; top: 3%; right: -17%; }
+  .hero-flow-one { width: 125%; top: 28%; right: -34%; }
+  .hero-flow-two { width: 110%; top: 70%; left: -37%; }
   .split-layout, .problem-band, .proof-strip, .proof-overview { grid-template-columns: 1fr; }
   .identity-compare { grid-template-columns: 1fr; }
   .hero-visual { max-width: 560px; }
@@ -315,5 +333,6 @@ h3 { margin-bottom: 9px; font-size: 19px; line-height: 1.2; letter-spacing: -.02
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .hero::before, .hero-atmosphere span { animation: none !important; }
   *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; }
 }

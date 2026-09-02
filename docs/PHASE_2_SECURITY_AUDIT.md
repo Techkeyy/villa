@@ -87,9 +87,9 @@ The README and Phase 2 records were read before the checks. Checkable claims inc
 
 ### Phase 1: mechanical hygiene
 
-- `npm test`: 470 passing.
-- `npm run operator:test`: 17 passing.
-- `npm run dashboard:test`: 87 passing.
+- Current final-release `npm test`: 651 passing.
+- Current final-release `npm run operator:test`: 25 passing.
+- Current final-release `npm run dashboard:test`: 95 passing.
 - `npm run dashboard:build`: passed.
 - `npm audit --omit=dev --audit-level=high`: 0 vulnerabilities.
 - `git diff --check`: passed.

@@ -71,7 +71,7 @@ function accountBoundScene() {
         "VILLA never called the owner withdrawal path. Execution is now disabled and the session is stopped.",
       ],
       facts: [
-        "Canonical market: BTC 24-hour, marketId ending 10a14",
+        "Canonical market ID: 0x0000000000000000000000000000000000000000000000000000000000010a14 (BTC 24-hour)",
         "Mint confirmed, minimum amount: 1000 raw",
         "Order confirmed: SELL_YES, price 0.356, quantity 1000 raw",
         "Order owner matched VillaAccount: YES",

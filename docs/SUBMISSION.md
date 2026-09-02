@@ -79,6 +79,10 @@ The canonical proof used BTC 24-hour market `0x000000000000000000000000000000000
 - One minimum `1000` raw mint.
 - One post-only `SELL_YES` order at `0.356`, quantity `1000` raw.
 - Order ID `166020696663386049266`.
+- MINT TX `0x0389fac8ca7fe56bf6b2b96324fd69dd4799845926e920fe136627445171b972`.
+- ORDER TX `0xbb4e0d8b33259858dee23a50ce9bbd8dac60fe3b52a803fdce260a429ba89e6d`.
+- CANCEL TX `0x80a3563c92ef35fedfa61af5ae099ce5804cf74e80158615a0e7852a36078735`.
+- BURN TX `0xb645b3b0b9ffbc7cd72c1b40aaca0f2f344afe64fb2c6c1145fa56fe81f0b87e`.
 - DreamDEX order owner matched the VillaAccount.
 - Cancel and paired burn completed.
 - Final collateral was `1,002,000` raw tUSDC, with zero YES, zero NO, and zero open orders.

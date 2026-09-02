@@ -18,6 +18,7 @@ test("canonical replay is the verified account-bound release proof", () => {
   const envelope = buildReplayEnvelope("account-bound");
   assert.equal(envelope.scene, "account-bound");
   assert.equal(envelope.snapshot.market.marketId, MARKET);
+  assert.ok(envelope.evidence.facts.some((fact) => fact.includes(MARKET)));
   assert.equal(envelope.evidence.identity.owner, OWNER);
   assert.equal(envelope.evidence.identity.account, ACCOUNT);
   assert.equal(envelope.evidence.identity.operator, OPERATOR);

@@ -11,15 +11,16 @@ test("public explainer is the default layer with clean product routes", () => {
   assert.match(html, /data-page="landing"/);
   assert.match(html, /href="\/app"/);
   assert.match(html, /href="\/proof"/);
-  assert.match(html, /Become a DreamDEX liquidity provider without giving up custody of your capital/);
-  assert.match(html, /For liquidity providers and operators/i);
-  assert.match(html, /View verified replay/);
+  assert.match(html, /Provide liquidity on DreamDEX without giving up custody/);
+  assert.match(html, /each liquidity provider/i);
+  assert.match(html, /Start with your VILLA account/);
+  assert.match(html, /See the live proof/);
   assert.match(html, /id="how-it-works"/);
   assert.match(html, /THE OPERATOR PROBLEM/);
   assert.match(html, /WHAT VILLA DOES/);
   assert.match(html, /WHY DREAMDEX BENEFITS/);
   assert.match(html, /RISK AND SAFETY/);
-  assert.match(html, /Enter operator console/);
+  assert.match(html, /Launch VILLA/);
   assert.doesNotMatch(app, /params\.get\("mode"\)/);
 });
 
@@ -62,5 +63,10 @@ test("visual system is light, blue, responsive, and accessible", () => {
   assert.match(css, /max-width: 440px/);
   assert.match(css, /radial-gradient/);
   assert.match(css, /linear-gradient/);
+  assert.match(html, /class="hero-atmosphere" aria-hidden="true"/);
+  assert.match(css, /isolation:\s*isolate/);
+  assert.match(css, /animation: none !important/);
+  assert.match(css, /hero-atmosphere/);
+  assert.match(css, /hero-sheen/);
   assert.doesNotMatch(css, /backdrop-filter/);
 });
