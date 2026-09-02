@@ -117,8 +117,8 @@ and broader venue coverage remain future work.
 
 ## Submission checklist
 
-- [x] Public repository prepared.
-- [x] Public app and proof URLs prepared.
+- [x] Public repository published and verified.
+- [x] Public app and proof URLs deployed and verified.
 - [x] Canonical account-bound proof documented.
 - [x] README and demo script updated.
 - [ ] Operator records and uploads the 2 to 3 minute video.

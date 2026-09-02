@@ -3,7 +3,7 @@
 Audit date: 2026-09-02
 Repository: C:\Users\HomePC\Desktop\villa
 Branch: master
-Audit status: LOCAL RELEASE PASS; publication and production smoke verification remain release gates.
+Audit status: FINAL RELEASE PASS; public GitHub and Vercel production verification completed.
 
 This is the final release audit for the account-bound product surface. It
 does not authorize another wet cycle, a transaction, signer changes, or
@@ -96,7 +96,12 @@ existing dashboard modules. The public API handlers expose only replay,
 scenes, and operator configuration. VILLA_ENGINE_API_URL is the only engine
 configuration intended for Vercel. The private signer remains on the VPS.
 
-The final public repository must contain only legitimate release files. The
+Verified production surfaces: Vercel /, /app, /proof, /api/scenes, and
+the account-bound snapshot returned 200; the public engine /health returned
+state STOPPED with execution disabled; exact Vercel-origin CORS was returned;
+and unauthenticated /account/state returned 401.
+
+The public repository contains only legitimate release files. The
 untracked BreakFix and phase2b_patch directories, environment files, keys,
 credentials, runtime state, scratch data, and temporary logs are excluded.
 
@@ -132,17 +137,17 @@ The release tests cover:
 
 ## 10. Verified gates
 
-Final values are recorded with the release report after execution:
-- full regression;
-- dashboard and browser runtime tests;
-- operator tests;
-- execution, recovery, writer, session, reconciliation, and policy tests;
-- Solidity account artifact compilation and runtime verification;
+Final values are recorded from the completed release gates:
+- full regression: 651/651 passed;
+- dashboard and browser runtime tests: 95/95 passed;
+- operator tests: 25/25 passed;
+- execution: 210/210 passed; focused recovery/writer/session/reconciliation/policy gates passed;
+- Solidity account artifact compilation and runtime identity verification;
 - dashboard production build;
-- HTTP smoke;
+- HTTP smoke and public route checks;
 - UI text audit;
 - secret scan;
-- production dependency audit;
+- production dependency audit: 0 vulnerabilities;
 - diff check.
 
 ## 11. Findings
@@ -152,12 +157,10 @@ The public product is safe-mode, not an always-on autonomous production daemon.
 Market data changes, realized PnL is not claimed, and multi-LP or broader venue
 operations remain future work.
 
-Publication is incomplete until the release commit is pushed and the public
-repository and production routes are rechecked. Video recording and DoraHacks
+Public GitHub and Vercel publication are verified. Video recording and DoraHacks
 submission remain human actions outside this task.
 
 ## 12. Verdict
 
-Local product, proof, control boundary, and private-runtime safety are ready
-for final release gates. Do not enable execution, send transactions, record
+Product, proof, control boundary, private-runtime safety, and public routes are release-ready. Do not enable execution, send transactions, record
 the final video, or submit DoraHacks as part of this release task.

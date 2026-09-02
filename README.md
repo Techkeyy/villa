@@ -181,7 +181,7 @@ The final local release gate recorded:
 | --- | --- |
 | Full regression | 651/651 release run passing |
 | Dashboard | 95/95 release run passing |
-| Operator | 24/24 baseline passing |
+| Operator | 25/25 release run passing |
 | Execution | 210/210 baseline passing |
 | Recovery | 12/12 focused passing |
 | Writer, session, reconciliation, policy | 25/25 focused passing |

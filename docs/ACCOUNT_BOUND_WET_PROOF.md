@@ -66,13 +66,13 @@ The proof demonstrates account ownership and constrained operator scope. The acc
 
 ## Release verification
 
-The release gate recorded these results before publication:
+The final release gate recorded these results after public publication and production verification:
 
 | Gate | Result |
 | --- | --- |
 | Full regression | 651/651 release run |
 | Dashboard | 95/95 release run |
-| Operator | 24/24 baseline |
+| Operator | 25/25 release run |
 | Execution | 210/210 baseline |
 | Focused recovery | 12/12 |
 | Focused writer/session/reconciliation/policy | 25/25 |
