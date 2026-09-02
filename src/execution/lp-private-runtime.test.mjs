@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import os from "node:os";
+import path from "node:path";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import { createLpExecutionAdapter } from "./lp-adapter.mjs";
 import { runPrivateLpOneShotEntry } from "./lp-private-runtime-entry.mjs";
@@ -40,6 +42,7 @@ function feasibility(operator) {
 test("private runtime dry one-shot reaches the writer boundary with zero broadcasts", async () => {
   const privateKey = generatePrivateKey();
   const signer = privateKeyToAccount(privateKey);
+  const journalPath = path.join(os.tmpdir(), `villa-private-runtime-test-${process.pid}.json`);
   const operator = signer.address;
   const sessionId = "dry-runtime-test";
   const adapter = fixtureAdapter(sessionId, operator);
@@ -51,7 +54,7 @@ test("private runtime dry one-shot reaches the writer boundary with zero broadca
   };
   let released = false;
   const result = await runPrivateLpOneShotEntry({
-    env: { VILLA_ENGINE_ACCOUNT: ACCOUNT, VILLA_ENGINE_OWNER: OWNER, VILLA_ENGINE_OPERATOR: operator, VILLA_ENGINE_CHAIN_ID: "50312", VILLA_ENGINE_MARKET_ID: MARKET, VILLA_ENGINE_MARKET_SERIES: "BINARY:BTC:86400", VILLA_ENGINE_MARKET_INTERVAL_SEC: "86400", VILLA_ENGINE_SESSION_ID: sessionId, VILLA_EXECUTION_MODE: "WET", VILLA_EXECUTION_ENABLED: "false", CREDENTIALS_DIRECTORY: "private-test" },
+    env: { VILLA_ENGINE_ACCOUNT: ACCOUNT, VILLA_ENGINE_OWNER: OWNER, VILLA_ENGINE_OPERATOR: operator, VILLA_ENGINE_CHAIN_ID: "50312", VILLA_ENGINE_MARKET_ID: MARKET, VILLA_ENGINE_MARKET_SERIES: "BINARY:BTC:86400", VILLA_ENGINE_MARKET_INTERVAL_SEC: "86400", VILLA_ENGINE_SESSION_ID: sessionId, VILLA_EXECUTION_MODE: "WET", VILLA_EXECUTION_ENABLED: "false", CREDENTIALS_DIRECTORY: "private-test", VILLA_WRITER_JOURNAL: journalPath },
     args: { oneCycle: true, account: ACCOUNT, sessionId, marketId: MARKET },
     dependencies: {
       publicClient,
