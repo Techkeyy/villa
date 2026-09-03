@@ -37,9 +37,11 @@ account-bound preflight. The control plane has no arbitrary destination,
 calldata, withdrawal, or generic transaction relay input.
 
 Start authenticates the owner wallet with a short-lived message signature, then
-sends an empty-body command to the account control route. Stop prevents new
-expansion, cleans only tracked account-owned orders, reconciles state, and
-never withdraws capital. The public release keeps execution disabled.
+sends only the selected VillaAccount identity to the account control route.
+The server verifies that identity before invoking an isolated owner-account
+session. Stop prevents new expansion, cleans only tracked account-owned orders,
+reconciles state, and never withdraws capital. The public release keeps
+execution disabled.
 
 ## User-facing surfaces
 
@@ -62,7 +64,7 @@ never withdraws capital. The public release keeps execution disabled.
 - A pooled vault or shared LP capital.
 - Arbitrary user-selected transactions.
 - New custody keys or browser signer handling.
-- Multi-LP production operations.
+- Unbounded or pooled multi-LP custody.
 - Another wet trading cycle for release presentation.
 
 ## Verified release proof

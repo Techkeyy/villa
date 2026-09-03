@@ -27,11 +27,12 @@ function sessionValue() {
 
 export function createOperatorAuth({
   authorizedAddress,
+  allowAnyAddress = false,
   now = () => Date.now(),
   nonceTtlMs = 5 * 60 * 1000,
   sessionTtlMs = 15 * 60 * 1000,
 } = {}) {
-  const authorized = addressKey(authorizedAddress);
+  const authorized = allowAnyAddress ? null : addressKey(authorizedAddress);
   const nonces = new Map();
   const sessions = new Map();
 
@@ -43,7 +44,7 @@ export function createOperatorAuth({
 
   function messageFor({ address, nonce, expiresAt }) {
     return [
-      "VILLA operator sign-in",
+      allowAnyAddress ? "VILLA account sign-in" : "VILLA operator sign-in",
       `Wallet: ${address}`,
       `Nonce: ${nonce}`,
       `Expires: ${new Date(expiresAt).toISOString()}`,
@@ -64,7 +65,7 @@ export function createOperatorAuth({
   async function verify({ address, nonce, message, signature } = {}) {
     purge();
     const key = addressKey(address);
-    if (key !== authorized) throw new OperatorAuthError("OPERATOR_UNAUTHORIZED", "This wallet is not the authorized VILLA operator wallet.");
+    if (authorized && key !== authorized) throw new OperatorAuthError("OPERATOR_UNAUTHORIZED", "This wallet is not the authorized VILLA operator wallet.");
     const entry = nonces.get(key);
     if (!entry || entry.nonce !== nonce || entry.message !== message) {
       throw new OperatorAuthError("NONCE_INVALID", "The sign-in request is missing, expired, or already used.");
@@ -84,7 +85,7 @@ export function createOperatorAuth({
       const expiresAt = issuedAt + sessionTtlMs;
       const token = sessionValue();
       sessions.set(token, { address, issuedAt, expiresAt });
-      return { version: OPERATOR_AUTH_VERSION, token, operatorAddress: address, issuedAt, expiresAt };
+      return { version: OPERATOR_AUTH_VERSION, token, operatorAddress: authorized ? address : null, accountAddress: allowAnyAddress ? address : null, issuedAt, expiresAt };
     } catch (error) {
       if (error instanceof OperatorAuthError) throw error;
       throw new OperatorAuthError("SIGNATURE_INVALID", "The wallet signature did not verify.", 401);

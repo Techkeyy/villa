@@ -156,8 +156,6 @@ test("production release wires owner-authenticated safe account control", async 
   let runnerSpawns = 0;
   const env = {
     OPERATOR_ADDRESS: operator.address,
-    VILLA_ENGINE_OWNER: owner.address,
-    VILLA_ENGINE_ACCOUNT: villaAccount,
     VILLA_ENGINE_OPERATOR: operator.address,
     VILLA_ALLOWED_ORIGINS: "http://allowed.test",
     VILLA_EXECUTION_ENABLED: "false",
@@ -165,6 +163,7 @@ test("production release wires owner-authenticated safe account control", async 
   const server = createProductionOperatorServer(env, {
     readOnlyReader: async () => ({ mode: "LIVE", snapshot: null }),
     runnerFactory: async () => { runnerSpawns += 1; throw new Error("runner must not spawn"); },
+    accountVerifier: async ({ caller, account }) => ({ account, owner: caller, operator: operator.address, runtimeVerified: true, onChain: true }),
   });
   server.listen(0, "127.0.0.1");
   await once(server, "listening");
@@ -180,16 +179,16 @@ test("production release wires owner-authenticated safe account control", async 
     const verified = await request(base, "/account/auth/verify", { method: "POST", body: { ...nonce.body, signature } });
     assert.equal(verified.status, 200);
     const token = verified.body.token;
-    const state = await request(base, "/account/state", { token });
+    const state = await request(base, "/account/state?account=" + villaAccount, { token });
     assert.equal(state.status, 200);
     assert.equal(state.body.safety.executionEnabled, false);
     assert.equal(state.body.safety.arbitraryRelay, false);
     assert.equal(state.body.safety.withdrawViaControl, false);
     assert.ok(state.body.readiness.reasons.includes("EXECUTION_DISABLED"));
-    const started = await request(base, "/account/session/start", { method: "POST", token, body: {} });
+    const started = await request(base, "/account/session/start", { method: "POST", token, body: { account: villaAccount } });
     assert.equal(started.status, 423);
     assert.equal(started.body.code, "EXECUTION_DISABLED");
-    const stopped = await request(base, "/account/session/stop", { method: "POST", token, body: {} });
+    const stopped = await request(base, "/account/session/stop", { method: "POST", token, body: { account: villaAccount } });
     assert.equal(stopped.status, 202);
     assert.equal(stopped.body.executionEnabled, false);
     assert.equal(runnerSpawns, 0);
@@ -199,6 +198,7 @@ test("production release wires owner-authenticated safe account control", async 
 });
 test("optional account control routes are wallet-authenticated and reject arbitrary relay fields", async () => {
   const account = privateKeyToAccount(generatePrivateKey());
+  const villaAccount = "0x4444444444444444444444444444444444444444";
   const calls = [];
   const server = createOperatorApiServer({
     control: { async getState() { return { state: "STOPPED", executionEnabled: false }; } },
@@ -219,19 +219,19 @@ test("optional account control routes are wallet-authenticated and reject arbitr
     const signature = await account.signMessage({ message: nonce.body.message });
     const verified = await request(base, "/auth/verify", { method: "POST", body: { ...nonce.body, signature } });
     const token = verified.body.token;
-    const state = await request(base, "/account/state", { token });
+    const state = await request(base, "/account/state?account=" + villaAccount, { token });
     assert.equal(state.status, 200);
     assert.equal(calls[0][1].caller.toLowerCase(), account.address.toLowerCase());
-    const started = await request(base, "/account/session/start", { method: "POST", token, body: {} });
+    const started = await request(base, "/account/session/start", { method: "POST", token, body: { account: villaAccount } });
     assert.equal(started.status, 202);
     assert.equal(calls[1][0], "start");
-    const arbitrary = await request(base, "/account/session/start", { method: "POST", token, body: { destination: account.address } });
+    const arbitrary = await request(base, "/account/session/start", { method: "POST", token, body: { account: villaAccount, destination: account.address } });
     assert.equal(arbitrary.status, 400);
     assert.equal(arbitrary.body.code, "ARBITRARY_CALL_DENIED");
-    const settled = await request(base, "/account/session/settle", { method: "POST", token, body: {} });
+    const settled = await request(base, "/account/session/settle", { method: "POST", token, body: { account: villaAccount } });
     assert.equal(settled.status, 202);
     assert.equal(calls[2][0], "settle");
-    const arbitrarySettle = await request(base, "/account/session/settle", { method: "POST", token, body: { destination: account.address } });
+    const arbitrarySettle = await request(base, "/account/session/settle", { method: "POST", token, body: { account: villaAccount, destination: account.address } });
     assert.equal(arbitrarySettle.status, 400);
     assert.equal(arbitrarySettle.body.code, "ARBITRARY_CALL_DENIED");
     assert.equal(calls.length, 3);
@@ -243,6 +243,7 @@ test("optional account control routes are wallet-authenticated and reject arbitr
 test("account control can use a separate owner-auth session", async () => {
   const operator = privateKeyToAccount(generatePrivateKey());
   const owner = privateKeyToAccount(generatePrivateKey());
+  const villaAccount = "0x5555555555555555555555555555555555555555";
   const calls = [];
   const server = createOperatorApiServer({
     control: { async getState() { return { state: "STOPPED", executionEnabled: false }; } },
@@ -268,7 +269,7 @@ test("account control can use a separate owner-auth session", async () => {
     const signature = await owner.signMessage({ message: nonce.body.message });
     const verified = await request(base, "/account/auth/verify", { method: "POST", body: { ...nonce.body, signature } });
     assert.equal(verified.status, 200);
-    const state = await request(base, "/account/state", { token: verified.body.token });
+    const state = await request(base, "/account/state?account=" + villaAccount, { token: verified.body.token });
     assert.equal(state.status, 200);
     assert.equal(calls[0].caller.toLowerCase(), owner.address.toLowerCase());
   } finally {

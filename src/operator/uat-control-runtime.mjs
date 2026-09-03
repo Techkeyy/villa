@@ -1,5 +1,5 @@
 /**
- * Owner-allowlisted manual-UAT control plane.
+ * One-account private UAT control bridge.
  *
  * The production launcher starts a root-owned systemd template as the
  * private `villa-engine` user. The public API never receives the signer or
@@ -11,6 +11,7 @@ import fs from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
 import { execFile } from "node:child_process";
+import net from "node:net";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { AccountControlError } from "./account-control.mjs";
@@ -81,6 +82,47 @@ function commandPromise(commandRunner, command, args) {
   });
 }
 
+function brokerPromise(socketPath, action, sessionId, owner, account) {
+  return new Promise((resolve, reject) => {
+    const socket = net.createConnection(socketPath);
+    let body = "";
+    let settled = false;
+    const finish = (error, value) => {
+      if (settled) return;
+      settled = true;
+      socket.destroy();
+      if (error) reject(error); else resolve(value);
+    };
+    const timer = setTimeout(() => finish(new AccountControlError("UAT_BROKER_TIMEOUT", "The private account broker did not respond in time.", 503)), 15_000);
+    socket.on("connect", () => {
+      const request = { action, sessionId, owner, account };
+      socket.write(`${JSON.stringify(request)}\n`);
+    });
+    socket.on("data", (chunk) => {
+      body += String(chunk);
+      if (body.length > 16 * 1024) {
+        clearTimeout(timer);
+        finish(new AccountControlError("UAT_BROKER_INVALID", "The private account broker returned an invalid response.", 503));
+        return;
+      }
+      const newline = body.indexOf("\n");
+      if (newline < 0) return;
+      clearTimeout(timer);
+      try {
+        const response = JSON.parse(body.slice(0, newline));
+        if (response?.ok !== true) throw new AccountControlError(String(response?.code ?? "UAT_BROKER_FAILED"), String(response?.error ?? "The private account broker refused the operation."), 503);
+        finish(null);
+      } catch (error) {
+        finish(error instanceof AccountControlError ? error : new AccountControlError("UAT_BROKER_INVALID", "The private account broker returned an invalid response.", 503));
+      }
+    });
+    socket.on("error", (error) => {
+      clearTimeout(timer);
+      finish(new AccountControlError("UAT_BROKER_UNAVAILABLE", "The private account broker could not be reached.", 503, { cause: error?.code ?? "SOCKET_ERROR" }));
+    });
+  });
+}
+
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -108,6 +150,7 @@ export function createUatAccountControl({
 
   const credentialsDirectory = String(env.VILLA_ENGINE_CREDENTIALS_DIRECTORY ?? env.CREDENTIALS_DIRECTORY ?? "");
   const stateDirectory = String(env.VILLA_UAT_STATUS_DIRECTORY ?? env.VILLA_UAT_STATE_DIRECTORY ?? "/run/villa-uat-status");
+  const brokerSocket = String(env.VILLA_UAT_BROKER_SOCKET ?? (process.platform === "linux" && launchMode === "systemd" ? "/run/villa-uat-broker/control.sock" : ""));
   if (launchMode === "process" && !credentialsDirectory) throw new AccountControlError("UAT_CONFIG_INVALID", "a private engine credential directory is required for process launch", 500);
   if (launchMode === "systemd" && !stateDirectory) throw new AccountControlError("UAT_CONFIG_INVALID", "a private UAT state directory is required for systemd launch", 500);
 
@@ -132,7 +175,9 @@ export function createUatAccountControl({
     if (!["start", "stop", "settle"].includes(action) || !SESSION_RE.test(String(sessionId))) {
       throw new AccountControlError("UAT_SERVICE_SCOPE_INVALID", "the private UAT service operation is outside the fixed scope", 403);
     }
-    return commandPromise(commandRunner, SERVICE_WRAPPER, [action, sessionId]);
+    const args = [action, sessionId];
+    if (brokerSocket) return brokerPromise(brokerSocket, action, sessionId, owner, account);
+    return commandPromise(commandRunner, SERVICE_WRAPPER, args);
 
   }
 
@@ -151,7 +196,7 @@ export function createUatAccountControl({
         signerInBrowser: false,
         arbitraryRelay: false,
         withdrawViaControl: false,
-        accountAllowlisted: true,
+        accountScope: "verified-owner-account",
         privateService: launchMode === "systemd",
       }),
       controls: Object.freeze({

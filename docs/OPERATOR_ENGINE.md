@@ -17,11 +17,13 @@ execution explicitly disabled.
   makes it available only as the private `operator-key` credential to the
   private engine process.
 
-The engine binds one immutable session to the configured owner, VillaAccount,
-canonical operator, Shannon chain `50312`, BTC 24-hour series, exact market,
-and one session ID. It reads the account and market from chain/venue sources,
-then revalidates readiness, risk, capital, protocol permissions, order state,
-and reconciliation before it can create a writer.
+The engine binds each session to the authenticated owner, the independently
+verified VillaAccount, canonical operator, Shannon chain `50312`, exact market
+series, exact market, and one session ID. The root account broker rechecks
+owner, audited bytecode, contract wiring, and operator authorization before it
+creates a root-owned session binding. It reads the account and market from
+chain/venue sources, then revalidates readiness, risk, capital, protocol
+permissions, order state, and reconciliation before it can create a writer.
 
 ## Typed writer boundary
 
@@ -72,10 +74,11 @@ order/mint/pending exposure `250,000` raw, at most two open orders, a
 
 ## Public API and frontend
 
-`GET /health` remains a non-writable service check. The existing wallet
-signature routes authenticate the operator for control-plane reads/actions;
-message signing does not send a blockchain transaction. With execution false,
-`POST /session/start` returns `EXECUTION_DISABLED` and must not spawn a
+`GET /health` remains a non-writable service check. Account control uses a
+short-lived owner-wallet message signature plus an explicit VillaAccount
+selector; the server verifies the pairing before each account action. Message
+signing does not send a blockchain transaction. With execution false,
+`POST /account/session/start` returns `EXECUTION_DISABLED` and must not spawn a
 writer.
 
 The public frontend may know only the HTTPS engine origin through

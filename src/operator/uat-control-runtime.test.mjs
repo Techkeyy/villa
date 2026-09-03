@@ -71,6 +71,7 @@ test("systemd UAT bridge uses only the fixed wrapper and settles the same sessio
   assert.deepEqual(commandPaths, ["/usr/local/libexec/villa-uat-control"]);
   assert.match(commands[0][1], /^uat-\d+-[0-9a-f]{8}$/);
   assert.equal(commands[0][0], "start");
+  assert.equal(commands[0].length, 2);
   await control.stop({ caller: OWNER });
   assert.equal((await control.getState({ caller: OWNER })).state, "STOPPED_SETTLEMENT_PENDING");
   assert.equal((await control.getState({ caller: OWNER })).controls.canSettle, true);

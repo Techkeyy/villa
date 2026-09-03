@@ -29,8 +29,7 @@ User=villa-engine
 Group=villa-engine
 WorkingDirectory=/opt/villa-private-runtime
 ExecStart=/usr/bin/node /opt/villa-private-runtime/scripts/lp-account-session-service.mjs
-Environment=VILLA_ENGINE_OWNER=0xEFe0412781d3c1e7888b2DB9dEEcA3037542494d
-Environment=VILLA_ENGINE_ACCOUNT=0x3A46446A30F945d390A41dAab0D390fBEf3d2cF2
+EnvironmentFile=-/run/villa-uat-bindings/%i.env
 Environment=VILLA_ENGINE_OPERATOR=0xaf4ee6C0c6Ff6337F4C4F07b87C8343dF73e8d37
 Environment=VILLA_ENGINE_SESSION_ID=%i
 Environment=VILLA_UAT_SESSION_EXECUTION=true
@@ -82,8 +81,7 @@ User=villa-engine
 Group=villa-engine
 WorkingDirectory=/opt/villa-private-runtime
 ExecStart=/usr/bin/node /opt/villa-private-runtime/scripts/lp-account-settlement.mjs
-Environment=VILLA_ENGINE_OWNER=0xEFe0412781d3c1e7888b2DB9dEEcA3037542494d
-Environment=VILLA_ENGINE_ACCOUNT=0x3A46446A30F945d390A41dAab0D390fBEf3d2cF2
+EnvironmentFile=-/run/villa-uat-bindings/%i.env
 Environment=VILLA_ENGINE_OPERATOR=0xaf4ee6C0c6Ff6337F4C4F07b87C8343dF73e8d37
 Environment=VILLA_ENGINE_SESSION_ID=%i
 Environment=VILLA_UAT_SESSION_EXECUTION=false
@@ -121,15 +119,52 @@ RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 ReadWritePaths=/run/villa-uat-status /var/lib/villa-engine
 `;
 
+const BROKER_UNIT = `[Unit]
+Description=VILLA root account-session broker
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+Group=villa
+WorkingDirectory=/opt/villa-private-runtime
+ExecStart=/usr/bin/node /opt/villa-private-runtime/scripts/villa-uat-broker.mjs
+Environment=VILLA_UAT_BROKER_SOCKET=/run/villa-uat-broker/control.sock
+Environment=VILLA_ENGINE_OPERATOR=0xaf4ee6C0c6Ff6337F4C4F07b87C8343dF73e8d37
+UMask=0007
+PrivateTmp=true
+PrivateDevices=true
+ProtectHome=true
+ProtectSystem=strict
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictNamespaces=true
+CapabilityBoundingSet=CAP_CHOWN CAP_DAC_OVERRIDE CAP_FOWNER CAP_SETGID CAP_SETUID CAP_KILL
+AmbientCapabilities=CAP_CHOWN CAP_DAC_OVERRIDE CAP_FOWNER CAP_SETGID CAP_SETUID CAP_KILL
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+ReadWritePaths=/run/villa-uat-broker /run/villa-uat-bindings
+Restart=no
+
+[Install]
+WantedBy=multi-user.target
+`;
+
 export const PRIVATE_RUNTIME_ROOT = "/opt/villa-private-runtime";
 export const PRIVATE_STATE_ROOT = "/var/lib/villa-engine";
 export const STATUS_ROOT = "/run/villa-uat-status";
+export const BINDING_ROOT = "/run/villa-uat-bindings";
+export const BROKER_ROOT = "/run/villa-uat-broker";
 
 export const PRIVATE_DEPLOYMENT_FILES = Object.freeze({
   "usr/local/libexec/villa-uat-control": WRAPPER,
   "etc/systemd/system/villa-engine-uat@.service": SESSION_UNIT,
   "etc/systemd/system/villa-engine-uat-settle@.service": SETTLEMENT_UNIT,
-  "etc/tmpfiles.d/villa-uat.conf": "d /run/villa-uat-status 2750 villa-engine villa -\n",
+  "etc/systemd/system/villa-uat-broker.service": BROKER_UNIT,
+  "etc/tmpfiles.d/villa-uat.conf": "d /run/villa-uat-status 2750 villa-engine villa -\nd /run/villa-uat-bindings 2750 root root -\nd /run/villa-uat-broker 2750 root villa -\n",
   "etc/sudoers.d/villa-uat-control": "Cmnd_Alias VILLA_UAT_CONTROL = /usr/local/libexec/villa-uat-control\nvilla ALL=(root) NOPASSWD: VILLA_UAT_CONTROL\nDefaults!VILLA_UAT_CONTROL !setenv\n",
 });
 
@@ -137,11 +172,13 @@ export const PRIVATE_DEPLOYMENT_MODES = Object.freeze({
   "usr/local/libexec/villa-uat-control": 0o755,
   "etc/systemd/system/villa-engine-uat@.service": 0o644,
   "etc/systemd/system/villa-engine-uat-settle@.service": 0o644,
+  "etc/systemd/system/villa-uat-broker.service": 0o644,
   "etc/tmpfiles.d/villa-uat.conf": 0o644,
   "etc/sudoers.d/villa-uat-control": 0o440,
 });
 
 export const PRIVATE_RUNTIME_ENTRIES = Object.freeze([
+  "scripts/villa-uat-broker.mjs",
   "scripts/lp-account-session-service.mjs",
   "scripts/lp-account-session.mjs",
   "scripts/lp-account-settlement.mjs",

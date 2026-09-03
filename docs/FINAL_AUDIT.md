@@ -3,7 +3,7 @@
 Audit date: 2026-09-02
 Repository: public VILLA repository
 Branch: master
-Audit status: FINAL RELEASE PASS; public GitHub and Vercel production verification completed.
+Audit status: FINAL RELEASE PASS for the local repair; public production re-verification is pending deployment of this commit.
 
 This is the final release audit for the account-bound product surface. It
 does not authorize another wet cycle, a transaction, signer changes, or
@@ -70,16 +70,17 @@ yield guarantee is claimed.
 ## 5. Control-plane audit
 
 The browser control client has only fixed operations for authentication, state,
-Start, and Stop. Start and Stop send an empty JSON object. The browser cannot
-supply a destination, calldata, selector, amount, market override, withdrawal
-instruction, or generic transaction payload.
+Start, and Stop. Account control sends only the selected VillaAccount identity.
+The browser cannot supply a destination, calldata, selector, amount, market
+override, withdrawal instruction, or generic transaction payload.
 
-The production operator entrypoint now wires the existing account-bound seam
-from configured owner/account/operator identities. In release mode,
-executionEnabled is false. Owner authentication may establish a short-lived
-control session, but Start returns EXECUTION_DISABLED before any writer or
-runner is reached. Stop returns a safe stopped state and never withdraws
-capital. A future armed session requires a separate owner-approved gate.
+The production operator entrypoint verifies the authenticated owner against the
+selected VillaAccount on chain, then creates an isolated account-scoped bridge.
+In release mode, executionEnabled is false. Owner authentication may establish
+a short-lived control session, but Start returns EXECUTION_DISABLED before any
+writer or runner is reached. Stop returns a safe stopped state and never
+withdraws capital. A future armed session remains subject to the same account
+identity and preflight gates.
 
 ## 6. Signer and private runtime audit
 
@@ -92,14 +93,14 @@ returned.
 ## 7. Deployment audit
 
 The Vercel build copies and verifies control-client.mjs together with the
-existing dashboard modules. The public API handlers expose only replay,
-scenes, and operator configuration. VILLA_ENGINE_API_URL is the only engine
-configuration intended for Vercel. The private signer remains on the VPS.
+existing dashboard modules. The public API handlers expose replay, scenes,
+operator configuration, and authenticated account-scoped controls without a
+signer. VILLA_ENGINE_API_URL is the only engine configuration intended for
+Vercel. The private signer remains on the VPS.
 
-Verified production surfaces: Vercel /, /app, /proof, /api/scenes, and
-the account-bound snapshot returned 200; the public engine /health returned
-state STOPPED with execution disabled; exact Vercel-origin CORS was returned;
-and unauthenticated /account/state returned 401.
+This code-only repair was not deployed. Consequently, public /, /app, /proof,
+engine health, CORS, and production API behavior require post-deployment
+verification and are not reasserted as newly verified by this audit.
 
 The public repository contains only legitimate release files. The
 untracked BreakFix and phase2b_patch directories, environment files, keys,
@@ -125,7 +126,7 @@ The release tests cover:
 - owner/account identity mismatch;
 - exact owner-only funding, authorization, and withdrawal paths;
 - arbitrary control payload rejection;
-- empty-body Start and Stop requests;
+- explicit account-selector Start and Stop requests;
 - wallet signature cancellation;
 - safe Start refusal while execution is disabled;
 - zero runner invocation on disabled Start;
@@ -138,9 +139,9 @@ The release tests cover:
 ## 10. Verified gates
 
 Final values are recorded from the completed release gates:
-- full regression: 651/651 passed;
-- dashboard and browser runtime tests: 95/95 passed;
-- operator tests: 25/25 passed;
+- full regression: 664/664 passed;
+- dashboard and browser runtime tests: 97/97 passed;
+- operator tests: 41/41 passed;
 - execution: 210/210 passed; focused recovery/writer/session/reconciliation/policy gates passed;
 - Solidity account artifact compilation and runtime identity verification;
 - dashboard production build;
@@ -152,15 +153,15 @@ Final values are recorded from the completed release gates:
 
 ## 11. Findings
 
-No release-blocking security finding remains in the local release scope.
+No release-blocking security finding remains in the local repair scope.
 The public product is safe-mode, not an always-on autonomous production daemon.
-Market data changes, realized PnL is not claimed, and multi-LP or broader venue
-operations remain future work.
-
-Public GitHub and Vercel publication are verified. Video recording and DoraHacks
-submission remain human actions outside this task.
+Market data changes and realized PnL are not claimed. Public production
+re-verification remains pending deployment of this commit. Video recording and
+DoraHacks submission remain human actions outside this task.
 
 ## 12. Verdict
 
-Product, proof, control boundary, private-runtime safety, and public routes are release-ready. Do not enable execution, send transactions, record
-the final video, or submit DoraHacks as part of this release task.
+Product, proof, control boundary, private-runtime safety, and local public-route
+build are release-ready pending production redeployment verification. Do not
+enable execution, send transactions, record the final video, or submit
+DoraHacks as part of this release task.

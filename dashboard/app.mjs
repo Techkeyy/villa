@@ -29,7 +29,7 @@ import { createAuthorizationHandler, runAuthorization } from "./authorization-fl
 import { ControlClientError, createAccountControlClient } from "./control-client.mjs";
 import { ensureUatMonitor, renderUatMonitor } from "./uat-monitor.mjs";
 
-const page = window.location.pathname.replace(/\/+$/, "") || "/";
+const page = document.body.dataset.route || window.location.pathname.replace(/\/+$/, "") || "/";
 const ACCOUNT_HINT_PREFIX = "villa.account.owner.";
 
 let provider = null;
@@ -370,7 +370,7 @@ function renderControlControls() {
 }
 
 function controlClientForWallet() {
-  controlClient ??= createAccountControlClient({ provider, ownerProvider: () => appState.owner });
+  controlClient ??= createAccountControlClient({ provider, ownerProvider: () => appState.owner, accountProvider: () => appState.currentAccountAddress });
   return controlClient;
 }
 
@@ -387,7 +387,7 @@ function scheduleControlPoll() {
 }
 
 async function refreshControlState() {
-  if (!provider || !appState.owner || !controlClient) return;
+  if (!provider || !appState.owner || !appState.currentAccountAddress || !controlClient) return;
   try {
     const payload = await controlClient.state();
     const state = String(payload?.state || payload?.session?.state || "STOPPED").toUpperCase();

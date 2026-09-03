@@ -92,11 +92,12 @@ The exact transaction hashes are in [`docs/ACCOUNT_BOUND_WET_PROOF.md`](ACCOUNT_
 ## Security and non-custodial architecture
 
 The browser receives no execution credential. Start authenticates the owner wallet
-with a short-lived message signature and sends only an empty-body account-bound
-control request. The server owns fresh facts and preflight. Public control
-requests reject arbitrary transaction fields. The private engine keeps its
-signer outside the repository and outside Vercel. Persistent execution remains
-disabled in this release.
+with a short-lived message signature and sends only the selected VillaAccount
+identity. The server independently verifies the account owner, audited runtime,
+contract wiring, canonical operator authorization, and fresh preflight. Public
+control requests reject arbitrary transaction fields. The private engine keeps
+its signer outside the repository and outside Vercel. Persistent execution
+remains disabled in this release.
 
 Stop blocks new expansion, cleans only tracked account-owned orders, reconciles
 state, and never withdraws capital. Owner withdrawal is direct, owner-scoped,
@@ -114,10 +115,10 @@ and destination-free.
 
 ## Limitations
 
-This is a bounded Shannon testnet MVP for a single canonical operator
-configuration. Market data changes, full realized PnL is not claimed, and the
-public release does not run persistent autonomous execution. Multi-LP operations
-and broader venue coverage remain future work.
+This is a bounded Shannon testnet MVP for one canonical operator configuration
+with isolated per-user VillaAccount sessions. Market data changes, full
+realized PnL is not claimed, and the public release does not run persistent
+autonomous execution. Broader venue coverage remains future work.
 
 ## Submission checklist
 

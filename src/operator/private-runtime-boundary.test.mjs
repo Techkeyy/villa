@@ -15,6 +15,7 @@ import {
 const ROOT = path.resolve(fileURLToPath(new URL("../..", import.meta.url)));
 const sessionUnit = PRIVATE_DEPLOYMENT_FILES["etc/systemd/system/villa-engine-uat@.service"];
 const settlementUnit = PRIVATE_DEPLOYMENT_FILES["etc/systemd/system/villa-engine-uat-settle@.service"];
+const brokerUnit = PRIVATE_DEPLOYMENT_FILES["etc/systemd/system/villa-uat-broker.service"];
 const wrapper = PRIVATE_DEPLOYMENT_FILES["usr/local/libexec/villa-uat-control"];
 
 test("private services are pinned to the root-controlled runtime and private state", () => {
@@ -26,6 +27,9 @@ test("private services are pinned to the root-controlled runtime and private sta
     assert.doesNotMatch(unit, /Group=villa\n/);
     assert.match(unit, /Environment=VILLA_UAT_PRIVATE_STATE_FILE=\/var\/lib\/villa-engine\/uat-%i\/session\.json/);
     assert.match(unit, /Environment=VILLA_UAT_STATUS_FILE=\/run\/villa-uat-status\/%i\.json/);
+    assert.match(unit, /EnvironmentFile=-\/run\/villa-uat-bindings\/%i\.env/);
+    assert.doesNotMatch(unit, /Environment=VILLA_ENGINE_OWNER=/);
+    assert.doesNotMatch(unit, /Environment=VILLA_ENGINE_ACCOUNT=/);
     assert.match(unit, /StateDirectory=villa-engine\/uat-%i/);
     assert.match(unit, /UMask=0077/);
     assert.match(unit, /KillMode=mixed/);
@@ -54,8 +58,18 @@ test("wrapper has no arbitrary command, service, or extra-argument surface", () 
   assert.equal(PRIVATE_DEPLOYMENT_MODES["usr/local/libexec/villa-uat-control"], 0o755);
 });
 
+test("root broker is the only dynamic identity boundary", () => {
+  assert.match(brokerUnit, /User=root/);
+  assert.match(brokerUnit, /Group=villa/);
+  assert.match(brokerUnit, /villa-uat-broker\.mjs/);
+  assert.match(brokerUnit, /ReadWritePaths=\/run\/villa-uat-broker \/run\/villa-uat-bindings/);
+  assert.match(brokerUnit, /VILLA_ENGINE_OPERATOR=0xaf4ee6/);
+  assert.doesNotMatch(brokerUnit, /OPERATOR_PRIVATE_KEY=/);
+});
+
 test("private bundle entrypoints and specs contain no public-writable runtime path", () => {
   assert.deepEqual(PRIVATE_RUNTIME_ENTRIES, [
+    "scripts/villa-uat-broker.mjs",
     "scripts/lp-account-session-service.mjs",
     "scripts/lp-account-session.mjs",
     "scripts/lp-account-settlement.mjs",

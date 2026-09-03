@@ -1,8 +1,8 @@
 import http from "node:http";
 import { createOperatorAuth, bearerToken, OperatorAuthError } from "../src/operator/auth.mjs";
 import { OperatorConfigError } from "../src/operator/config.mjs";
-import { AccountControlError, createAccountBoundControlPlane } from "../src/operator/account-control.mjs";
-import { createUatAccountControl } from "../src/operator/uat-control-runtime.mjs";
+import { AccountControlError } from "../src/operator/account-control.mjs";
+import { createPerAccountControl } from "../src/operator/per-account-control.mjs";
 import { createEngineSupervisor, OperatorControlError } from "../src/operator/supervisor.mjs";
 
 const MAX_BODY_BYTES = 16 * 1024;
@@ -56,6 +56,21 @@ function rejectArbitraryTransactionPayload(body) {
   const candidate = body?.config && typeof body.config === "object" ? body.config : body;
   const field = ARBITRARY_TRANSACTION_FIELDS.find((name) => Object.prototype.hasOwnProperty.call(candidate ?? {}, name));
   if (field) throw new OperatorControlError("ARBITRARY_CALL_DENIED", `control requests cannot carry transaction field '${field}'.`, 400);
+}
+
+function accountFromQuery(url) {
+  const value = String(url.searchParams.get("account") ?? "");
+  if (!/^0x[0-9a-fA-F]{40}$/.test(value)) throw new OperatorControlError("ACCOUNT_REQUIRED", "Select a verified VillaAccount before using account controls.", 400);
+  return value.toLowerCase();
+}
+
+function accountFromBody(body) {
+  rejectArbitraryTransactionPayload(body);
+  const keys = Object.keys(body ?? {});
+  if (keys.some((key) => key !== "account")) throw new OperatorControlError("ACCOUNT_SCOPE_INVALID", "Account control requests accept only a verified account selector.", 400);
+  const value = String(body?.account ?? "");
+  if (!/^0x[0-9a-fA-F]{40}$/.test(value)) throw new OperatorControlError("ACCOUNT_REQUIRED", "Select a verified VillaAccount before using account controls.", 400);
+  return value.toLowerCase();
 }
 
 function authError(error) {
@@ -175,7 +190,7 @@ export function createOperatorApiServer({
 
       if (request.method === "GET" && url.pathname === "/account/state") {
         if (!accountControl) { send(response, 404, { error: "Account control is not enabled." }, origin, origins); return; }
-        send(response, 200, await accountControl.getState({ caller: session.address }), origin, origins);
+        send(response, 200, await accountControl.getState({ caller: session.address, account: accountFromQuery(url) }), origin, origins);
         return;
       }
 
@@ -204,32 +219,27 @@ export function createOperatorApiServer({
         }
         if (url.pathname === "/account/session/start") {
           if (!accountControl) { send(response, 404, { error: "Account control is not enabled." }, origin, origins); return; }
-          rejectArbitraryTransactionPayload(body);
-          send(response, 202, await accountControl.start({ caller: session.address }), origin, origins);
+          send(response, 202, await accountControl.start({ caller: session.address, account: accountFromBody(body) }), origin, origins);
           return;
         }
         if (url.pathname === "/account/session/pause") {
           if (!accountControl) { send(response, 404, { error: "Account control is not enabled." }, origin, origins); return; }
-          rejectArbitraryTransactionPayload(body);
-          send(response, 202, await accountControl.pause({ caller: session.address }), origin, origins);
+          send(response, 202, await accountControl.pause({ caller: session.address, account: accountFromBody(body) }), origin, origins);
           return;
         }
         if (url.pathname === "/account/session/resume") {
           if (!accountControl) { send(response, 404, { error: "Account control is not enabled." }, origin, origins); return; }
-          rejectArbitraryTransactionPayload(body);
-          send(response, 202, await accountControl.resume({ caller: session.address }), origin, origins);
+          send(response, 202, await accountControl.resume({ caller: session.address, account: accountFromBody(body) }), origin, origins);
           return;
         }
         if (url.pathname === "/account/session/stop") {
           if (!accountControl) { send(response, 404, { error: "Account control is not enabled." }, origin, origins); return; }
-          rejectArbitraryTransactionPayload(body);
-          send(response, 202, await accountControl.stop({ caller: session.address }), origin, origins);
+          send(response, 202, await accountControl.stop({ caller: session.address, account: accountFromBody(body) }), origin, origins);
           return;
         }
         if (url.pathname === "/account/session/settle") {
           if (!accountControl) { send(response, 404, { error: "Account control is not enabled." }, origin, origins); return; }
-          rejectArbitraryTransactionPayload(body);
-          send(response, 202, await accountControl.settle({ caller: session.address }), origin, origins);
+          send(response, 202, await accountControl.settle({ caller: session.address, account: accountFromBody(body) }), origin, origins);
           return;
         }
       }
@@ -242,45 +252,19 @@ export function createOperatorApiServer({
     }
   });
 }
-
-
-function createSafeReleaseAccountControl(env) {
-  const owner = String(env.VILLA_ENGINE_OWNER ?? "");
-  const account = String(env.VILLA_ENGINE_ACCOUNT ?? "");
-  const operator = String(env.VILLA_ENGINE_OPERATOR ?? env.OPERATOR_ADDRESS ?? "");
-  const validAddress = (value) => /^0x[0-9a-fA-F]{40}$/.test(value);
-  if (![owner, account, operator].every(validAddress)) return null;
-  const sessionController = {
-    getState: () => ({ session: null }),
-    async start() { throw new AccountControlError("EXECUTION_DISABLED", "execution is disabled; no account writer was started", 423); },
-    async settle() { throw new AccountControlError("EXECUTION_DISABLED", "execution is disabled; no settlement writer was started", 423); },
-    async stop() { return { version: "villa-safe-release-control-v1", state: "STOPPED", safeMode: true, executionEnabled: false }; },
-  };
-  const control = createAccountBoundControlPlane({
-    sessionController,
-    factsReader: async () => ({ owner: { address: owner }, account: { address: account, owner, operator } }),
-    preflight: () => ({ allowed: false, reasons: ["EXECUTION_DISABLED"] }),
-    publicEnabled: true,
-    executionEnabled: false,
-  });
-  return Object.freeze({ auth: createOperatorAuth({ authorizedAddress: owner }), control });
-}
-export function createProductionOperatorServer(env = process.env, { readOnlyReader, runnerFactory, accountAuth, accountControl } = {}) {
+export function createProductionOperatorServer(env = process.env, { readOnlyReader, runnerFactory, accountAuth, accountControl, accountVerifier, controlFactory, controlOptions } = {}) {
   const auth = createOperatorAuth({ authorizedAddress: env.OPERATOR_ADDRESS });
   const control = createEngineSupervisor({
     env,
     runnerFactory,
     readOnlyReader: readOnlyReader ?? (async () => (await import("../src/dashboard/live-adapter.mjs")).buildLiveEnvelope()),
   });
-  const safeRelease = createSafeReleaseAccountControl(env);
-  const uat = env.VILLA_UAT_EXECUTION_ENABLED === "true"
-    ? createUatAccountControl(env)
-    : null;
+  const perAccount = accountControl ?? createPerAccountControl({ env, accountVerifier, controlFactory, controlOptions });
   return createOperatorApiServer({
     control,
     auth,
-    accountAuth: accountAuth ?? uat?.auth ?? safeRelease?.auth ?? null,
-    accountControl: accountControl ?? uat?.control ?? safeRelease?.control ?? null,
+    accountAuth: accountAuth ?? createOperatorAuth({ allowAnyAddress: true }),
+    accountControl: perAccount,
     allowedOrigins: originsFrom(env),
   });
 }

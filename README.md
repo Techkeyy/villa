@@ -45,7 +45,7 @@ CONNECT WALLET
   -> WITHDRAW
 ```
 
-Capital actions are approved by the connected owner wallet. Strategy control is a separate authenticated path. The browser does not hold the execution credential and does not provide a generic transaction relay.
+Capital actions are approved by the connected owner wallet. Strategy control is a separate authenticated path. The browser does not hold the execution credential and sends only the selected, verified account identity to the control plane. It does not provide a generic transaction relay.
 
 ## How it works
 
@@ -128,7 +128,7 @@ The app uses a white and light-blue visual system, readable type, sparse panels,
 
 ## Start and Stop safety
 
-Start is not a browser transaction button. It authenticates the connected owner wallet with a short-lived message signature, then sends an empty-body request to the account-bound control route. The server owns the account facts and preflight. The browser cannot provide a target or calldata.
+Start is not a browser transaction button. It authenticates the connected owner wallet with a short-lived message signature, then sends only the selected VillaAccount identity to the account-bound control route. The server independently verifies account ownership, audited bytecode, contract wiring, canonical operator authorization, and fresh preflight facts. The browser cannot provide a target or calldata.
 
 The safe release still keeps persistent execution disabled. A safe-mode Start request returns `EXECUTION_DISABLED` without spawning a writer or sending a chain transaction. Stop is reserved for an authenticated account session and never withdraws capital.
 
@@ -143,7 +143,7 @@ Public visitor
     |
     +--> owner wallet: account deploy, fund, authorize, withdraw
     |
-    +--> authenticated empty-body control request
+    +--> authenticated owner + verified-account control request
               |
               v
        private operator API
@@ -179,13 +179,13 @@ For a read-only live snapshot, use a separately configured local environment and
 
 ## Verification
 
-The final local release gate recorded:
+The final local repair gate recorded:
 
 | Gate | Result |
 | --- | --- |
-| Full regression | 651/651 release run passing |
-| Dashboard | 95/95 release run passing |
-| Operator | 25/25 release run passing |
+| Full regression | 664/664 repair run passing |
+| Dashboard | 97/97 repair run passing |
+| Operator | 41/41 repair run passing |
 | Execution | 210/210 baseline passing |
 | Recovery | 13/13 focused passing |
 | Writer, session, reconciliation, policy | 72/72 focused passing |
@@ -212,7 +212,7 @@ The complete release audit is recorded in [`docs/FINAL_AUDIT.md`](docs/FINAL_AUD
 
 ## Limitations and future work
 
-This is a Shannon testnet MVP for a single canonical operator configuration. Market data and venue availability can change. PnL is not presented when it cannot be independently verified. The public deployment is safe-mode and does not claim autonomous production execution. Multi-LP operations, broader venue coverage, and production custody operations remain future work.
+This is a Shannon testnet MVP with one canonical operator configuration and isolated per-user VillaAccount sessions. Market data and venue availability can change. PnL is not presented when it cannot be independently verified. The public deployment is safe-mode and does not claim autonomous production execution. Broader venue coverage and production custody operations remain future work.
 
 ## Hackathon context
 

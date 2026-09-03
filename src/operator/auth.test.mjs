@@ -31,6 +31,20 @@ test("a different wallet cannot authenticate as the operator", async () => {
   await assert.rejects(auth.verify({ ...issued, signature }), (error) => error.code === "OPERATOR_UNAUTHORIZED");
 });
 
+test("account authentication accepts different wallets without making either a global operator", async () => {
+  const walletA = privateKeyToAccount(generatePrivateKey());
+  const walletB = privateKeyToAccount(generatePrivateKey());
+  const auth = createOperatorAuth({ allowAnyAddress: true });
+  const nonceA = auth.issueNonce(walletA.address);
+  const nonceB = auth.issueNonce(walletB.address);
+  const sessionA = await auth.verify({ ...nonceA, signature: await walletA.signMessage({ message: nonceA.message }) });
+  const sessionB = await auth.verify({ ...nonceB, signature: await walletB.signMessage({ message: nonceB.message }) });
+  assert.equal(auth.authenticate(sessionA.token).address, walletA.address);
+  assert.equal(auth.authenticate(sessionB.token).address, walletB.address);
+  assert.equal(sessionA.operatorAddress, null);
+  assert.equal(sessionB.operatorAddress, null);
+});
+
 test("expired sessions are rejected without exposing token material", async () => {
   const account = privateKeyToAccount(generatePrivateKey());
   let timestamp = 1_000;

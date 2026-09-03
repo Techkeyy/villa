@@ -46,7 +46,7 @@ function postOptions(body, token = "") {
   };
 }
 
-export function createAccountControlClient({ fetchImpl = (...args) => fetch(...args), provider, ownerProvider = () => "" } = {}) {
+export function createAccountControlClient({ fetchImpl = (...args) => fetch(...args), provider, ownerProvider = () => "", accountProvider = () => "" } = {}) {
   let engineOrigin = null;
   let token = "";
   let tokenOwner = "";
@@ -76,16 +76,23 @@ export function createAccountControlClient({ fetchImpl = (...args) => fetch(...a
     return token;
   }
 
-  async function state() {
-    await authenticate();
-    return jsonRequest(fetchImpl, `${engineOrigin}/account/state`, { headers: { Authorization: `Bearer ${token}` } });
+  function selectedAccount(value = accountProvider()) {
+    const normalized = address(value);
+    if (!normalized) throw new ControlClientError("ACCOUNT_REQUIRED", "Verify your VILLA account before using strategy controls.");
+    return normalized;
   }
 
-  async function command(action) {
+  async function state(accountAddress = accountProvider()) {
+    await authenticate();
+    const account = selectedAccount(accountAddress);
+    return jsonRequest(fetchImpl, `${engineOrigin}/account/state?account=${encodeURIComponent(account)}`, { headers: { Authorization: `Bearer ${token}` } });
+  }
+
+  async function command(action, accountAddress = accountProvider()) {
     const owner = ownerProvider();
     await authenticate(owner);
     if (!["start", "stop", "settle"].includes(action)) throw new ControlClientError("CONTROL_ACTION_INVALID", "That strategy action is not available.");
-    return jsonRequest(fetchImpl, `${engineOrigin}/account/session/${action}`, postOptions({}, token));
+    return jsonRequest(fetchImpl, `${engineOrigin}/account/session/${action}`, postOptions({ account: selectedAccount(accountAddress) }, token));
   }
 
   function clear() {
@@ -93,5 +100,5 @@ export function createAccountControlClient({ fetchImpl = (...args) => fetch(...a
     tokenOwner = "";
   }
 
-  return Object.freeze({ loadConfig, authenticate, state, start: () => command("start"), stop: () => command("stop"), settle: () => command("settle"), clear });
+  return Object.freeze({ loadConfig, authenticate, state, start: (accountAddress) => command("start", accountAddress), stop: (accountAddress) => command("stop", accountAddress), settle: (accountAddress) => command("settle", accountAddress), clear });
 }
