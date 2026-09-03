@@ -207,6 +207,7 @@ test("optional account control routes are wallet-authenticated and reject arbitr
       async getState(input) { calls.push(["state", input]); return { state: "STOPPED", safety: { signerInBrowser: false } }; },
       async start(input) { calls.push(["start", input]); return { state: "RUNNING" }; },
       async stop(input) { calls.push(["stop", input]); return { state: "STOPPED" }; },
+      async settle(input) { calls.push(["settle", input]); return { state: "SETTLED" }; },
     },
     allowedOrigins: ["http://allowed.test"],
   });
@@ -227,7 +228,13 @@ test("optional account control routes are wallet-authenticated and reject arbitr
     const arbitrary = await request(base, "/account/session/start", { method: "POST", token, body: { destination: account.address } });
     assert.equal(arbitrary.status, 400);
     assert.equal(arbitrary.body.code, "ARBITRARY_CALL_DENIED");
-    assert.equal(calls.length, 2);
+    const settled = await request(base, "/account/session/settle", { method: "POST", token, body: {} });
+    assert.equal(settled.status, 202);
+    assert.equal(calls[2][0], "settle");
+    const arbitrarySettle = await request(base, "/account/session/settle", { method: "POST", token, body: { destination: account.address } });
+    assert.equal(arbitrarySettle.status, 400);
+    assert.equal(arbitrarySettle.body.code, "ARBITRARY_CALL_DENIED");
+    assert.equal(calls.length, 3);
   } finally {
     server.close();
   }

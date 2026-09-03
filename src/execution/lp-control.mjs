@@ -47,7 +47,7 @@ export function createLpSessionController({
       session: current,
       lease: heldLease,
       lastReconciliation,
-      writesBlocked: ["CREATED", "PREFLIGHT", "PAUSED", "STOPPING", "STOPPED", "ERROR"].includes(current.state),
+      writesBlocked: ["CREATED", "PREFLIGHT", "PAUSED", "STOPPING", "STOPPED", "STOPPED_CLEAN", "STOPPED_SETTLEMENT_PENDING", "SETTLEMENT_READY", "SETTLING", "SETTLED", "WITHDRAWABLE", "ERROR"].includes(current.state),
     });
   }
 

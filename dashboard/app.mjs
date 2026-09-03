@@ -27,6 +27,7 @@ import { createAddLiquidityHandler, runAddLiquidity } from "./liquidity-flow.mjs
 import { evaluateVerifiedOwnerAccountReadiness, isVerifiedOwnerAccountReady } from "./account-readiness.mjs";
 import { createAuthorizationHandler, runAuthorization } from "./authorization-flow.mjs";
 import { ControlClientError, createAccountControlClient } from "./control-client.mjs";
+import { ensureUatMonitor, renderUatMonitor } from "./uat-monitor.mjs";
 
 const page = window.location.pathname.replace(/\/+$/, "") || "/";
 const ACCOUNT_HINT_PREFIX = "villa.account.owner.";
@@ -39,6 +40,7 @@ let proofInitialized = false;
 let refreshGeneration = 0;
 let accountRefreshInFlight = null;
 let refreshQueued = false;
+let controlPollTimer = null;
 let appState = {
   walletStatus: "DISCONNECTED",
   chainStatus: "UNKNOWN",
@@ -47,6 +49,8 @@ let appState = {
   controlBusy: false,
   account: null,
   transactionStatus: "IDLE",
+  controlSnapshot: null,
+  controlResult: null,
   controlSession: null,
   owner: "",
   currentAccountAddress: "",
@@ -152,7 +156,7 @@ function sessionMarket(session) {
 
 function strategyMarketLabel() {
   const session = appState.controlSession;
-  if (!session || !["RUNNING", "PAUSED", "STOPPING", "ERROR"].includes(String(session.state || appState.controlState).toUpperCase())) {
+  if (!session || !["RUNNING", "PAUSED", "STOPPING", "ERROR", "STOPPED_SETTLEMENT_PENDING", "SETTLEMENT_READY", "SETTLING", "SETTLED"].includes(String(session.state || appState.controlState).toUpperCase())) {
     return "Selected automatically at Start";
   }
   const market = sessionMarket(session);
@@ -327,26 +331,42 @@ function accountReadyForControl() {
 }
 
 function controlStateLabel(state) {
-  return ({ RUNNING: "Running", PAUSED: "Paused", STOPPING: "Stopping", ERROR: "Needs attention" })[state] || "Safe mode";
+  return ({ STARTING: "Preparing", RUNNING: "Running", PAUSED: "Paused", STOPPING: "Stopping", ERROR: "Needs attention", STOPPED: "Ready to start", STOPPED_CLEAN: "Stopped", STOPPED_SETTLEMENT_PENDING: "Settlement pending", SETTLEMENT_READY: "Settlement ready", SETTLING: "Settling", SETTLED: "Settled", WITHDRAWABLE: "Withdrawable" })[state] || "Ready to start";
 }
 
 function renderControlControls() {
+  ensureUatMonitor();
   const state = appState.controlState || "STOPPED";
-  const active = ["RUNNING", "PAUSED", "STOPPING"].includes(state);
+  const strategyButtons = document.querySelector(".strategy-buttons");
+  if (strategyButtons && !element("settle-villa")) {
+    const settle = document.createElement("button");
+    settle.className = "button button-secondary";
+    settle.id = "settle-villa";
+    settle.type = "button";
+    settle.textContent = "Settle";
+    settle.addEventListener("click", handleSettleStrategy);
+    strategyButtons.append(settle);
+  }
+  const active = ["STARTING", "RUNNING", "PAUSED", "STOPPING", "SETTLEMENT_READY", "SETTLING"].includes(state);
   const stoppable = active || state === "ERROR";
   const ready = accountReadyForControl();
   const start = element("start-villa");
+  const settle = element("settle-villa");
   const stop = element("stop-villa");
   const status = element("control-plane-status");
   text("strategy-market", strategyMarketLabel());
   text("control-state", controlStateLabel(state));
   if (start) start.disabled = !ready || appState.busy || appState.controlBusy || active;
+  const settlementReady = ["STOPPED_SETTLEMENT_PENDING", "SETTLEMENT_READY"].includes(state);
+  toggle("settle-villa", settlementReady);
+  if (settle) settle.disabled = appState.busy || appState.controlBusy || state === "SETTLING";
   toggle("stop-villa", stoppable);
   if (stop) stop.disabled = appState.busy || appState.controlBusy || state === "STOPPING";
   if (status) {
     status.className = `status-pill ${active ? "status-safe" : "status-preview"}`;
-    status.textContent = active ? state : "SAFE CONTROL PLANE";
+    status.textContent = active ? state : state === "ERROR" ? "ATTENTION" : "ACCOUNT-BOUND CONTROL";
   }
+  text("control-plane-copy", "Your wallet authenticates Start and Stop. VILLA uses a private account-bound operator for this account; no operator wallet is needed in the browser.");
 }
 
 function controlClientForWallet() {
@@ -354,10 +374,53 @@ function controlClientForWallet() {
   return controlClient;
 }
 
+function clearControlPoll() {
+  if (controlPollTimer) clearTimeout(controlPollTimer);
+  controlPollTimer = null;
+}
+
+function scheduleControlPoll() {
+  clearControlPoll();
+  const active = ["STARTING", "RUNNING", "PAUSED", "STOPPING", "SETTLEMENT_READY", "SETTLING"].includes(String(appState.controlState || "").toUpperCase());
+  if (!active || !provider || !appState.owner) return;
+  controlPollTimer = setTimeout(() => { void refreshControlState(); }, 5_000);
+}
+
+async function refreshControlState() {
+  if (!provider || !appState.owner || !controlClient) return;
+  try {
+    const payload = await controlClient.state();
+    const state = String(payload?.state || payload?.session?.state || "STOPPED").toUpperCase();
+    const session = payload?.session || appState.controlSession;
+    appState = { ...appState, controlState: state, controlSession: session, controlSnapshot: payload?.snapshot ?? appState.controlSnapshot, controlResult: payload?.result ?? appState.controlResult, controlBusy: false };
+    renderControlControls();
+    renderUatMonitor({ state, session, snapshot: appState.controlSnapshot, result: appState.controlResult });
+    renderLiveCapital(appState.controlSnapshot);
+    if (["STARTING", "RUNNING", "PAUSED", "STOPPING", "SETTLEMENT_READY", "SETTLING"].includes(state)) scheduleControlPoll(); else clearControlPoll();
+  } catch (error) {
+    if (["STARTING", "RUNNING", "PAUSED", "STOPPING", "SETTLEMENT_READY", "SETTLING"].includes(String(appState.controlState || "").toUpperCase())) {
+      setMessage("control-message", error?.message || "Live session status is temporarily unavailable.");
+      scheduleControlPoll();
+    }
+  }
+}
+function renderLiveCapital(snapshot) {
+  if (!snapshot) return;
+  try {
+    if (snapshot.collateralRaw !== null && snapshot.collateralRaw !== undefined) text("available-balance", `${formatRawExact(BigInt(snapshot.collateralRaw))} tUSDC`);
+    if (snapshot.deployedRaw !== null && snapshot.deployedRaw !== undefined) text("deployed-balance", `${formatRawExact(BigInt(snapshot.deployedRaw))} tUSDC`);
+    text("pending-settlement-balance", snapshot.pendingSettlement ? `${formatRawExact(BigInt(snapshot.yesRaw ?? 0))} tUSDC` : "0.000 tUSDC");
+  } catch {
+    // A malformed public snapshot never replaces the verified account balance.
+  }
+}
 function setControlView(state, copy = "", result = null) {
   const session = result?.session ?? (result?.marketSeries || result?.currentMarketId ? result : null);
-  appState = { ...appState, controlState: state, controlBusy: false, controlSession: session || appState.controlSession };
+  appState = { ...appState, controlState: String(state || "STOPPED").toUpperCase(), controlBusy: false, controlSession: session || appState.controlSession, controlSnapshot: result?.snapshot ?? appState.controlSnapshot, controlResult: result?.result ?? appState.controlResult };
   renderControlControls();
+  renderUatMonitor({ state: appState.controlState, session: appState.controlSession, snapshot: appState.controlSnapshot, result: appState.controlResult });
+  scheduleControlPoll();
+  renderLiveCapital(appState.controlSnapshot);
   if (copy) setMessage("control-message", copy, state === "ERROR" ? "warning" : "safe");
 }
 
@@ -407,6 +470,26 @@ async function handleStopStrategy() {
   }
 }
 
+async function handleSettleStrategy() {
+  if (appState.busy || appState.controlBusy) return;
+  appState = { ...appState, controlBusy: true };
+  renderControlControls();
+  setBusy(true);
+  setMessage("control-message", "");
+  showTransaction("READY", "Settling strategy", "The private account-bound settlement path is checking the exact market and claims.");
+  try {
+    const result = await controlClientForWallet().settle();
+    const nextState = String(result.state || "SETTLED").toUpperCase();
+    setControlView(nextState, nextState === "SETTLED" ? "Settlement confirmed. You can withdraw from your VILLA account." : "Settlement remains pending until the market is resolved.", result);
+    showTransaction(nextState === "SETTLED" ? "SUCCESS" : "CONFIRMING", nextState === "SETTLED" ? "Settlement confirmed" : "Settlement pending", nextState === "SETTLED" ? "The account-bound settlement state was verified." : "No claim was sent while the market remained unresolved.");
+  } catch (error) {
+    setControlView("ERROR");
+    showActionError("control-message", error instanceof ControlClientError ? error : new ControlClientError("CONTROL_REQUEST_FAILED", error?.message || "The settlement request failed."));
+  } finally {
+    setBusy(false);
+    renderControlControls();
+  }
+}
 function resetAccountView() {
   setAppState({
     account: null,
@@ -622,6 +705,8 @@ async function connectWallet(accounts = null) {
     discoveryStatus: "IDLE",
     account: null,
     controlSession: null,
+    controlSnapshot: null,
+    controlResult: null,
     currentAccountAddress: "",
     transactionStatus: "IDLE",
     error: null,
@@ -637,6 +722,7 @@ async function connectWallet(accounts = null) {
 function disconnectWallet() {
   refreshGeneration += 1;
   refreshQueued = false;
+  clearControlPoll();
   controlClient?.clear();
   setConnected(false);
   setMessage("wallet-message", "Wallet view disconnected. Your wallet remains in control.", "safe");
@@ -933,6 +1019,9 @@ function showPage() {
     pageElement.hidden = pageElement.dataset.page !== requested;
   });
   document.body.dataset.page = requested;
+  if (requested === "app") {
+    document.querySelector(".page-app .lede")?.replaceChildren(document.createTextNode("Connect your wallet, review your VillaAccount, and start one bounded account-bound session. The private VILLA operator stays on the engine service; no operator wallet is needed in the browser."));
+  }
   if (requested === "app") initWallet();
   if (requested === "proof") initProof();
 }

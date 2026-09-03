@@ -57,7 +57,7 @@ test("control client keeps wallet cancellation stable and does not verify", asyn
 test("control client exposes only fixed safe controls", () => {
   globalThis.window = { location: { hostname: "localhost" } };
   const client = createAccountControlClient({ fetchImpl: async () => response({ engineApiUrl: "http://127.0.0.1:8782" }) });
-  assert.deepEqual(Object.keys(client).sort(), ["authenticate", "clear", "loadConfig", "start", "state", "stop"]);
+  assert.deepEqual(Object.keys(client).sort(), ["authenticate", "clear", "loadConfig", "settle", "start", "state", "stop"]);
   assert.equal("sendTransaction" in client, false);
   assert.equal("withdraw" in client, false);
 });

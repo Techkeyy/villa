@@ -84,7 +84,7 @@ export function createAccountControlClient({ fetchImpl = (...args) => fetch(...a
   async function command(action) {
     const owner = ownerProvider();
     await authenticate(owner);
-    if (!["start", "stop"].includes(action)) throw new ControlClientError("CONTROL_ACTION_INVALID", "That strategy action is not available.");
+    if (!["start", "stop", "settle"].includes(action)) throw new ControlClientError("CONTROL_ACTION_INVALID", "That strategy action is not available.");
     return jsonRequest(fetchImpl, `${engineOrigin}/account/session/${action}`, postOptions({}, token));
   }
 
@@ -93,5 +93,5 @@ export function createAccountControlClient({ fetchImpl = (...args) => fetch(...a
     tokenOwner = "";
   }
 
-  return Object.freeze({ loadConfig, authenticate, state, start: () => command("start"), stop: () => command("stop"), clear });
+  return Object.freeze({ loadConfig, authenticate, state, start: () => command("start"), stop: () => command("stop"), settle: () => command("settle"), clear });
 }

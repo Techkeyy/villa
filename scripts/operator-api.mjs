@@ -2,6 +2,7 @@ import http from "node:http";
 import { createOperatorAuth, bearerToken, OperatorAuthError } from "../src/operator/auth.mjs";
 import { OperatorConfigError } from "../src/operator/config.mjs";
 import { AccountControlError, createAccountBoundControlPlane } from "../src/operator/account-control.mjs";
+import { createUatAccountControl } from "../src/operator/uat-control-runtime.mjs";
 import { createEngineSupervisor, OperatorControlError } from "../src/operator/supervisor.mjs";
 
 const MAX_BODY_BYTES = 16 * 1024;
@@ -225,6 +226,12 @@ export function createOperatorApiServer({
           send(response, 202, await accountControl.stop({ caller: session.address }), origin, origins);
           return;
         }
+        if (url.pathname === "/account/session/settle") {
+          if (!accountControl) { send(response, 404, { error: "Account control is not enabled." }, origin, origins); return; }
+          rejectArbitraryTransactionPayload(body);
+          send(response, 202, await accountControl.settle({ caller: session.address }), origin, origins);
+          return;
+        }
       }
       send(response, 404, { error: "Operator route not found." }, origin, origins);
     } catch (error) {
@@ -246,6 +253,7 @@ function createSafeReleaseAccountControl(env) {
   const sessionController = {
     getState: () => ({ session: null }),
     async start() { throw new AccountControlError("EXECUTION_DISABLED", "execution is disabled; no account writer was started", 423); },
+    async settle() { throw new AccountControlError("EXECUTION_DISABLED", "execution is disabled; no settlement writer was started", 423); },
     async stop() { return { version: "villa-safe-release-control-v1", state: "STOPPED", safeMode: true, executionEnabled: false }; },
   };
   const control = createAccountBoundControlPlane({
@@ -265,7 +273,16 @@ export function createProductionOperatorServer(env = process.env, { readOnlyRead
     readOnlyReader: readOnlyReader ?? (async () => (await import("../src/dashboard/live-adapter.mjs")).buildLiveEnvelope()),
   });
   const safeRelease = createSafeReleaseAccountControl(env);
-  return createOperatorApiServer({ control, auth, accountAuth: accountAuth ?? safeRelease?.auth ?? null, accountControl: accountControl ?? safeRelease?.control ?? null, allowedOrigins: originsFrom(env) });
+  const uat = env.VILLA_UAT_EXECUTION_ENABLED === "true"
+    ? createUatAccountControl(env)
+    : null;
+  return createOperatorApiServer({
+    control,
+    auth,
+    accountAuth: accountAuth ?? uat?.auth ?? safeRelease?.auth ?? null,
+    accountControl: accountControl ?? uat?.control ?? safeRelease?.control ?? null,
+    allowedOrigins: originsFrom(env),
+  });
 }
 
 if (process.argv[1] && process.argv[1].endsWith("operator-api.mjs")) {

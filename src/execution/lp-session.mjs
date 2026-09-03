@@ -21,18 +21,30 @@ export const LP_SESSION_STATES = Object.freeze([
   "PAUSED",
   "STOPPING",
   "STOPPED",
+  "STOPPED_CLEAN",
+  "STOPPED_SETTLEMENT_PENDING",
+  "SETTLEMENT_READY",
+  "SETTLING",
+  "SETTLED",
+  "WITHDRAWABLE",
   "ERROR",
 ]);
 
-const ACTIVE_STATES = new Set(["CREATED", "PREFLIGHT", "RUNNING", "PAUSED", "STOPPING", "ERROR"]);
+const ACTIVE_STATES = new Set(["CREATED", "PREFLIGHT", "RUNNING", "PAUSED", "STOPPING", "SETTLEMENT_READY", "SETTLING", "ERROR"]);
 const TRANSITIONS = Object.freeze({
   CREATED: Object.freeze(["PREFLIGHT", "STOPPED", "ERROR"]),
   PREFLIGHT: Object.freeze(["RUNNING", "STOPPING", "STOPPED", "ERROR"]),
   RUNNING: Object.freeze(["PAUSED", "STOPPING", "ERROR"]),
   PAUSED: Object.freeze(["PREFLIGHT", "STOPPING", "ERROR"]),
-  STOPPING: Object.freeze(["STOPPED", "ERROR"]),
-  STOPPED: Object.freeze([]),
-  ERROR: Object.freeze(["PREFLIGHT", "STOPPING", "STOPPED"]),
+  STOPPING: Object.freeze(["STOPPED", "STOPPED_CLEAN", "STOPPED_SETTLEMENT_PENDING", "ERROR"]),
+  STOPPED: Object.freeze(["STOPPED_CLEAN", "STOPPED_SETTLEMENT_PENDING", "SETTLEMENT_READY", "SETTLED", "WITHDRAWABLE"]),
+  STOPPED_CLEAN: Object.freeze(["WITHDRAWABLE"]),
+  STOPPED_SETTLEMENT_PENDING: Object.freeze(["SETTLEMENT_READY", "SETTLED", "ERROR"]),
+  SETTLEMENT_READY: Object.freeze(["SETTLING", "ERROR"]),
+  SETTLING: Object.freeze(["SETTLED", "STOPPED_SETTLEMENT_PENDING", "ERROR"]),
+  SETTLED: Object.freeze(["WITHDRAWABLE"]),
+  WITHDRAWABLE: Object.freeze([]),
+  ERROR: Object.freeze(["PREFLIGHT", "STOPPING", "STOPPED", "STOPPED_SETTLEMENT_PENDING"]),
 });
 
 export class LpSessionError extends Error {
@@ -280,7 +292,7 @@ export function createFileAccountLeaseStore({ directory, now = () => Date.now(),
 
   function release(session, { reconciled = false, atMs = now() } = {}) {
     if (!reconciled) throw new LpSessionError("LEASE_RELEASE_BLOCKED", "lease remains held until reconciliation is complete");
-    if (!session || !["STOPPING", "STOPPED", "ERROR"].includes(session.state)) throw new LpSessionError("LEASE_RELEASE_BLOCKED", "only a stopping or terminal session may release its lease");
+    if (!session || !["STOPPING", "STOPPED", "STOPPED_CLEAN", "STOPPED_SETTLEMENT_PENDING", "SETTLEMENT_READY", "SETTLING", "SETTLED", "WITHDRAWABLE", "ERROR"].includes(session.state)) throw new LpSessionError("LEASE_RELEASE_BLOCKED", "only a stopping or terminal session may release its lease");
     const file = fileFor(session.account);
     const current = read(file);
     if (!current || current.sessionId !== session.sessionId) throw new LpSessionError("LEASE_SCOPE_MISMATCH", "session does not own the account lease");
