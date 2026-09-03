@@ -178,6 +178,17 @@ function text(id, value) {
   if (target) target.textContent = value;
 }
 
+function syncButtonDisabled(target, disabled) {
+  if (!target) return;
+  const isBlocked = Boolean(disabled);
+  target.disabled = isBlocked;
+  if (isBlocked) {
+    target.setAttribute("disabled", "");
+  } else {
+    target.removeAttribute("disabled");
+  }
+}
+
 function setMessage(id, message = "", tone = "warning") {
   const target = element(id);
   if (!target) return;
@@ -356,12 +367,12 @@ function renderControlControls() {
   const status = element("control-plane-status");
   text("strategy-market", strategyMarketLabel());
   text("control-state", controlStateLabel(state));
-  if (start) start.disabled = !ready || appState.busy || appState.controlBusy || active;
+  if (start) syncButtonDisabled(start, !ready || appState.busy || appState.controlBusy || active);
   const settlementReady = ["STOPPED_SETTLEMENT_PENDING", "SETTLEMENT_READY"].includes(state);
   toggle("settle-villa", settlementReady);
-  if (settle) settle.disabled = appState.busy || appState.controlBusy || state === "SETTLING";
+  if (settle) syncButtonDisabled(settle, appState.busy || appState.controlBusy || state === "SETTLING");
   toggle("stop-villa", stoppable);
-  if (stop) stop.disabled = appState.busy || appState.controlBusy || state === "STOPPING";
+  if (stop) syncButtonDisabled(stop, appState.busy || appState.controlBusy || state === "STOPPING");
   if (status) {
     status.className = `status-pill ${active ? "status-safe" : "status-preview"}`;
     status.textContent = active ? state : state === "ERROR" ? "ATTENTION" : "ACCOUNT-BOUND CONTROL";
@@ -528,8 +539,9 @@ function setBusy(busy) {
   setAppState({ busy });
   document.querySelectorAll("#account-workspace button, #create-account, #switch-network, #retry-account").forEach((button) => {
     if (button.id === "start-villa") return;
-    button.disabled = busy;
+    syncButtonDisabled(button, busy);
   });
+  renderControlControls();
 }
 
 function updateWorkspace(account, walletBalance) {

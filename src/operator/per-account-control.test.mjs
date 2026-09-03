@@ -29,7 +29,7 @@ function fixture({ accountExecutionEnabled = true, verify = null, initialState =
       created.push(entry);
       const session = () => ({ sessionId: `session-${env.VILLA_ENGINE_ACCOUNT.slice(-4)}`, account: env.VILLA_ENGINE_ACCOUNT, owner: env.VILLA_ENGINE_OWNER, operator: env.VILLA_ENGINE_OPERATOR, state });
       entry.control = {
-        async getState() { return { state, session: state === "STOPPED" ? null : session(), safety: { signerInBrowser: false, arbitraryRelay: false, withdrawViaControl: false } }; },
+        async getState() { return { state, session: state === "STOPPED" ? null : session(), safety: { signerInBrowser: false, arbitraryRelay: false, withdrawViaControl: false }, controls: { canStart: state === "STOPPED" } }; },
         async start() { entry.calls.push("start"); state = "RUNNING"; return { state, session: session() }; },
         async stop() { entry.calls.push("stop"); state = "STOPPED"; return { state, session: session() }; },
         async settle() { entry.calls.push("settle"); state = "SETTLED"; return { state, session: session() }; },
