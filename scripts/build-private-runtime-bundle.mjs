@@ -54,7 +54,7 @@ function localFile(specifier, importer, { optional = false } = {}) {
 function importSpecifiers(source) {
   const result = new Map();
   const add = (specifier, optional = false) => {
-    result.set(specifier, (result.get(specifier) ?? false) && optional);
+    result.set(specifier, result.has(specifier) ? result.get(specifier) && optional : optional);
   };
   const patterns = [
     { pattern: /\b(?:import|export)\s+(?:[^"'`]*?\sfrom\s+)?["']([^"']+)["']/g, optional: false },
