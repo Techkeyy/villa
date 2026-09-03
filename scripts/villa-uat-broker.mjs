@@ -38,6 +38,7 @@ async function assertExistingBinding(sessionId, owner, account) {
   }
   const values = Object.fromEntries(content.split(/\r?\n/).filter(Boolean).map((line) => line.split("=")));
   if (!validAddress(values.VILLA_ENGINE_OWNER) || !validAddress(values.VILLA_ENGINE_ACCOUNT)
+    || values.VILLA_ENGINE_SESSION_ID !== sessionId
     || values.VILLA_ENGINE_OWNER.toLowerCase() !== owner.toLowerCase()
     || values.VILLA_ENGINE_ACCOUNT.toLowerCase() !== account.toLowerCase()) throw new Error("the session binding scope does not match");
 }
@@ -47,7 +48,11 @@ async function writeBinding(sessionId, owner, account) {
   const temporary = path.join(BINDING_DIR, `.${sessionId}.${process.pid}`);
   const content = `VILLA_ENGINE_OWNER=${owner}\nVILLA_ENGINE_ACCOUNT=${account}\nVILLA_ENGINE_SESSION_ID=${sessionId}\n`;
   await fs.writeFile(temporary, content, { encoding: "utf8", mode: 0o600, flag: "wx" });
-  await fs.rename(temporary, bindingPath(sessionId));
+  try {
+    await fs.link(temporary, bindingPath(sessionId));
+  } finally {
+    await fs.rm(temporary, { force: true });
+  }
 }
 
 async function runSystemd(action, sessionId) {
@@ -67,7 +72,7 @@ async function handle(socket, raw) {
     return;
   }
   try {
-    await verifyAccount({ caller: owner, account });
+    if (action === "start" || action === "settle") await verifyAccount({ caller: owner, account, requireOperator: true });
     if (action === "start") await writeBinding(sessionId, owner.toLowerCase(), account.toLowerCase());
     else await assertExistingBinding(sessionId, owner, account);
     await runSystemd(action, sessionId);

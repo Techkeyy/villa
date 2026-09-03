@@ -87,7 +87,7 @@ The canonical proof used BTC 24-hour market `0x000000000000000000000000000000000
 - Cancel and paired burn completed.
 - Final collateral was `1,002,000` raw tUSDC, with zero YES, zero NO, and zero open orders.
 
-The exact transaction hashes are in [`docs/ACCOUNT_BOUND_WET_PROOF.md`](ACCOUNT_BOUND_WET_PROOF.md) and the public `/proof` route. The public app is safe-mode and the proof surface is read-only.
+The exact transaction hashes are in [`docs/ACCOUNT_BOUND_WET_PROOF.md`](ACCOUNT_BOUND_WET_PROOF.md) and the public `/proof` route. The public frontend is signer-free, account execution is privately deployment-gated, and the proof surface is read-only.
 
 ## Security and non-custodial architecture
 

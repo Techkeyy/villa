@@ -14,17 +14,17 @@ function identity(owner, account, operator = OPERATOR) {
   return { owner, account, operator, runtimeVerified: true, onChain: true };
 }
 
-function fixture({ executionEnabled = true, verify = null } = {}) {
+function fixture({ accountExecutionEnabled = true, verify = null, initialState = "STOPPED" } = {}) {
   const created = [];
   const control = createPerAccountControl({
-    env: { OPERATOR_ADDRESS: OPERATOR, VILLA_EXECUTION_ENABLED: executionEnabled ? "true" : "false", VILLA_UAT_EXECUTION_ENABLED: executionEnabled ? "true" : "false" },
+    env: { OPERATOR_ADDRESS: OPERATOR, VILLA_EXECUTION_ENABLED: "false", VILLA_ACCOUNT_EXECUTION_ENABLED: accountExecutionEnabled ? "true" : "false", VILLA_UAT_EXECUTION_ENABLED: "false" },
     accountVerifier: verify ?? (async ({ caller, account }) => {
       if (account === ACCOUNT_A && caller === OWNER_A) return identity(OWNER_A, ACCOUNT_A);
       if (account === ACCOUNT_B && caller === OWNER_B) return identity(OWNER_B, ACCOUNT_B);
       throw new AccountControlError("OWNER_SCOPE_MISMATCH", "account does not belong to this wallet", 403);
     }),
     controlFactory: ({ env }) => {
-      let state = "STOPPED";
+      let state = initialState;
       const entry = { env, calls: [] };
       created.push(entry);
       const session = () => ({ sessionId: `session-${env.VILLA_ENGINE_ACCOUNT.slice(-4)}`, account: env.VILLA_ENGINE_ACCOUNT, owner: env.VILLA_ENGINE_OWNER, operator: env.VILLA_ENGINE_OPERATOR, state });
@@ -80,11 +80,39 @@ test("invalid accounts and accounts without canonical operator authorization fai
   await assert.rejects(() => unauthorized.control.start({ caller: OWNER_A, account: ACCOUNT_A }), { code: "OPERATOR_NOT_AUTHORIZED" });
 });
 
-test("safe mode verifies any selected account but never creates a private controller", async () => {
-  const { control, created } = fixture({ executionEnabled: false });
+test("account gate off verifies the selected account but never starts a writer", async () => {
+  const { control, created } = fixture({ accountExecutionEnabled: false });
   const state = await control.getState({ caller: OWNER_A, account: ACCOUNT_A });
   assert.equal(state.identity.account, ACCOUNT_A);
-  assert.deepEqual(state.readiness.reasons, ["EXECUTION_DISABLED"]);
-  await assert.rejects(() => control.start({ caller: OWNER_A, account: ACCOUNT_A }), { code: "EXECUTION_DISABLED" });
-  assert.equal(created.length, 0);
+  assert.deepEqual(state.readiness.reasons, ["ACCOUNT_EXECUTION_DISABLED"]);
+  await assert.rejects(() => control.start({ caller: OWNER_A, account: ACCOUNT_A }), { code: "ACCOUNT_EXECUTION_DISABLED" });
+  assert.equal(created.length, 1);
+});
+
+test("account Start uses its own gate while the legacy global and UAT gates remain false", async () => {
+  const { control, created } = fixture();
+  await control.start({ caller: OWNER_A, account: ACCOUNT_A });
+  assert.deepEqual(created[0].calls, ["start"]);
+  assert.equal(created[0].env.VILLA_EXECUTION_ENABLED, "false");
+  assert.equal(created[0].env.VILLA_ACCOUNT_EXECUTION_ENABLED, "true");
+  assert.equal(created[0].env.VILLA_UAT_EXECUTION_ENABLED, "false");
+});
+
+test("Stop reaches an active account session even when new account execution is disabled", async () => {
+  const { control, created } = fixture({ accountExecutionEnabled: false, initialState: "RUNNING" });
+  const before = await control.getState({ caller: OWNER_A, account: ACCOUNT_A });
+  assert.equal(before.state, "RUNNING");
+  const after = await control.stop({ caller: OWNER_A, account: ACCOUNT_A });
+  assert.equal(after.state, "STOPPED");
+  assert.deepEqual(created[0].calls, ["stop"]);
+});
+
+test("owner can Stop a recovered session after operator authorization is revoked", async () => {
+  const verify = async ({ caller, account }) => identity(caller, account, OTHER_OPERATOR);
+  const { control, created } = fixture({ accountExecutionEnabled: false, initialState: "RUNNING", verify });
+  const state = await control.getState({ caller: OWNER_A, account: ACCOUNT_A });
+  assert.equal(state.state, "RUNNING");
+  assert.equal(state.identity.operatorAuthorized, false);
+  await control.stop({ caller: OWNER_A, account: ACCOUNT_A });
+  assert.deepEqual(created[0].calls, ["stop"]);
 });

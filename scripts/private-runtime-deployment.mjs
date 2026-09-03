@@ -22,6 +22,7 @@ const SESSION_UNIT = `[Unit]
 Description=VILLA account-bound private UAT session %i
 After=network-online.target
 Wants=network-online.target
+ConditionPathExists=/run/villa-uat-bindings/%i.env
 
 [Service]
 Type=simple
@@ -29,12 +30,13 @@ User=villa-engine
 Group=villa-engine
 WorkingDirectory=/opt/villa-private-runtime
 ExecStart=/usr/bin/node /opt/villa-private-runtime/scripts/lp-account-session-service.mjs
-EnvironmentFile=-/run/villa-uat-bindings/%i.env
+EnvironmentFile=/run/villa-uat-bindings/%i.env
 Environment=VILLA_ENGINE_OPERATOR=0xaf4ee6C0c6Ff6337F4C4F07b87C8343dF73e8d37
 Environment=VILLA_ENGINE_SESSION_ID=%i
 Environment=VILLA_UAT_SESSION_EXECUTION=true
 Environment=VILLA_UAT_SETTLEMENT_EXECUTION=false
-Environment=VILLA_EXECUTION_ENABLED=true
+Environment=VILLA_EXECUTION_ENABLED=false
+Environment=VILLA_ACCOUNT_EXECUTION_ENABLED=true
 Environment=VILLA_EXECUTION_MODE=WET
 Environment=VILLA_UAT_STATUS_FILE=/run/villa-uat-status/%i.json
 Environment=VILLA_UAT_PRIVATE_STATE_FILE=/var/lib/villa-engine/uat-%i/session.json
@@ -74,6 +76,7 @@ const SETTLEMENT_UNIT = `[Unit]
 Description=VILLA account-bound private UAT settlement %i
 After=network-online.target
 Wants=network-online.target
+ConditionPathExists=/run/villa-uat-bindings/%i.env
 
 [Service]
 Type=oneshot
@@ -81,12 +84,13 @@ User=villa-engine
 Group=villa-engine
 WorkingDirectory=/opt/villa-private-runtime
 ExecStart=/usr/bin/node /opt/villa-private-runtime/scripts/lp-account-settlement.mjs
-EnvironmentFile=-/run/villa-uat-bindings/%i.env
+EnvironmentFile=/run/villa-uat-bindings/%i.env
 Environment=VILLA_ENGINE_OPERATOR=0xaf4ee6C0c6Ff6337F4C4F07b87C8343dF73e8d37
 Environment=VILLA_ENGINE_SESSION_ID=%i
 Environment=VILLA_UAT_SESSION_EXECUTION=false
 Environment=VILLA_UAT_SETTLEMENT_EXECUTION=true
-Environment=VILLA_EXECUTION_ENABLED=true
+Environment=VILLA_EXECUTION_ENABLED=false
+Environment=VILLA_ACCOUNT_EXECUTION_ENABLED=true
 Environment=VILLA_EXECUTION_MODE=WET
 Environment=VILLA_UAT_STATUS_FILE=/run/villa-uat-status/%i.json
 Environment=VILLA_UAT_PRIVATE_STATE_FILE=/var/lib/villa-engine/uat-%i/session.json
@@ -132,6 +136,7 @@ WorkingDirectory=/opt/villa-private-runtime
 ExecStart=/usr/bin/node /opt/villa-private-runtime/scripts/villa-uat-broker.mjs
 Environment=VILLA_UAT_BROKER_SOCKET=/run/villa-uat-broker/control.sock
 Environment=VILLA_ENGINE_OPERATOR=0xaf4ee6C0c6Ff6337F4C4F07b87C8343dF73e8d37
+UnsetEnvironment=OPERATOR_PRIVATE_KEY TAKER_PRIVATE_KEY PRIVATE_KEY WALLET_SEED MNEMONIC CREDENTIALS_DIRECTORY
 UMask=0007
 PrivateTmp=true
 PrivateDevices=true
@@ -146,6 +151,7 @@ RestrictNamespaces=true
 CapabilityBoundingSet=CAP_CHOWN CAP_DAC_OVERRIDE CAP_FOWNER CAP_SETGID CAP_SETUID CAP_KILL
 AmbientCapabilities=CAP_CHOWN CAP_DAC_OVERRIDE CAP_FOWNER CAP_SETGID CAP_SETUID CAP_KILL
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+InaccessiblePaths=/etc/villa-engine.env
 ReadWritePaths=/run/villa-uat-broker /run/villa-uat-bindings
 Restart=no
 
@@ -165,7 +171,6 @@ export const PRIVATE_DEPLOYMENT_FILES = Object.freeze({
   "etc/systemd/system/villa-engine-uat-settle@.service": SETTLEMENT_UNIT,
   "etc/systemd/system/villa-uat-broker.service": BROKER_UNIT,
   "etc/tmpfiles.d/villa-uat.conf": "d /run/villa-uat-status 2750 villa-engine villa -\nd /run/villa-uat-bindings 2750 root root -\nd /run/villa-uat-broker 2750 root villa -\n",
-  "etc/sudoers.d/villa-uat-control": "Cmnd_Alias VILLA_UAT_CONTROL = /usr/local/libexec/villa-uat-control\nvilla ALL=(root) NOPASSWD: VILLA_UAT_CONTROL\nDefaults!VILLA_UAT_CONTROL !setenv\n",
 });
 
 export const PRIVATE_DEPLOYMENT_MODES = Object.freeze({
@@ -174,7 +179,6 @@ export const PRIVATE_DEPLOYMENT_MODES = Object.freeze({
   "etc/systemd/system/villa-engine-uat-settle@.service": 0o644,
   "etc/systemd/system/villa-uat-broker.service": 0o644,
   "etc/tmpfiles.d/villa-uat.conf": 0o644,
-  "etc/sudoers.d/villa-uat-control": 0o440,
 });
 
 export const PRIVATE_RUNTIME_ENTRIES = Object.freeze([

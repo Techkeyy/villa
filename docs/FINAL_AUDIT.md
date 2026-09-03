@@ -1,6 +1,6 @@
 # VILLA final release audit
 
-Audit date: 2026-09-02
+Audit date: 2026-09-03
 Repository: public VILLA repository
 Branch: master
 Audit status: FINAL RELEASE PASS for the local repair; public production re-verification is pending deployment of this commit.
@@ -14,7 +14,8 @@ persistent execution.
 VILLA is an account-bound liquidity product for DreamDEX Event Contracts on
 Somnia Shannon. The LP owns the VillaAccount, its collateral, and its
 DreamDEX orders. The VILLA operator is a separate constrained caller. The
-public product remains safe-mode and the proof route is read-only.
+public frontend remains signer-free, account execution is separately gated,
+and the proof route is read-only.
 
 ## 2. Canonical proof
 
@@ -76,11 +77,13 @@ override, withdrawal instruction, or generic transaction payload.
 
 The production operator entrypoint verifies the authenticated owner against the
 selected VillaAccount on chain, then creates an isolated account-scoped bridge.
-In release mode, executionEnabled is false. Owner authentication may establish
-a short-lived control session, but Start returns EXECUTION_DISABLED before any
-writer or runner is reached. Stop returns a safe stopped state and never
-withdraws capital. A future armed session remains subject to the same account
-identity and preflight gates.
+The legacy/global execution flag remains false. Owner authentication may
+establish a short-lived control session; account Start is governed separately
+by VILLA_ACCOUNT_EXECUTION_ENABLED and still requires verified owner/account
+identity plus fresh preflight before any writer or runner is reached. Stop
+can reach an already-running root-bound session for cleanup and never
+withdraws capital. A deliberately account-enabled session remains subject to
+the same account identity and preflight gates.
 
 ## 6. Signer and private runtime audit
 
@@ -139,9 +142,9 @@ The release tests cover:
 ## 10. Verified gates
 
 Final values are recorded from the completed release gates:
-- full regression: 664/664 passed;
-- dashboard and browser runtime tests: 97/97 passed;
-- operator tests: 41/41 passed;
+- full regression: 665/665 passed;
+- dashboard and browser runtime tests: 98/98 passed;
+- operator tests: 48/48 passed;
 - execution: 210/210 passed; focused recovery/writer/session/reconciliation/policy gates passed;
 - Solidity account artifact compilation and runtime identity verification;
 - dashboard production build;
@@ -154,7 +157,8 @@ Final values are recorded from the completed release gates:
 ## 11. Findings
 
 No release-blocking security finding remains in the local repair scope.
-The public product is safe-mode, not an always-on autonomous production daemon.
+The public frontend is signer-free, and account execution is not an always-on
+unrestricted production daemon.
 Market data changes and realized PnL are not claimed. Public production
 re-verification remains pending deployment of this commit. Video recording and
 DoraHacks submission remain human actions outside this task.

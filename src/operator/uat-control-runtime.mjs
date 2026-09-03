@@ -21,6 +21,7 @@ const DEFAULT_WORKER = fileURLToPath(new URL("../../scripts/lp-account-session.m
 const ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
 const SESSION_RE = /^uat-\d+-[0-9a-f]{8}$/;
 const SERVICE_WRAPPER = "/usr/local/libexec/villa-uat-control";
+const RECOVERABLE_STATES = new Set(["STARTING", "RUNNING", "PAUSED", "STOPPING", "ERROR", "STOPPED_SETTLEMENT_PENDING", "SETTLEMENT_READY", "SETTLING"]);
 
 function normalizeAddress(value, label) {
   const text = String(value ?? "");
@@ -143,7 +144,9 @@ export function createUatAccountControl({
   const owner = normalizeAddress(env.VILLA_ENGINE_OWNER, "VILLA_ENGINE_OWNER");
   const account = normalizeAddress(env.VILLA_ENGINE_ACCOUNT, "VILLA_ENGINE_ACCOUNT");
   const operator = normalizeAddress(env.VILLA_ENGINE_OPERATOR ?? env.OPERATOR_ADDRESS, "VILLA_ENGINE_OPERATOR");
-  const enabled = env.VILLA_UAT_EXECUTION_ENABLED === "true";
+  const enabled = env.VILLA_ACCOUNT_EXECUTION_ENABLED !== undefined
+    ? env.VILLA_ACCOUNT_EXECUTION_ENABLED === "true"
+    : env.VILLA_UAT_EXECUTION_ENABLED === "true";
   const launchMode = String(env.VILLA_UAT_LAUNCH_MODE ?? "systemd").toLowerCase();
   if (!enabled) throw new AccountControlError("UAT_CONFIG_INVALID", "UAT execution is not enabled", 500);
   if (!["systemd", "process"].includes(launchMode)) throw new AccountControlError("UAT_CONFIG_INVALID", "UAT launch mode is invalid", 500);
@@ -230,6 +233,38 @@ export function createUatAccountControl({
     }
   }
 
+  async function recoverExternal() {
+    if (launchMode !== "systemd" || activeSessionId) return;
+    let names;
+    try {
+      names = await fs.readdir(stateDirectory);
+    } catch {
+      return;
+    }
+    const candidates = [];
+    for (const name of names) {
+      const sessionId = name.endsWith(".json") ? name.slice(0, -5) : "";
+      if (!SESSION_RE.test(sessionId)) continue;
+      try {
+        const external = JSON.parse(await fs.readFile(path.join(stateDirectory, name), "utf8"));
+        const recoveredSession = external?.session;
+        const recoveredState = String(external?.state ?? "").toUpperCase();
+        if (!RECOVERABLE_STATES.has(recoveredState)
+          || !recoveredSession
+          || recoveredSession.sessionId !== sessionId
+          || !sameAddress(recoveredSession.owner, owner)
+          || !sameAddress(recoveredSession.account, account)) continue;
+        candidates.push({ external, updatedAt: Number(external.updatedAt) || 0 });
+      } catch {
+        // Ignore malformed or foreign status files. Recovery is fail-closed.
+      }
+    }
+    candidates.sort((left, right) => right.updatedAt - left.updatedAt);
+    if (!candidates[0]) return;
+    activeSessionId = candidates[0].external.session.sessionId;
+    applyExternal(candidates[0].external);
+  }
+
   function handleMessage(message, resolveReady, rejectReady) {
     if (!message || typeof message !== "object") return;
     if (message.type === "ready") {
@@ -301,7 +336,7 @@ export function createUatAccountControl({
 
   async function start({ caller = null } = {}) {
     assertCaller(caller);
-    if (!enabled) throw new AccountControlError("UAT_EXECUTION_DISABLED", "manual UAT execution is not enabled for this deployment", 423);
+    if (!enabled) throw new AccountControlError("ACCOUNT_EXECUTION_DISABLED", "account execution is not enabled for this deployment", 423);
     if (child || activeSessionId || state !== "STOPPED") throw new AccountControlError("SESSION_ALREADY_ACTIVE", "VILLA already has an active UAT session");
     const sessionId = `uat-${Date.now()}-${randomUUID().slice(0, 8)}`;
     activeSessionId = sessionId;
@@ -323,7 +358,8 @@ export function createUatAccountControl({
       VILLA_ENGINE_OPERATOR: operator,
       VILLA_ENGINE_SESSION_ID: sessionId,
       VILLA_UAT_SESSION_EXECUTION: "true",
-      VILLA_EXECUTION_ENABLED: "true",
+      VILLA_EXECUTION_ENABLED: "false",
+      VILLA_ACCOUNT_EXECUTION_ENABLED: "true",
       VILLA_EXECUTION_MODE: "WET",
       CREDENTIALS_DIRECTORY: credentialsDirectory,
     };
@@ -357,6 +393,7 @@ export function createUatAccountControl({
   async function stop({ caller = null } = {}) {
     assertCaller(caller);
     if (launchMode === "systemd") {
+      await recoverExternal();
       await syncExternal();
       if (!activeSessionId) return publicState();
       state = "STOPPING";
@@ -373,6 +410,7 @@ export function createUatAccountControl({
   async function settle({ caller = null } = {}) {
     assertCaller(caller);
     if (launchMode !== "systemd") throw new AccountControlError("SETTLEMENT_PRIVATE_SERVICE_REQUIRED", "settlement requires the private systemd service boundary", 503);
+    await recoverExternal();
     await syncExternal();
     if (!activeSessionId) throw new AccountControlError("SETTLEMENT_SESSION_REQUIRED", "there is no stopped UAT session to settle", 409);
     if (!["STOPPED_SETTLEMENT_PENDING", "SETTLEMENT_READY"].includes(state)) throw new AccountControlError("SETTLEMENT_NOT_READY", "the account session is not ready for settlement", 409);
@@ -405,7 +443,7 @@ export function createUatAccountControl({
 
   return Object.freeze({
     auth: createOperatorAuth({ authorizedAddress: owner }),
-    getState: async ({ caller = null } = {}) => { assertCaller(caller); await syncExternal(); return publicState(); },
+    getState: async ({ caller = null } = {}) => { assertCaller(caller); await recoverExternal(); await syncExternal(); return publicState(); },
     start,
     stop,
     settle,

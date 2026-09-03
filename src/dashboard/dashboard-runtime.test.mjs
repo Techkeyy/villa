@@ -65,6 +65,61 @@ async function startFixtureServer(body) {
   return { server, url: `http://127.0.0.1:${address.port}/` };
 }
 
+async function runDashboardBuild() {
+  const child = spawn(process.execPath, ["scripts/dashboard-build.mjs"], { cwd: root, stdio: ["ignore", "pipe", "pipe"] });
+  let output = "";
+  await new Promise((resolve, reject) => {
+    child.stdout.on("data", (chunk) => { output += String(chunk); });
+    child.stderr.on("data", (chunk) => { output += String(chunk); });
+    child.once("error", reject);
+    child.once("exit", (code) => code === 0 ? resolve() : reject(new Error("dashboard build failed with " + code + ": " + output)));
+  });
+}
+
+async function startBuiltDashboardServer() {
+  const builtRoot = path.join(root, "dist", "dashboard");
+  const contentTypes = {
+    ".css": "text/css; charset=utf-8",
+    ".html": "text/html; charset=utf-8",
+    ".js": "text/javascript; charset=utf-8",
+    ".mjs": "text/javascript; charset=utf-8",
+    ".json": "application/json; charset=utf-8",
+    ".svg": "image/svg+xml",
+  };
+  const server = http.createServer(async (request, response) => {
+    const pathname = new URL(request.url ?? "/", "http://127.0.0.1").pathname;
+    if (pathname === "/api/snapshot") {
+      response.writeHead(200, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" });
+      response.end(JSON.stringify({ snapshot: {}, evidence: {}, source: "route-runtime-test" }));
+      return;
+    }
+    const relative = pathname === "/" ? "index.html"
+      : pathname === "/app" || pathname === "/app/" ? path.join("app", "index.html")
+        : pathname === "/proof" || pathname === "/proof/" ? path.join("proof", "index.html")
+          : pathname.replace(/^\/+/, "");
+    const file = path.resolve(builtRoot, relative);
+    if (!file.startsWith(builtRoot + path.sep)) {
+      response.writeHead(403);
+      response.end();
+      return;
+    }
+    try {
+      const body = await fs.readFile(file);
+      response.writeHead(200, { "Content-Type": contentTypes[path.extname(file)] ?? "application/octet-stream", "Cache-Control": "no-store" });
+      response.end(body);
+    } catch {
+      response.writeHead(404);
+      response.end();
+    }
+  });
+  await new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", resolve);
+  });
+  const address = server.address();
+  return { server, baseUrl: "http://127.0.0.1:" + address.port };
+}
+
 async function findBrowserExecutable() {
   const candidates = [
     process.env.VILLA_BROWSER_BIN,
@@ -121,6 +176,7 @@ class CdpClient {
     this.socket = new WebSocket(url);
     this.nextId = 1;
     this.pending = new Map();
+    this.events = [];
     this.open = new Promise((resolve, reject) => {
       const timer = setTimeout(() => reject(new Error("Timed out opening the browser DevTools connection")), 10000);
       this.socket.addEventListener("open", () => {
@@ -135,7 +191,10 @@ class CdpClient {
     this.socket.addEventListener("message", (event) => {
       const message = JSON.parse(String(event.data));
       const pending = this.pending.get(message.id);
-      if (!pending) return;
+      if (!pending) {
+        this.events.push(message);
+        return;
+      }
       this.pending.delete(message.id);
       clearTimeout(pending.timer);
       if (message.error) pending.reject(new Error(message.error.message));
@@ -372,6 +431,58 @@ test("dashboard server serves current source assets and the v2 build marker", as
     assert.match(app, /renderAccountJourney/);
   } finally {
     child.kill();
+  }
+});
+
+test("built landing, app, and proof routes initialize the intended runtime page", async () => {
+  await runDashboardBuild();
+  const { server, baseUrl } = await startBuiltDashboardServer();
+  const expected = [
+    ["/", "landing"],
+    ["/app", "app"],
+    ["/proof", "proof"],
+    ];
+  try {
+    for (const [route, page] of expected) {
+      const browser = await startHeadlessBrowser(baseUrl + route);
+      try {
+        await browser.cdp.send("Page.enable");
+        await browser.cdp.send("Page.reload", { ignoreCache: true });
+        const expression = [
+          "(async () => {",
+          "  const deadline = Date.now() + 5000;",
+          "  while (Date.now() < deadline) {",
+          "    if (document.body.dataset.page === " + JSON.stringify(page) + ") {",
+          "      return {",
+          "        page: document.body.dataset.page,",
+          "        landingHidden: document.querySelector('.page-landing')?.hidden ?? null,",
+          "        appHidden: document.querySelector('.page-app')?.hidden ?? null,",
+          "        proofHidden: document.querySelector('.page-proof')?.hidden ?? null,",
+          "        appCopy: document.querySelector('.page-app')?.textContent.includes('MY LIQUIDITY') ?? false,",
+          "      };",
+          "    }",
+          "    await new Promise((resolve) => setTimeout(resolve, 25));",
+          "  }",
+          "  throw new Error('runtime page did not settle at ' + location.pathname + ' route=' + document.body.dataset.route + ' page=' + document.body.dataset.page);",
+          "})()",
+        ].join("\n");
+        let state;
+        try {
+          state = await evaluateEventually(browser.cdp, expression);
+        } catch (error) {
+          throw new Error(error.message + " diagnostics=" + JSON.stringify(browser.cdp.events.slice(-8)));
+        }
+        assert.equal(state.page, page, route);
+        assert.equal(state.landingHidden, page !== "landing", route);
+        assert.equal(state.appHidden, page !== "app", route);
+        assert.equal(state.proofHidden, page !== "proof", route);
+        if (page === "app") assert.equal(state.appCopy, true);
+      } finally {
+        await browser.close();
+      }
+    }
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
   }
 });
 

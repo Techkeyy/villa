@@ -1,7 +1,8 @@
 # VILLA product specification
 
 Status: final release. Account-bound wet proof verified on Somnia Shannon;
-persistent public execution remains disabled.
+the legacy/global execution path remains disabled and account execution is
+independently deployment-gated.
 
 ## Product definition
 
@@ -24,7 +25,8 @@ VILLA does not promise profit, yield, or positive PnL.
   rollover, and settlement reference.
 - The canonical operator is fixed by audited configuration and can act only
   through the approved account-bound path.
-- The public app is explainer-first, wallet-mediated, and safe-mode.
+- The public app is explainer-first, wallet-mediated, and signer-free; account
+  execution is independently deployment-gated.
 - The public proof route is read-only and documents the real 10a14 proof.
 
 ## Architecture decision
@@ -40,8 +42,9 @@ Start authenticates the owner wallet with a short-lived message signature, then
 sends only the selected VillaAccount identity to the account control route.
 The server verifies that identity before invoking an isolated owner-account
 session. Stop prevents new expansion, cleans only tracked account-owned orders,
-reconciles state, and never withdraws capital. The public release keeps
-execution disabled.
+reconciles state, and never withdraws capital. The legacy/global execution
+flag remains false; VILLA_ACCOUNT_EXECUTION_ENABLED separately gates the
+product-facing account Start path.
 
 ## User-facing surfaces
 

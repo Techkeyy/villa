@@ -56,7 +56,7 @@ export function createOnChainAccountVerifier({
   const client = publicClient ?? createPublicClient({ chain: somniaShannon, transport: http(rpcUrl, { timeout: 15_000 }) });
   const reader = identityReader ?? createViemLpAccountReader({ publicClient: client });
 
-  return async function verifyAccountBinding({ caller, account } = {}) {
+  return async function verifyAccountBinding({ caller, account, requireOperator = true } = {}) {
     const owner = address(caller, "authenticated owner");
     const target = address(account, "VillaAccount");
     if (same(owner, target) || same(owner, expectedOperator) || same(target, expectedOperator)) {
@@ -83,7 +83,8 @@ export function createOnChainAccountVerifier({
     if (!same(identity?.owner, owner)) {
       throw new AccountControlError("OWNER_SCOPE_MISMATCH", "The authenticated wallet is not the owner of this VillaAccount.", 403);
     }
-    if (!same(identity?.operator, expectedOperator)) {
+    const operatorAuthorized = same(identity?.operator, expectedOperator);
+    if (requireOperator && !operatorAuthorized) {
       throw new AccountControlError("OPERATOR_NOT_AUTHORIZED", "The canonical VILLA operator is not authorized for this VillaAccount.", 403);
     }
     const wiring = {
@@ -99,9 +100,10 @@ export function createOnChainAccountVerifier({
       account: target,
       owner,
       operator: expectedOperator,
-      identity: Object.freeze({ ...identity, account: target, owner, operator: expectedOperator, runtimeVerified: true }),
+      identity: Object.freeze({ ...identity, account: target, owner, actualOperator: identity?.operator ?? null, operator: expectedOperator, operatorAuthorized, runtimeVerified: true }),
       runtimeVerified: true,
       onChain: true,
+      operatorAuthorized,
     });
   };
 }

@@ -84,7 +84,7 @@ function sleep(ms) { return new Promise((resolve) => setTimeout(resolve, ms)); }
 
 function configFromEnv(env) {
   if (env.VILLA_UAT_SESSION_EXECUTION !== "true") fail("UAT_EXECUTION_DISABLED", "the private UAT session flag is not enabled");
-  if (env.VILLA_EXECUTION_ENABLED !== "true") fail("EXECUTION_DISABLED", "the private session execution flag is disabled");
+  if (env.VILLA_ACCOUNT_EXECUTION_ENABLED !== "true") fail("ACCOUNT_EXECUTION_DISABLED", "the private account session execution flag is disabled");
   if (String(env.VILLA_EXECUTION_MODE ?? "WET").toUpperCase() !== "WET") fail("MODE_INVALID", "the private UAT session requires WET mode");
   if (!SESSION_RE.test(String(env.VILLA_ENGINE_SESSION_ID ?? ""))) fail("SESSION_INVALID", "the private session id is invalid");
   return Object.freeze({

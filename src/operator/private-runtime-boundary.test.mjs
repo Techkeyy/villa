@@ -27,7 +27,9 @@ test("private services are pinned to the root-controlled runtime and private sta
     assert.doesNotMatch(unit, /Group=villa\n/);
     assert.match(unit, /Environment=VILLA_UAT_PRIVATE_STATE_FILE=\/var\/lib\/villa-engine\/uat-%i\/session\.json/);
     assert.match(unit, /Environment=VILLA_UAT_STATUS_FILE=\/run\/villa-uat-status\/%i\.json/);
-    assert.match(unit, /EnvironmentFile=-\/run\/villa-uat-bindings\/%i\.env/);
+    assert.match(unit, /ConditionPathExists=\/run\/villa-uat-bindings\/%i\.env/);
+    assert.match(unit, /EnvironmentFile=\/run\/villa-uat-bindings\/%i\.env/);
+    assert.doesNotMatch(unit, /EnvironmentFile=-\/run\/villa-uat-bindings\//);
     assert.doesNotMatch(unit, /Environment=VILLA_ENGINE_OWNER=/);
     assert.doesNotMatch(unit, /Environment=VILLA_ENGINE_ACCOUNT=/);
     assert.match(unit, /StateDirectory=villa-engine\/uat-%i/);
@@ -43,6 +45,8 @@ test("private services are pinned to the root-controlled runtime and private sta
     assert.match(unit, /PrivateDevices=true/);
     assert.match(unit, /RestrictNamespaces=true/);
     assert.match(unit, /CapabilityBoundingSet=\n/);
+    assert.match(unit, /Environment=VILLA_EXECUTION_ENABLED=false/);
+    assert.match(unit, /Environment=VILLA_ACCOUNT_EXECUTION_ENABLED=true/);
     assert.match(unit, new RegExp(`ReadWritePaths=${STATUS_ROOT} ${PRIVATE_STATE_ROOT}`));
     assert.doesNotMatch(unit, /\/opt\/villa-operator/);
   }
@@ -63,8 +67,11 @@ test("root broker is the only dynamic identity boundary", () => {
   assert.match(brokerUnit, /Group=villa/);
   assert.match(brokerUnit, /villa-uat-broker\.mjs/);
   assert.match(brokerUnit, /ReadWritePaths=\/run\/villa-uat-broker \/run\/villa-uat-bindings/);
+  assert.match(brokerUnit, /InaccessiblePaths=\/etc\/villa-engine\.env/);
+  assert.match(brokerUnit, /UnsetEnvironment=OPERATOR_PRIVATE_KEY TAKER_PRIVATE_KEY PRIVATE_KEY WALLET_SEED MNEMONIC CREDENTIALS_DIRECTORY/);
   assert.match(brokerUnit, /VILLA_ENGINE_OPERATOR=0xaf4ee6/);
   assert.doesNotMatch(brokerUnit, /OPERATOR_PRIVATE_KEY=/);
+  assert.doesNotMatch(brokerUnit, /LoadCredential=|(?:^|\n)Environment=.*CREDENTIALS_DIRECTORY/);
 });
 
 test("private bundle entrypoints and specs contain no public-writable runtime path", () => {
@@ -80,6 +87,11 @@ test("private bundle entrypoints and specs contain no public-writable runtime pa
   }
   assert.doesNotMatch(sessionUnit, /OPERATOR_PRIVATE_KEY=/);
   assert.doesNotMatch(settlementUnit, /OPERATOR_PRIVATE_KEY=/);
+  assert.equal(PRIVATE_DEPLOYMENT_FILES["etc/sudoers.d/villa-uat-control"], undefined);
+  assert.equal(PRIVATE_DEPLOYMENT_MODES["etc/sudoers.d/villa-uat-control"], undefined);
+  const broker = fs.readFileSync(path.join(ROOT, "scripts/villa-uat-broker.mjs"), "utf8");
+  assert.match(broker, /fs\.link\(temporary, bindingPath\(sessionId\)\)/);
+  assert.doesNotMatch(broker, /fs\.rename\(/);
 });
 
 test("service stop forwards a typed product stop and waits for cleanup", () => {

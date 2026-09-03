@@ -1,8 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { once } from "node:events";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import { createOperatorAuth } from "./auth.mjs";
+import { AccountControlError } from "./account-control.mjs";
 import { createOperatorApiServer, createProductionOperatorServer } from "../../scripts/operator-api.mjs";
 
 async function request(base, path, { method = "GET", body, token, origin = "http://allowed.test" } = {}) {
@@ -184,16 +188,140 @@ test("production release wires owner-authenticated safe account control", async 
     assert.equal(state.body.safety.executionEnabled, false);
     assert.equal(state.body.safety.arbitraryRelay, false);
     assert.equal(state.body.safety.withdrawViaControl, false);
-    assert.ok(state.body.readiness.reasons.includes("EXECUTION_DISABLED"));
+    assert.ok(state.body.readiness.reasons.includes("ACCOUNT_EXECUTION_DISABLED"));
     const started = await request(base, "/account/session/start", { method: "POST", token, body: { account: villaAccount } });
     assert.equal(started.status, 423);
-    assert.equal(started.body.code, "EXECUTION_DISABLED");
+    assert.equal(started.body.code, "ACCOUNT_EXECUTION_DISABLED");
     const stopped = await request(base, "/account/session/stop", { method: "POST", token, body: { account: villaAccount } });
     assert.equal(stopped.status, 202);
     assert.equal(stopped.body.executionEnabled, false);
     assert.equal(runnerSpawns, 0);
   } finally {
     server.close();
+  }
+});
+
+test("verified account Start works with global execution false and the account gate true", async () => {
+  const operator = privateKeyToAccount(generatePrivateKey());
+  const owner = privateKeyToAccount(generatePrivateKey());
+  const villaAccount = "0x2222222222222222222222222222222222222222";
+  let starts = 0;
+  const server = createProductionOperatorServer({
+    OPERATOR_ADDRESS: operator.address,
+    VILLA_ENGINE_OPERATOR: operator.address,
+    VILLA_ALLOWED_ORIGINS: "http://allowed.test",
+    VILLA_EXECUTION_ENABLED: "false",
+    VILLA_ACCOUNT_EXECUTION_ENABLED: "true",
+    VILLA_UAT_EXECUTION_ENABLED: "false",
+  }, {
+    readOnlyReader: async () => ({ mode: "LIVE", snapshot: null }),
+    accountVerifier: async ({ caller, account }) => ({ account, owner: caller, operator: operator.address, runtimeVerified: true, onChain: true }),
+    controlFactory: () => ({
+      async getState() { return { state: "STOPPED", session: null }; },
+      async start() { starts += 1; return { state: "STARTING" }; },
+      async stop() { return { state: "STOPPED" }; },
+      async settle() { return { state: "SETTLED" }; },
+      async pause() { return { state: "PAUSED" }; },
+      async resume() { return { state: "RUNNING" }; },
+    }),
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const base = "http://127.0.0.1:" + server.address().port;
+  try {
+    const nonce = await request(base, "/account/auth/nonce", { method: "POST", body: { address: owner.address } });
+    const signature = await owner.signMessage({ message: nonce.body.message });
+    const verified = await request(base, "/account/auth/verify", { method: "POST", body: { ...nonce.body, signature } });
+    const started = await request(base, "/account/session/start", { method: "POST", token: verified.body.token, body: { account: villaAccount } });
+    assert.equal(started.status, 202);
+    assert.equal(starts, 1);
+  } finally {
+    server.close();
+  }
+});
+
+test("API restart recovers the bound account for its owner and rejects another wallet", async () => {
+  const operator = privateKeyToAccount(generatePrivateKey());
+  const owner = privateKeyToAccount(generatePrivateKey());
+  const wrongOwner = privateKeyToAccount(generatePrivateKey());
+  const villaAccount = "0x3333333333333333333333333333333333333333";
+  const sessionId = "uat-1234567890-fedcba98";
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "villa-api-recovery-"));
+  const statusPath = path.join(directory, sessionId + ".json");
+  await fs.writeFile(statusPath, JSON.stringify({
+    version: "villa-uat-state-v1",
+    updatedAt: Date.now(),
+    state: "RUNNING",
+    session: { sessionId, account: villaAccount, owner: owner.address, operator: operator.address },
+  }));
+  const accountVerifier = async ({ caller, account }) => {
+    if (caller.toLowerCase() !== owner.address.toLowerCase() || account.toLowerCase() !== villaAccount) {
+      throw new AccountControlError("OWNER_SCOPE_MISMATCH", "account does not belong to this wallet", 403);
+    }
+    return { account, owner: owner.address, operator: operator.address, runtimeVerified: true, onChain: true };
+  };
+  let stopArgs = null;
+  const commandRunner = (_command, args, _options, callback) => {
+    stopArgs = args;
+    void fs.writeFile(statusPath, JSON.stringify({
+      version: "villa-uat-state-v1",
+      updatedAt: Date.now() + 1,
+      state: "STOPPED_SETTLEMENT_PENDING",
+      session: { sessionId, account: villaAccount, owner: owner.address, operator: operator.address },
+    })).then(() => callback(null));
+  };
+  const createServer = () => createProductionOperatorServer({
+    OPERATOR_ADDRESS: operator.address,
+    VILLA_ENGINE_OPERATOR: operator.address,
+    VILLA_ALLOWED_ORIGINS: "http://allowed.test",
+    VILLA_EXECUTION_ENABLED: "false",
+    VILLA_ACCOUNT_EXECUTION_ENABLED: "true",
+    VILLA_UAT_EXECUTION_ENABLED: "false",
+    VILLA_UAT_LAUNCH_MODE: "systemd",
+    VILLA_UAT_STATE_DIRECTORY: directory,
+  }, {
+    readOnlyReader: async () => ({ mode: "LIVE", snapshot: null }),
+    accountVerifier,
+    controlOptions: { commandRunner, pollMs: 1, readyTimeoutMs: 500 },
+  });
+  const serve = async (server) => {
+    server.listen(0, "127.0.0.1");
+    await once(server, "listening");
+    return "http://127.0.0.1:" + server.address().port;
+  };
+  const tokenFor = async (base, wallet) => {
+    const nonce = await request(base, "/account/auth/nonce", { method: "POST", body: { address: wallet.address } });
+    const signature = await wallet.signMessage({ message: nonce.body.message });
+    const verified = await request(base, "/account/auth/verify", { method: "POST", body: { ...nonce.body, signature } });
+    return verified.body.token;
+  };
+  const first = createServer();
+  const firstBase = await serve(first);
+  try {
+    const firstToken = await tokenFor(firstBase, owner);
+    const firstState = await request(firstBase, "/account/state?account=" + villaAccount, { token: firstToken });
+    assert.equal(firstState.status, 200);
+    assert.equal(firstState.body.state, "RUNNING");
+  } finally {
+    await new Promise((resolve) => first.close(resolve));
+  }
+  const second = createServer();
+  const secondBase = await serve(second);
+  try {
+    const ownerToken = await tokenFor(secondBase, owner);
+    const recovered = await request(secondBase, "/account/state?account=" + villaAccount, { token: ownerToken });
+    assert.equal(recovered.status, 200);
+    assert.equal(recovered.body.session.sessionId, sessionId);
+    const wrongToken = await tokenFor(secondBase, wrongOwner);
+    const wrong = await request(secondBase, "/account/state?account=" + villaAccount, { token: wrongToken });
+    assert.equal(wrong.status, 403);
+    const stopped = await request(secondBase, "/account/session/stop", { method: "POST", token: ownerToken, body: { account: villaAccount } });
+    assert.equal(stopped.status, 202);
+    assert.equal(stopped.body.state, "STOPPED_SETTLEMENT_PENDING");
+    assert.deepEqual(stopArgs, ["stop", sessionId]);
+  } finally {
+    await new Promise((resolve) => second.close(resolve));
+    await fs.rm(directory, { recursive: true, force: true });
   }
 });
 test("optional account control routes are wallet-authenticated and reject arbitrary relay fields", async () => {

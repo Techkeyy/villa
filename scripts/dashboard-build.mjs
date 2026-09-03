@@ -18,7 +18,7 @@ await fs.rm(output, { recursive: true, force: true });
 await fs.mkdir(output, { recursive: true });
 const sourceHtml = await fs.readFile(path.join(source, "index.html"), "utf8");
 await fs.writeFile(path.join(output, "index.html"), routeShell(sourceHtml, "landing"));
-for (const name of ["styles.css", "app.mjs", "control-client.mjs", "account-client.mjs", "account-config.mjs", "account-journey.mjs", "account-readiness.mjs", "liquidity-flow.mjs", "authorization-flow.mjs", "villa-account-artifact.json", "favicon.svg"]) await fs.copyFile(path.join(source, name), path.join(output, name));
+for (const name of ["styles.css", "app.mjs", "control-client.mjs", "account-client.mjs", "account-config.mjs", "account-journey.mjs", "account-readiness.mjs", "liquidity-flow.mjs", "authorization-flow.mjs", "uat-monitor.mjs", "villa-account-artifact.json", "favicon.svg"]) await fs.copyFile(path.join(source, name), path.join(output, name));
 await fs.copyFile(path.join(root, "src", "dashboard", "presenter.mjs"), path.join(output, "presenter.mjs"));
 for (const route of ["app", "proof"]) {
   await fs.mkdir(path.join(output, route), { recursive: true });
@@ -28,7 +28,7 @@ for (const route of ["app", "proof"]) {
 const html = await fs.readFile(path.join(output, "index.html"), "utf8");
 const appHtml = await fs.readFile(path.join(output, "app", "index.html"), "utf8");
 const proofHtml = await fs.readFile(path.join(output, "proof", "index.html"), "utf8");
-for (const name of ["app.mjs", "control-client.mjs", "account-client.mjs", "account-config.mjs", "account-journey.mjs", "account-readiness.mjs", "liquidity-flow.mjs", "authorization-flow.mjs", "villa-account-artifact.json"]) await fs.access(path.join(output, name));
+for (const name of ["app.mjs", "control-client.mjs", "account-client.mjs", "account-config.mjs", "account-journey.mjs", "account-readiness.mjs", "liquidity-flow.mjs", "authorization-flow.mjs", "uat-monitor.mjs", "villa-account-artifact.json"]) await fs.access(path.join(output, name));
 const required = ["/styles.css", "/app.mjs", "/favicon.svg", "VILLA", "/app", "/proof", "MY LIQUIDITY", "Add liquidity", "Authorize VILLA", "View verified replay"];
 const missing = required.filter((needle) => !html.includes(needle));
 if (missing.length) throw new Error(`dashboard build missing required markers: ${missing.join(", ")}`);

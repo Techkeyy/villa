@@ -85,3 +85,44 @@ test("systemd UAT bridge uses only the fixed wrapper and settles the same sessio
   await fs.rm(directory, { recursive: true, force: true });
   assert.ok(statePath);
 });
+
+test("systemd bridge recovers only the matching owner/account session after restart", async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "villa-uat-recovery-"));
+  const sessionId = "uat-1234567890-abcdef12";
+  const statusPath = path.join(directory, sessionId + ".json");
+  await fs.writeFile(statusPath, JSON.stringify({
+    version: "villa-uat-state-v1",
+    updatedAt: Date.now(),
+    state: "RUNNING",
+    session: { sessionId, account: ACCOUNT, owner: OWNER, operator: OPERATOR },
+  }));
+  const commands = [];
+  const commandRunner = (command, args, _options, callback) => {
+    commands.push({ command, args });
+    if (args[0] === "stop") {
+      void fs.writeFile(statusPath, JSON.stringify({
+        version: "villa-uat-state-v1",
+        updatedAt: Date.now() + 1,
+        state: "STOPPED_SETTLEMENT_PENDING",
+        session: { sessionId, account: ACCOUNT, owner: OWNER, operator: OPERATOR },
+      })).then(() => callback(null));
+    } else callback(null);
+  };
+  const control = createUatAccountControl({
+    env: env({ VILLA_UAT_LAUNCH_MODE: "systemd", VILLA_ACCOUNT_EXECUTION_ENABLED: "true", VILLA_UAT_STATE_DIRECTORY: directory }),
+    commandRunner,
+    pollMs: 1,
+    readyTimeoutMs: 500,
+  });
+  try {
+    const recovered = await control.getState({ caller: OWNER });
+    assert.equal(recovered.state, "RUNNING");
+    assert.equal(recovered.session.sessionId, sessionId);
+    await assert.rejects(() => control.getState({ caller: "0x1111111111111111111111111111111111111111" }), { code: "OWNER_SCOPE_MISMATCH" });
+    const stopped = await control.stop({ caller: OWNER });
+    assert.equal(stopped.state, "STOPPED_SETTLEMENT_PENDING");
+    assert.deepEqual(commands.map((entry) => entry.args), [["stop", sessionId]]);
+  } finally {
+    await fs.rm(directory, { recursive: true, force: true });
+  }
+});

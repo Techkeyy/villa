@@ -2,8 +2,8 @@
 
 VILLA has a separate private one-shot engine for the owner-controlled VPS.
 This is a custody and execution boundary, not a public API deployment. The
-current Phase 3B2A checkpoint installs the real typed writer and keeps
-execution explicitly disabled.
+current Phase 3B2A checkpoint installs the real typed writer while keeping
+the legacy/global execution path explicitly disabled.
 
 ## Boundary
 
@@ -53,8 +53,9 @@ VILLA_EXECUTION_MODE=WET
 VILLA_EXECUTION_ENABLED=false
 ```
 
-The WET mode name selects the private runtime implementation. The false flag
-is checked before wallet-client creation or invocation. A dry one-shot loads
+The WET mode name selects the private runtime implementation. The false global
+flag remains disabled; account-bound units use VILLA_ACCOUNT_EXECUTION_ENABLED
+as their separate deployment gate. A dry one-shot loads
 and verifies the private signer, reads the exact account and market, runs the
 read-only feasibility and final preflight, builds the bounded mint,
 SELL_YES, cancel, and burn intents, and stops at the writer boundary.
@@ -77,9 +78,11 @@ order/mint/pending exposure `250,000` raw, at most two open orders, a
 `GET /health` remains a non-writable service check. Account control uses a
 short-lived owner-wallet message signature plus an explicit VillaAccount
 selector; the server verifies the pairing before each account action. Message
-signing does not send a blockchain transaction. With execution false,
-`POST /account/session/start` returns `EXECUTION_DISABLED` and must not spawn a
-writer.
+signing does not send a blockchain transaction. With
+VILLA_ACCOUNT_EXECUTION_ENABLED=false, `POST /account/session/start` returns
+ACCOUNT_EXECUTION_DISABLED and must not spawn a writer. With the dedicated
+account gate deliberately true, the same route remains owner/account-bound
+and subject to fresh preflight.
 
 The public frontend may know only the HTTPS engine origin through
 `VILLA_ENGINE_API_URL`. It never receives the signer, wallet client, private

@@ -81,7 +81,7 @@ The operator cannot choose an arbitrary destination, calldata, withdrawal recipi
 
 DreamDEX supplies the Event Contract markets, order books, and settlement lifecycle. VILLA reads the market and venue state, then plans maker liquidity around the exact market identity.
 
-Somnia Shannon provides the testnet execution environment. The verified release proof uses chain ID `50312`, a real `VillaAccount`, and a real DreamDEX order. The public app is safe-mode by policy and the public proof surface is read-only.
+Somnia Shannon provides the testnet execution environment. The verified release proof uses chain ID `50312`, a real `VillaAccount`, and a real DreamDEX order. The public frontend remains signer-free, and the public proof surface is read-only.
 
 ## Pricing, inventory, and risk
 
@@ -130,7 +130,7 @@ The app uses a white and light-blue visual system, readable type, sparse panels,
 
 Start is not a browser transaction button. It authenticates the connected owner wallet with a short-lived message signature, then sends only the selected VillaAccount identity to the account-bound control route. The server independently verifies account ownership, audited bytecode, contract wiring, canonical operator authorization, and fresh preflight facts. The browser cannot provide a target or calldata.
 
-The safe release still keeps persistent execution disabled. A safe-mode Start request returns `EXECUTION_DISABLED` without spawning a writer or sending a chain transaction. Stop is reserved for an authenticated account session and never withdraws capital.
+The legacy/global VILLA_EXECUTION_ENABLED gate remains false. The product-facing account path has its own VILLA_ACCOUNT_EXECUTION_ENABLED deployment gate; when deliberately true, only an authenticated, verified owner/account session can Start. A deployment with that account gate false returns ACCOUNT_EXECUTION_DISABLED without spawning a writer or sending a chain transaction. Stop is reserved for an authenticated account session and never withdraws capital.
 
 The private engine is separate from the public app. Its signer stays outside the repository and outside Vercel. The public deployment exposes no signer, wallet credential, or private engine logs.
 
@@ -183,9 +183,9 @@ The final local repair gate recorded:
 
 | Gate | Result |
 | --- | --- |
-| Full regression | 664/664 repair run passing |
-| Dashboard | 97/97 repair run passing |
-| Operator | 41/41 repair run passing |
+| Full regression | 665/665 repair run passing |
+| Dashboard | 98/98 repair run passing |
+| Operator | 48/48 repair run passing |
 | Execution | 210/210 baseline passing |
 | Recovery | 13/13 focused passing |
 | Writer, session, reconciliation, policy | 72/72 focused passing |
@@ -204,7 +204,7 @@ Counts are kept here as release evidence, while the test files remain the source
 - Strategy control requires wallet authentication and owner scope.
 - The private signer is loaded only inside the private engine process.
 - Public control requests reject arbitrary transaction fields.
-- Persistent execution remains disabled in the public release.
+- The legacy/global execution path remains disabled. Account execution is independently gated and remains bound to verified owner/account identity, fresh preflight, and the private runtime.
 - Unknown transactions, unknown orders, stale leases, and incomplete reconciliation block continuation.
 - Secrets are excluded by ignore rules and secret scanning.
 
@@ -212,7 +212,7 @@ The complete release audit is recorded in [`docs/FINAL_AUDIT.md`](docs/FINAL_AUD
 
 ## Limitations and future work
 
-This is a Shannon testnet MVP with one canonical operator configuration and isolated per-user VillaAccount sessions. Market data and venue availability can change. PnL is not presented when it cannot be independently verified. The public deployment is safe-mode and does not claim autonomous production execution. Broader venue coverage and production custody operations remain future work.
+This is a Shannon testnet MVP with one canonical operator configuration and isolated per-user VillaAccount sessions. Market data and venue availability can change. PnL is not presented when it cannot be independently verified. The public frontend is signer-free; account execution is a deliberate private deployment setting and does not claim guaranteed profit or unrestricted production autonomy. Broader venue coverage and production custody operations remain future work.
 
 ## Hackathon context
 

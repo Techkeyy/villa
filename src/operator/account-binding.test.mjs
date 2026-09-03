@@ -42,3 +42,11 @@ test("on-chain verifier rejects wrong runtime, owner, operator, and contract wir
   await assert.rejects(() => fixture({ operator: "0x3333333333333333333333333333333333333333" }).then((verify) => verify({ caller: OWNER, account: ACCOUNT })), { code: "OPERATOR_NOT_AUTHORIZED" });
   await assert.rejects(() => fixture({ binaryModule: "0x3333333333333333333333333333333333333333" }).then((verify) => verify({ caller: OWNER, account: ACCOUNT })), { code: "ACCOUNT_WIRING_MISMATCH" });
 });
+
+test("recovery verification can prove owner and wiring without granting operator authorization", async () => {
+  const verify = await fixture({ operator: "0x3333333333333333333333333333333333333333" });
+  const result = await verify({ caller: OWNER, account: ACCOUNT, requireOperator: false });
+  assert.equal(result.operatorAuthorized, false);
+  assert.equal(result.runtimeVerified, true);
+  assert.equal(result.identity.operatorAuthorized, false);
+});

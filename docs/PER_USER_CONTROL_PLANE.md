@@ -11,8 +11,10 @@ The public control plane is account-scoped, not globally allowlisted.
 4. The request is keyed by `owner + VillaAccount`. An owner/account mismatch,
    invalid contract, or missing operator authorization fails closed.
 5. In an armed deployment, the per-account session registry creates an isolated
-   bridge with that identity. In this release, execution remains disabled, so
-   the same verified state returns `EXECUTION_DISABLED` and creates no writer.
+   bridge with that identity. The legacy/global execution flag stays false.
+   VILLA_ACCOUNT_EXECUTION_ENABLED is the separate account-session gate; when
+   false it returns ACCOUNT_EXECUTION_DISABLED, and when true it still
+   requires every identity and preflight check before a writer can start.
 
 The private runtime has no process-wide owner or VillaAccount. The root-only
 account broker independently verifies the typed owner/account pair before
@@ -26,5 +28,6 @@ The broker also checks the existing root-owned binding before stopping or
 settling a session. The private engine retains its existing typed writer,
 account-bound calls, lease, reconciliation, and owner-only withdrawal boundary.
 
-The public release sets execution disabled. No session, order, or blockchain
-write is started by the released Start path.
+The legacy/global release path stays disabled. A deliberately account-enabled
+deployment may start only a verified owner-bound session; the browser still
+cannot sign, choose arbitrary calls, or receive the private credential.

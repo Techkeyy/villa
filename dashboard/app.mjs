@@ -366,7 +366,7 @@ function renderControlControls() {
     status.className = `status-pill ${active ? "status-safe" : "status-preview"}`;
     status.textContent = active ? state : state === "ERROR" ? "ATTENTION" : "ACCOUNT-BOUND CONTROL";
   }
-  text("control-plane-copy", "Your wallet authenticates Start and Stop. VILLA uses a private account-bound operator for this account; no operator wallet is needed in the browser.");
+  text("control-plane-copy", "Start and Stop use the wallet-authenticated, account-bound control plane. The browser never signs engine transactions. Account execution is deployment-gated and only verified owner-bound sessions can start.");
 }
 
 function controlClientForWallet() {
@@ -1013,7 +1013,7 @@ function initProof() {
 }
 
 function showPage() {
-  const requested = page === "/app" ? "app" : page === "/proof" ? "proof" : "landing";
+  const requested = page === "app" || page === "/app" ? "app" : page === "proof" || page === "/proof" ? "proof" : "landing";
   text("minimum-deposit", formatRawExact(MIN_INITIAL_DEPOSIT_RAW));
   document.querySelectorAll("[data-page]").forEach((pageElement) => {
     pageElement.hidden = pageElement.dataset.page !== requested;
@@ -1021,6 +1021,7 @@ function showPage() {
   document.body.dataset.page = requested;
   if (requested === "app") {
     document.querySelector(".page-app .lede")?.replaceChildren(document.createTextNode("Connect your wallet, review your VillaAccount, and start one bounded account-bound session. The private VILLA operator stays on the engine service; no operator wallet is needed in the browser."));
+    document.querySelector("#control-plane-copy")?.replaceChildren(document.createTextNode("Start and Stop use the wallet-authenticated, account-bound control plane. The browser never signs engine transactions. Account execution is deployment-gated and only verified owner-bound sessions can start."));
   }
   if (requested === "app") initWallet();
   if (requested === "proof") initProof();
