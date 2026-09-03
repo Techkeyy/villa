@@ -126,3 +126,54 @@ test("systemd bridge recovers only the matching owner/account session after rest
     await fs.rm(directory, { recursive: true, force: true });
   }
 });
+
+test("systemd start failure clears active session, resets state to STOPPED, and allows fresh start retry", async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "villa-uat-start-fail-"));
+  let failNextStart = true;
+  const commandAttempts = [];
+  const commandRunner = (_command, args, _options, callback) => {
+    commandAttempts.push(args);
+    const [action, sessionId] = args;
+    if (action === "start" && failNextStart) {
+      const err = new Error("systemctl start failed: exit 1");
+      err.code = 1;
+      callback(err);
+      return;
+    }
+    if (action === "start") {
+      const statePath = path.join(directory, `${sessionId}.json`);
+      const state = { state: "RUNNING", session: { sessionId, account: ACCOUNT, owner: OWNER, operator: OPERATOR } };
+      void fs.writeFile(statePath, JSON.stringify(state)).then(() => callback(null));
+      return;
+    }
+    callback(null);
+  };
+
+  const control = createUatAccountControl({
+    env: env({ VILLA_UAT_LAUNCH_MODE: "systemd", VILLA_UAT_STATE_DIRECTORY: directory }),
+    commandRunner,
+    pollMs: 1,
+    readyTimeoutMs: 500,
+  });
+
+  // 1. Initial failed start throws the original error
+  await assert.rejects(() => control.start({ caller: OWNER }), (err) => {
+    assert.equal(err.code, "UAT_SERVICE_COMMAND_FAILED");
+    assert.equal(err.message, "The private UAT service command failed.");
+    return true;
+  });
+
+  // 2. State returns to STOPPED and activeSessionId is cleared (session is null)
+  const stateAfterFail = await control.getState({ caller: OWNER });
+  assert.equal(stateAfterFail.state, "STOPPED");
+  assert.equal(stateAfterFail.session, null);
+
+  // 3. Subsequent Start is allowed to perform fresh preflight and succeeds
+  failNextStart = false;
+  const started = await control.start({ caller: OWNER });
+  assert.equal(started.state, "RUNNING");
+  assert.ok(started.session?.sessionId);
+  assert.notEqual(started.session?.sessionId, commandAttempts[0][1]);
+
+  await fs.rm(directory, { recursive: true, force: true });
+});

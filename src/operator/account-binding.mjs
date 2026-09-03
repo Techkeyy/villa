@@ -9,7 +9,7 @@ import { createViemLpAccountReader } from "../execution/lp-adapter.mjs";
 import { AccountControlError } from "./account-control.mjs";
 
 const ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
-const ARTIFACT_PATH = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../dashboard/villa-account-artifact.json");
+const ARTIFACT_PATH = fileURLToPath(new URL("../../dashboard/villa-account-artifact.json", import.meta.url));
 const VILLA_ACCOUNT_CONFIG_CHAIN_ID = 50312;
 
 function address(value, label) {

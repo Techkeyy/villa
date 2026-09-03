@@ -78,6 +78,7 @@ async function handle(socket, raw) {
     await runSystemd(action, sessionId);
     response(socket, { ok: true });
   } catch (error) {
+    console.error(`[villa-uat-broker] action=${action} sessionId=${sessionId} code=${error?.code || "ERROR"} message=${error?.message || String(error)}`);
     fail(socket, "BROKER_OPERATION_FAILED", "the root account broker refused the operation");
   }
 }

@@ -347,8 +347,15 @@ export function createUatAccountControl({
     lastError = null;
 
     if (launchMode === "systemd") {
-      await serviceCommand("start", sessionId);
-      return waitForSystemdReady(sessionId);
+      try {
+        await serviceCommand("start", sessionId);
+        return await waitForSystemdReady(sessionId);
+      } catch (error) {
+        activeSessionId = null;
+        state = "STOPPED";
+        session = null;
+        throw error;
+      }
     }
 
     const childEnv = {
