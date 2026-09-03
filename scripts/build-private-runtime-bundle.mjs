@@ -94,7 +94,7 @@ while (queue.length > 0) {
     if (specifier.startsWith("node:")) continue;
     const imported = localFile(specifier, file, { optional });
     if (imported) queue.push(imported);
-    else external.add(packageName(specifier));
+    else if (!optional) external.add(packageName(specifier));
   }
 }
 
