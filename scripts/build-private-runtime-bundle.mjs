@@ -39,11 +39,12 @@ function packageName(specifier) {
   return specifier.split("/")[0];
 }
 
-function localFile(specifier, importer) {
+function localFile(specifier, importer, { optional = false } = {}) {
   if (!specifier.startsWith(".")) return null;
   const base = path.resolve(path.dirname(importer), specifier);
   const candidates = [base, `${base}.mjs`, `${base}.js`, `${base}.json`, path.join(base, "index.mjs"), path.join(base, "index.js")];
   const file = candidates.find((candidate) => fs.existsSync(candidate) && fs.statSync(candidate).isFile());
+  if (!file && optional) return null;
   if (!file) fail(`unresolved local import ${specifier} from ${POSIX(path.relative(ROOT, importer))}`);
   const relative = path.relative(ROOT, file);
   if (relative.startsWith("..") || path.isAbsolute(relative)) fail(`local import escapes repository: ${specifier}`);
@@ -51,16 +52,19 @@ function localFile(specifier, importer) {
 }
 
 function importSpecifiers(source) {
-  const result = new Set();
+  const result = new Map();
+  const add = (specifier, optional = false) => {
+    result.set(specifier, (result.get(specifier) ?? false) && optional);
+  };
   const patterns = [
-    /\b(?:import|export)\s+(?:[^"'`]*?\sfrom\s+)?["']([^"']+)["']/g,
-    /\bimport\s*\(\s*["']([^"']+)["']\s*\)/g,
-    /\bnew\s+URL\(\s*["'](\.{1,2}\/[^"']+)["']\s*,\s*import\.meta\.url\s*\)/g,
+    { pattern: /\b(?:import|export)\s+(?:[^"'`]*?\sfrom\s+)?["']([^"']+)["']/g, optional: false },
+    { pattern: /\bimport\s*\(\s*["']([^"']+)["']\s*\)/g, optional: false },
+    { pattern: /\bnew\s+URL\(\s*["'](\.{1,2}\/[^"']+)["']\s*,\s*import\.meta\.url\s*\)/g, optional: true },
   ];
-  for (const pattern of patterns) {
-    for (const match of source.matchAll(pattern)) result.add(match[1]);
+  for (const { pattern, optional } of patterns) {
+    for (const match of source.matchAll(pattern)) add(match[1], optional);
   }
-  return result;
+  return [...result].map(([specifier, optional]) => ({ specifier, optional }));
 }
 
 function digest(file) {
@@ -86,9 +90,9 @@ while (queue.length > 0) {
   if (discovered.has(file)) continue;
   if (!fs.existsSync(file) || !fs.statSync(file).isFile()) fail(`entry does not exist: ${POSIX(path.relative(ROOT, file))}`);
   discovered.add(file);
-  for (const specifier of importSpecifiers(fs.readFileSync(file, "utf8"))) {
+  for (const { specifier, optional } of importSpecifiers(fs.readFileSync(file, "utf8"))) {
     if (specifier.startsWith("node:")) continue;
-    const imported = localFile(specifier, file);
+    const imported = localFile(specifier, file, { optional });
     if (imported) queue.push(imported);
     else external.add(packageName(specifier));
   }
