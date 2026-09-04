@@ -12,7 +12,7 @@ import { persistPrivateUatState, persistUatState } from "../src/operator/uat-sta
 import { createPublicClient, http } from "viem";
 import { SomniaMarkets, SOMNIA_TESTNET_ADDRESSES, SOMNIA_TESTNET_PRICE_FEED } from "@somnia-chain/markets-sdk";
 import { somniaShannon } from "@somnia-chain/markets-sdk/chains";
-import { VILLA_ACCOUNT_CONFIG } from "../dashboard/account-config.mjs";
+import { MIN_STRATEGY_CAPITAL_RAW, VILLA_ACCOUNT_CONFIG } from "../dashboard/account-config.mjs";
 import { estimateFairValue } from "../src/fair-value/model.mjs";
 import { fetchReference, fetchSpot, fetchVolFromPriceHistory } from "../src/fair-value/live.mjs";
 import { evaluateRisk, DEFAULT_RISK_CONFIG } from "../src/risk-governor/index.mjs";
@@ -274,6 +274,7 @@ async function main() {
     const basePlanner = plannerInput({ snapshot: live.snapshot, decision: initialDecision, market: selected, accountState, params, decimals });
     const mintAmountRaw = raw(params.minQuantity, "minimum mint amount");
     if (mintAmountRaw > DEFAULT_PHASE_3B1_CAPS.MAX_MINT_AMOUNT || mintAmountRaw > identity.maxOrderCollateral || mintAmountRaw >= initialCollateralRaw) fail("MINT_CAP", "the live minimum mint is outside the bounded account policy");
+    if (initialCollateralRaw < MIN_STRATEGY_CAPITAL_RAW) fail("CAPITAL_BELOW_STRATEGY_FLOOR", "the VillaAccount needs at least 1.001 tUSDC for the reserve plus venue-minimum complete-set mint");
     const projected = projectedPlannerInput({ snapshot: live.snapshot, decision: initialDecision, market: selected, accountState, params, decimals, mintAmountRaw });
     const quotePlan = planQuotes(projected.input);
     const ask = quotePlan.ask;

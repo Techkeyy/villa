@@ -1,4 +1,5 @@
 import { normalizeAddress } from "./account-client.mjs";
+import { MIN_STRATEGY_CAPITAL_RAW } from "./account-config.mjs";
 
 export const VERIFIED_ACCOUNT_STATE = "VERIFIED";
 
@@ -57,4 +58,13 @@ export function accountReadinessSnapshot(state = {}) {
 
 export function isVerifiedOwnerAccountReady(state = {}) {
   return evaluateVerifiedOwnerAccountReadiness(state).ready;
+}
+
+/**
+ * The minimum balance that preserves the configured collateral reserve after
+ * the venue-minimum complete-set mint used to bootstrap a two-sided strategy.
+ */
+export function isStrategyCapitalReady(state = {}) {
+  const balance = state.account?.balance;
+  return typeof balance === "bigint" && balance >= MIN_STRATEGY_CAPITAL_RAW;
 }

@@ -3,12 +3,18 @@ import fs from "node:fs";
 import test from "node:test";
 import { AccountClientError, accountCall } from "../../dashboard/account-client.mjs";
 import { VILLA_ACCOUNT_CONFIG, VILLA_CHAIN, ZERO_ADDRESS } from "../../dashboard/account-config.mjs";
-import { accountReadinessSnapshot, evaluateVerifiedOwnerAccountReadiness, isVerifiedOwnerAccountReady } from "../../dashboard/account-readiness.mjs";
+import { accountReadinessSnapshot, evaluateVerifiedOwnerAccountReadiness, isStrategyCapitalReady, isVerifiedOwnerAccountReady } from "../../dashboard/account-readiness.mjs";
 import { createAuthorizationHandler, runAuthorization } from "../../dashboard/authorization-flow.mjs";
 
 const OWNER = "0xCc67779F8eDb2C80DC665775C5597657C512FE1A".toLowerCase();
 const ACCOUNT = "0xFc9dbf0a8468aA56799b4e23B1EBe936426eE30b".toLowerCase();
 const OPERATOR = VILLA_ACCOUNT_CONFIG.operator.toLowerCase();
+
+test("strategy control requires reserve plus the venue-minimum complete-set mint", () => {
+  assert.equal(isStrategyCapitalReady({ account: { balance: 1_000_000n } }), false);
+  assert.equal(isStrategyCapitalReady({ account: { balance: 1_001_000n } }), true);
+  assert.equal(isStrategyCapitalReady({ account: { balance: 1_001_000 } }), false);
+});
 
 function harness({
   owner = OWNER,

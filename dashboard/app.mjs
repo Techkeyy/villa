@@ -25,7 +25,7 @@ import {
 import { MIN_INITIAL_DEPOSIT_RAW, MIN_STRATEGY_CAPITAL_RAW, MIN_TOP_UP_RAW, PHASE_3B1_MAX_ACCOUNT_CAPITAL_RAW, VILLA_ACCOUNT_CONFIG, VILLA_CHAIN, ZERO_ADDRESS } from "./account-config.mjs";
 import { deriveWalletStatus, renderAccountJourney } from "./account-journey.mjs";
 import { createAddLiquidityHandler, runAddLiquidity } from "./liquidity-flow.mjs";
-import { evaluateVerifiedOwnerAccountReadiness, isVerifiedOwnerAccountReady } from "./account-readiness.mjs";
+import { evaluateVerifiedOwnerAccountReadiness, isStrategyCapitalReady, isVerifiedOwnerAccountReady } from "./account-readiness.mjs";
 import { createAuthorizationHandler, runAuthorization } from "./authorization-flow.mjs";
 import { ControlClientError, createAccountControlClient } from "./control-client.mjs";
 import { ensureUatMonitor, renderUatMonitor } from "./uat-monitor.mjs";
@@ -218,6 +218,7 @@ function humanError(error) {
   if (error?.code === "RPC_ERROR") return "The wallet or network could not complete that request. Your funds are safe.";
   if (error?.code === "MIN_DEPOSIT") return error.message;
   if (error?.code === "MIN_TOP_UP") return error.message;
+  if (error?.code === "CAPITAL_BELOW_STRATEGY_FLOOR") return "Add at least " + formatRawExact(MIN_STRATEGY_CAPITAL_RAW) + " tUSDC before starting the bounded strategy.";
   if (error?.code === "ACCOUNT_STATE_INVALID") return error.message;
   if (error?.code === "ACTION_BUSY") return "A liquidity action is already in progress. Please wait.";
   if (error?.code === "ACCOUNT_NOT_READY") return "Your VILLA account is not ready. Refresh account verification and try again.";
@@ -343,6 +344,7 @@ function setAppState(patch) {
 function accountReadyForControl() {
   return Boolean(appState.account)
     && isVerifiedOwnerAccountReady(appState)
+    && isStrategyCapitalReady(appState)
     && appState.account.operator === normalizeAddress(VILLA_ACCOUNT_CONFIG.operator)
     && appState.account.balance > 0n;
 }
@@ -606,6 +608,7 @@ function updateWorkspace(account, walletBalance) {
   const funded = allocated > 0n;
   const accountVersion = accountVersionOf(account);
   const isV2 = accountVersion === 2;
+  const strategyCapitalReady = isStrategyCapitalReady({ account });
   const authorized = account.operator === normalizeAddress(VILLA_ACCOUNT_CONFIG.operator);
   const unexpectedOperator = account.operator !== ZERO_ADDRESS && !authorized;
   text("account-address", shorten(account.address));
@@ -648,16 +651,18 @@ function updateWorkspace(account, walletBalance) {
   toggle("authorize-villa", isV2 && accountReady && !authorized && !unexpectedOperator);
   toggle("revoke-villa", accountReady && authorized);
 
-  const ready = isV2 && accountReady && authorized && allocated > 0n;
+  const ready = isV2 && accountReady && authorized && strategyCapitalReady;
   const readinessStatus = element("readiness-status");
   if (readinessStatus) {
     readinessStatus.className = `status-pill ${ready ? "status-safe" : "status-preview"}`;
     readinessStatus.textContent = ready ? "READY" : "SETUP REQUIRED";
   }
-  text("readiness-title", !isV2 ? "V1 remains recoverable." : ready ? "Liquidity setup complete." : "Complete account setup first.");
+  text("readiness-title", !isV2 ? "V1 remains recoverable." : ready ? "Liquidity setup complete." : !strategyCapitalReady ? "Add strategy capital first." : "Complete account setup first.");
   text("readiness-copy", !isV2
     ? "V1 remains funded and recoverable. Create and verify an empty V2 before deciding whether to migrate funds."
-    : ready ? "Your account is ready. Start asks the constrained control plane to run a fresh account-bound preflight." : "Add liquidity and authorize VILLA before the workspace can be marked ready.");
+    : ready ? "Your account is ready. Start asks the constrained control plane to run a fresh account-bound preflight."
+      : !strategyCapitalReady ? "Add at least " + formatRawExact(MIN_STRATEGY_CAPITAL_RAW) + " tUSDC so the reserve remains intact after the venue-minimum complete-set mint."
+        : "Add liquidity and authorize VILLA before the workspace can be marked ready.");
   const capitalStatus = element("capital-status");
   if (capitalStatus) {
     capitalStatus.className = `status-pill ${accountReady ? "status-safe" : "status-preview"}`;

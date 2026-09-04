@@ -126,3 +126,26 @@ test("a collateral-reserve halt fails closed even when a hypothetical inventory 
   assert.ok(result.reasons.some((item) => item.code === "RISK_HALTED"));
   assert.ok(result.reasons.some((item) => item.code === "PROJECTED_SEQUENCE_INVALID"));
 });
+
+test("the exact strategy floor preserves reserve after minimum mint and validates SELL_YES", () => {
+  const result = evaluatedState({ collateral: 1.001, yes: 0.001, no: 0.001 });
+  assert.equal(result.riskDecision.state, "ALLOW");
+  assert.equal(result.quotePlan.plan, "ACTIVE");
+  assert.equal(result.quotePlan.bid.enabled, true);
+  assert.equal(result.quotePlan.ask.enabled, true);
+  assert.equal(result.quotePlan.ask.action, "SELL_YES");
+  const sellOnlyPlan = {
+    ...result.quotePlan,
+    plan: "ONE_SIDED",
+    bid: { ...result.quotePlan.bid, enabled: false, skipReason: "BOOTSTRAP_SELL_ONLY" },
+  };
+  const validation = validateProjectedQuote({
+    riskDecision: result.riskDecision,
+    quotePlan: sellOnlyPlan,
+    quoteExecution: { postOnly: true, orderType: 3, policyValid: true },
+    market: MARKET,
+    accountMaxOrderQuantityRaw: 1_000n,
+    accountMaxOrderCollateralRaw: 1_000n,
+  });
+  assert.equal(validation.valid, true);
+});
