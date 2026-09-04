@@ -21,7 +21,7 @@ const wrapper = PRIVATE_DEPLOYMENT_FILES["usr/local/libexec/villa-uat-control"];
 test("private services are pinned to the root-controlled runtime and private state", () => {
   for (const unit of [sessionUnit, settlementUnit]) {
     assert.match(unit, new RegExp(`WorkingDirectory=${PRIVATE_RUNTIME_ROOT}`));
-    assert.match(unit, new RegExp(`ExecStart=/usr/bin/node ${PRIVATE_RUNTIME_ROOT}/`));
+    assert.match(unit, new RegExp(`ExecStart=/usr/bin/node --jitless ${PRIVATE_RUNTIME_ROOT}/`));
     assert.match(unit, /User=villa-engine/);
     assert.match(unit, /Group=villa-engine/);
     assert.doesNotMatch(unit, /Group=villa\n/);
@@ -44,6 +44,7 @@ test("private services are pinned to the root-controlled runtime and private sta
     assert.match(unit, /PrivateTmp=true/);
     assert.match(unit, /PrivateDevices=true/);
     assert.match(unit, /RestrictNamespaces=true/);
+    assert.match(unit, /MemoryDenyWriteExecute=true/);
     assert.match(unit, /CapabilityBoundingSet=\n/);
     assert.match(unit, /Environment=VILLA_EXECUTION_ENABLED=false/);
     assert.match(unit, /Environment=VILLA_ACCOUNT_EXECUTION_ENABLED=true/);
