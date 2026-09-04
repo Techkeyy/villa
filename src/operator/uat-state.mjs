@@ -10,8 +10,13 @@ function publicValue(value, depth = 0) {
   return Object.fromEntries(Object.entries(value).filter(([key]) => !PRIVATE_FIELD_RE.test(key)).map(([key, item]) => [key, publicValue(item, depth + 1)]));
 }
 
-function jsonSafe(value) {
-  return JSON.stringify(value, (_key, item) => typeof item === "bigint" ? item.toString() : item);
+/** Normalize values at a JSON/status/IPC boundary without changing internal numerics. */
+export function normalizeJsonBoundary(value) {
+  return JSON.parse(JSON.stringify(publicValue(value), (_key, item) => typeof item === "bigint" ? item.toString() : item));
+}
+
+export function serializeJsonBoundary(value) {
+  return JSON.stringify(normalizeJsonBoundary(value));
 }
 
 function safeMessage(message) {
@@ -44,7 +49,7 @@ function writeState(file, message, fileMode) {
     document = publicValue({ version: "villa-uat-state-v1", ...document, ...safeMessage(message), updatedAt: Date.now() });
     const temporary = `${target}.tmp-${process.pid}`;
     fs.mkdirSync(path.dirname(target), { recursive: true });
-    fs.writeFileSync(temporary, jsonSafe(document), { mode: fileMode });
+    fs.writeFileSync(temporary, serializeJsonBoundary(document), { mode: fileMode });
     fs.chmodSync(temporary, fileMode);
     fs.renameSync(temporary, target);
   } catch {

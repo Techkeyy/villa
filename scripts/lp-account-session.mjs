@@ -8,7 +8,7 @@
  * from the API or browser.
  */
 
-import { persistPrivateUatState, persistUatState } from "../src/operator/uat-state.mjs";
+import { normalizeJsonBoundary, persistPrivateUatState, persistUatState } from "../src/operator/uat-state.mjs";
 import { createPublicClient, http } from "viem";
 import { SomniaMarkets, SOMNIA_TESTNET_ADDRESSES, SOMNIA_TESTNET_PRICE_FEED } from "@somnia-chain/markets-sdk";
 import { somniaShannon } from "@somnia-chain/markets-sdk/chains";
@@ -48,14 +48,10 @@ const SETTLEMENT_ABI = Object.freeze([
   { type: "function", name: "payoutNumerators", stateMutability: "view", inputs: [], outputs: [{ type: "uint256[]" }] },
 ]);
 
-function jsonSafe(value) {
-  return JSON.stringify(value, (_key, item) => typeof item === "bigint" ? item.toString() : item);
-}
-
 function send(message) {
   persistPrivateUatState(process.env.VILLA_UAT_PRIVATE_STATE_FILE, message);
   persistUatState(process.env.VILLA_UAT_STATUS_FILE ?? process.env.VILLA_UAT_STATE_FILE, message);
-  if (typeof process.send === "function") process.send(message);
+  if (typeof process.send === "function") process.send(normalizeJsonBoundary(message));
 }
 
 function fail(code, message) {
