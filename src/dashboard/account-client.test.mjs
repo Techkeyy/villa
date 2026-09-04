@@ -106,7 +106,7 @@ test("account verification isolates owners and rejects mismatched immutable wiri
 });
 
 test("dashboard account reads report V1 explicitly and never enable autonomous trading", async () => {
-  const owner = "0xcaecf98cd369d57e4e6c0f332c31815c192b7a81";
+  const owner = "0xcc67779f8edb2c80dc665775c5597657c512fe1a";
   const account = "0xfc9dbf0a8468aa56799b4e23b1ebe936426ee30b";
   const addressResult = (value) => `0x${"0".repeat(24)}${value.slice(2)}`;
   const uintResult = (value) => `0x${BigInt(value).toString(16).padStart(64, "0")}`;
@@ -117,7 +117,7 @@ test("dashboard account reads report V1 explicitly and never enable autonomous t
       if (method !== "eth_call") throw new Error(`unexpected method ${method}`);
       const selector = params[0].data.slice(0, 10);
       if (selector === VILLA_SELECTORS.owner) return addressResult(owner);
-      if (selector === VILLA_SELECTORS.operator) return addressResult(ZERO_ADDRESS);
+      if (selector === VILLA_SELECTORS.operator) return addressResult(VILLA_ACCOUNT_CONFIG.operator);
       if (selector === VILLA_SELECTORS.autonomousTradingEnabled) throw new Error("V1 has no autonomy getter");
       if (selector === VILLA_SELECTORS.collateralToken) return addressResult(VILLA_ACCOUNT_CONFIG.collateralToken);
       if (selector === VILLA_SELECTORS.outcomeToken) return addressResult(VILLA_ACCOUNT_CONFIG.outcomeToken);
@@ -471,6 +471,46 @@ test("dual discovery returns verified V1 and V2 accounts with V2 preferred", asy
     assert.equal(result.kind, "DISCOVERED");
     assert.equal(result.account.address, v2);
     assert.deepEqual(result.accounts.map((account) => [account.address, account.accountVersion]), [[v2, 2], [v1, 1]]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("the deployed V1 owner candidate is recognized as legacy and remains migration-eligible", async () => {
+  const originalFetch = globalThis.fetch;
+  const owner = "0xcc67779f8edb2c80dc665775c5597657c512fe1a";
+  const account = "0xfc9dbf0a8468aa56799b4e23b1ebe936426ee30b";
+  const addressResult = (value) => `0x${"0".repeat(24)}${value.slice(2)}`;
+  const uintResult = (value) => `0x${BigInt(value).toString(16).padStart(64, "0")}`;
+  globalThis.fetch = async (url) => {
+    assert.equal(new URL(url).searchParams.get("topic2"), encodeTopicAddress(owner));
+    return { ok: true, async json() { return { status: "1", message: "OK", result: [{ address: account }] }; } };
+  };
+  const provider = {
+    async request({ method, params }) {
+      if (method === "eth_chainId") return VILLA_CHAIN.idHex;
+      if (method === "eth_getCode") return legacyArtifact.runtimeBytecode;
+      if (method !== "eth_call") throw new Error(`unexpected method ${method}`);
+      const selector = params[0].data.slice(0, 10);
+      if (selector === VILLA_SELECTORS.owner) return addressResult(owner);
+      if (selector === VILLA_SELECTORS.operator) return addressResult(VILLA_ACCOUNT_CONFIG.operator);
+      if (selector === VILLA_SELECTORS.autonomousTradingEnabled) throw new Error("V1 has no autonomy getter");
+      if (selector === VILLA_SELECTORS.collateralToken) return addressResult(VILLA_ACCOUNT_CONFIG.collateralToken);
+      if (selector === VILLA_SELECTORS.outcomeToken) return addressResult(VILLA_ACCOUNT_CONFIG.outcomeToken);
+      if (selector === VILLA_SELECTORS.binaryModule) return addressResult(VILLA_ACCOUNT_CONFIG.binaryModule);
+      if (selector === VILLA_SELECTORS.binarySettlement) return addressResult(VILLA_ACCOUNT_CONFIG.binarySettlement);
+      if (selector === VILLA_SELECTORS.tokenBalanceOf) return uintResult(1_000_000n);
+      throw new Error(`unexpected selector ${selector}`);
+    },
+  };
+  try {
+    const result = await discoverAccount(provider, owner, [artifact, { ...legacyArtifact, accountVersion: 1 }]);
+    assert.equal(result.kind, "DISCOVERED");
+    assert.equal(result.account.address, account);
+    assert.equal(result.account.accountVersion, 1);
+    assert.equal(result.account.autonomousTradingEnabled, false);
+    assert.equal(result.account.operator, VILLA_ACCOUNT_CONFIG.operator.toLowerCase());
+    assert.equal(result.account.balance, 1_000_000n);
   } finally {
     globalThis.fetch = originalFetch;
   }

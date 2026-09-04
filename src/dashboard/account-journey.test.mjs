@@ -170,8 +170,8 @@ test("renderer fails closed for invalid status and keeps all account surfaces mu
 
 test("a discovered V1 account exposes the safe V2 creation path without enabling it for V2", () => {
   const document = new FakeDocument();
-  const owner = "0x1111111111111111111111111111111111111111";
-  const v1 = { address: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", accountVersion: 1 };
+  const owner = "0xcc67779f8edb2c80dc665775c5597657c512fe1a";
+  const v1 = { address: "0xfc9dbf0a8468aa56799b4e23b1ebe936426ee30b", accountVersion: 1 };
   const v2 = { address: "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", accountVersion: 2 };
   renderAccountJourney(document, { ...baseState, owner, chainStatus: "SHANNON", discoveryStatus: "DISCOVERED", account: v1, accounts: [v1], busy: false });
   assert.equal(document.getElementById("account-migration").hidden, false);
