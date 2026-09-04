@@ -452,9 +452,9 @@ test("built landing, app, and proof routes initialize the intended runtime page"
           "(async () => {",
           "  const deadline = Date.now() + 5000;",
           "  while (Date.now() < deadline) {",
-          "    if (document.body.dataset.page === " + JSON.stringify(page) + ") {",
+          "    if (document.body?.dataset?.page === " + JSON.stringify(page) + ") {",
           "      return {",
-          "        page: document.body.dataset.page,",
+          "        page: document.body?.dataset?.page,",
           "        landingHidden: document.querySelector('.page-landing')?.hidden ?? null,",
           "        appHidden: document.querySelector('.page-app')?.hidden ?? null,",
           "        proofHidden: document.querySelector('.page-proof')?.hidden ?? null,",
@@ -463,7 +463,7 @@ test("built landing, app, and proof routes initialize the intended runtime page"
           "    }",
           "    await new Promise((resolve) => setTimeout(resolve, 25));",
           "  }",
-          "  throw new Error('runtime page did not settle at ' + location.pathname + ' route=' + document.body.dataset.route + ' page=' + document.body.dataset.page);",
+          "  throw new Error('runtime page did not settle at ' + location.pathname + ' route=' + document.body?.dataset?.route + ' page=' + document.body?.dataset?.page);",
           "})()",
         ].join("\n");
         let state;

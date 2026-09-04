@@ -3,7 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createPublicClient, http, isAddress } from "viem";
 import { somniaShannon } from "@somnia-chain/markets-sdk/chains";
-import { VILLA_ACCOUNT_CONFIG } from "../../dashboard/account-config.mjs";
+import { VILLA_ACCOUNT_CONFIG, VILLA_CHAIN } from "../../dashboard/account-config.mjs";
 import { runtimeBytecodeMatches } from "../../dashboard/account-client.mjs";
 import { createViemLpAccountReader } from "../execution/lp-adapter.mjs";
 import { AccountControlError } from "./account-control.mjs";
@@ -51,7 +51,13 @@ export function createOnChainAccountVerifier({
   identityReader = null,
   artifactLoader = readTrustedArtifact,
 } = {}) {
-  const rpcUrl = String(env.RPC_URL || VILLA_ACCOUNT_CONFIG.rpcUrl);
+  const rpcUrl = String(
+    env.RPC_URL ||
+    VILLA_CHAIN.rpcUrl ||
+    VILLA_ACCOUNT_CONFIG.rpcUrl ||
+    ""
+  ).trim();
+  if (!rpcUrl) throw new AccountControlError("ACCOUNT_VERIFICATION_UNAVAILABLE", "No Shannon RPC URL configured for account verification.", 500);
   const expectedOperator = address(env.VILLA_ENGINE_OPERATOR || env.OPERATOR_ADDRESS || VILLA_ACCOUNT_CONFIG.operator, "canonical VILLA operator");
   const client = publicClient ?? createPublicClient({ chain: somniaShannon, transport: http(rpcUrl, { timeout: 15_000 }) });
   const reader = identityReader ?? createViemLpAccountReader({ publicClient: client });
@@ -65,12 +71,22 @@ export function createOnChainAccountVerifier({
 
     let artifact;
     let code;
-    let identity;
     try {
       artifact = await artifactLoader();
       assertTrustedArtifact(artifact);
       if (typeof client.getBytecode !== "function") throw new Error("getBytecode is unavailable");
       code = await client.getBytecode({ address: target });
+    } catch (error) {
+      if (error instanceof AccountControlError) throw error;
+      throw new AccountControlError("ACCOUNT_VERIFICATION_UNAVAILABLE", "The VILLA account could not be verified on Shannon.", 503, { cause: error?.code ?? "READ_FAILED" });
+    }
+
+    if (!code || !runtimeBytecodeMatches(code, artifact.runtimeBytecode, artifact.runtimeImmutableReferences)) {
+      throw new AccountControlError("ACCOUNT_INVALID", "The selected address is not a verified VILLA account.", 403);
+    }
+
+    let identity;
+    try {
       identity = await reader.readAccountIdentity({ account: target });
     } catch (error) {
       if (error instanceof AccountControlError) throw error;

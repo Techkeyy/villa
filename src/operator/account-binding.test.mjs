@@ -50,3 +50,42 @@ test("recovery verification can prove owner and wiring without granting operator
   assert.equal(result.runtimeVerified, true);
   assert.equal(result.identity.operatorAuthorized, false);
 });
+
+test("verifier defaults to VILLA_CHAIN.rpcUrl when env.RPC_URL is omitted", async () => {
+  const verifier = createOnChainAccountVerifier({
+    env: { VILLA_ENGINE_OPERATOR: OPERATOR },
+  });
+  assert.ok(typeof verifier === "function");
+});
+
+test("verifier throws explicit configuration error if RPC URL is completely empty", async () => {
+  assert.throws(
+    () => createOnChainAccountVerifier({
+      env: { VILLA_ENGINE_OPERATOR: OPERATOR, RPC_URL: " " },
+      artifactLoader: async () => ({}),
+    }),
+    { code: "ACCOUNT_VERIFICATION_UNAVAILABLE", message: "No Shannon RPC URL configured for account verification." }
+  );
+});
+
+test("undeployed address fails closed with ACCOUNT_INVALID 403 without invoking identity reader", async () => {
+  let identityReaderCalled = false;
+  const artifact = JSON.parse(await fs.readFile(new URL("../../dashboard/villa-account-artifact.json", import.meta.url), "utf8"));
+  const verify = createOnChainAccountVerifier({
+    env: { VILLA_ENGINE_OPERATOR: OPERATOR },
+    artifactLoader: async () => artifact,
+    publicClient: { async getBytecode() { return undefined; } },
+    identityReader: {
+      async readAccountIdentity() {
+        identityReaderCalled = true;
+        throw new Error("identityReader must not be called for undeployed account");
+      },
+    },
+  });
+
+  await assert.rejects(
+    () => verify({ caller: OWNER, account: ACCOUNT }),
+    { code: "ACCOUNT_INVALID", status: 403 }
+  );
+  assert.equal(identityReaderCalled, false);
+});

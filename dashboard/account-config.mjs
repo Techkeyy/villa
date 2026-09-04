@@ -21,6 +21,7 @@ export const PHASE_3B1_RECOMMENDED_CAP_TUSDC = "1.002";
 export const PHASE_3B1_MAX_ACCOUNT_CAPITAL_RAW = 1_002_000n;
 
 export const VILLA_ACCOUNT_CONFIG = Object.freeze({
+  rpcUrl: VILLA_CHAIN.rpcUrl,
   artifactPath: "/villa-account-artifact.json",
   artifactCreationSha256: "a8acd22fe43cf08ea01b474fa71e630a41be1d02237135ebc2c0efa3b0b69644",
   artifactRuntimeSha256: "a61885ce1f5709424bcd72945f580f7db947b7ef297a9bfc0501ac7b179427d5",
