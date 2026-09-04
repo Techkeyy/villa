@@ -8,6 +8,12 @@ pragma solidity ^0.8.24;
 
 interface IERC20VillaAccount {
     function allowance(address owner, address spender) external view returns (uint256);
+    function balanceOf(address owner) external view returns (uint256);
+}
+
+interface IERC6909VillaAccount {
+    function balanceOf(address owner, uint256 id) external view returns (uint256);
+    function setOperator(address spender, bool approved) external returns (bool);
 }
 
 interface IBinaryModuleVillaAccount {
@@ -58,7 +64,23 @@ interface IBinaryPoolVillaAccount {
         bool finalized;
     }
 
+    /// @dev Exact IOrderBook read tuple used by DreamDEX. `getOrder` only
+    /// returns active orders; filled/cancelled/reduced-old ids revert.
+    struct Order {
+        uint128 orderId;
+        bool isBid;
+        address owner;
+        uint64 userData;
+        uint256 price;
+        uint256 fullQuantity;
+        uint256 quantityRemaining;
+        uint64 expireTimestampNs;
+    }
+
     function getBinaryPoolParams() external view returns (BinaryPoolParams memory);
+    function getOwnOpenOrders() external view returns (uint128[] memory);
+    function getOrder(uint128 orderId) external view returns (Order memory);
+    function booksEmpty() external view returns (bool);
 
     function placeBinaryOrder(
         uint8 kind,
@@ -98,6 +120,12 @@ contract VillaAccount {
     error UnsupportedToken();
     error Reentrancy();
     error TokenCallFailed();
+    error ExposureStateUnavailable();
+    error MarketNotTracked();
+    error MarketExposureOutstanding();
+    error TrackedMarketLimitExceeded();
+    error OrderUserDataInvalid();
+    error PoolRecycleNotProven();
 
     event Deposited(address indexed owner, uint256 amount);
     event Withdrawn(address indexed owner, uint256 amount);
@@ -128,10 +156,31 @@ contract VillaAccount {
     uint256 public maxOrderCollateral;
     uint256 public maxAggregateExposure;
     uint256 public maxMintExposure;
-    uint256 public aggregateExposure;
-    uint256 public mintExposure;
+
+    /// @dev Exposure is recomputed from bounded, authoritative pool and token
+    /// reads. It is deliberately not a lifetime counter: real release events
+    /// release capacity without trusting an optimistic decrement.
+    uint256 public constant MAX_TRACKED_MARKETS = 64;
+    uint256 public constant MAX_OPEN_ORDERS_PER_POOL = 128;
+    uint64 private constant ORDER_USER_DATA_MAGIC = 0xA000000000000000;
+    uint64 private constant ORDER_USER_DATA_MAGIC_MASK = 0xF000000000000000;
+    uint64 private constant ORDER_USER_DATA_PAYLOAD_MASK = 0x03FFFFFFFFFFFFFF;
+
+    struct MarketBinding {
+        address pool;
+        address market;
+        uint256 yesId;
+        uint256 noId;
+        uint256 oneCollateral;
+        uint64 marketNonce;
+        bool poolRecycled;
+    }
 
     mapping(bytes32 marketId => bool prepared) public preparedMarkets;
+    mapping(bytes32 marketId => bool trackedMarkets) public trackedMarkets;
+    mapping(bytes32 marketId => MarketBinding binding) public marketBindings;
+    mapping(bytes32 marketId => uint256 indexPlusOne) private _trackedMarketIndex;
+    bytes32[] private _trackedMarketIds;
     uint256 private _entered;
 
     modifier onlyOwner() {
@@ -256,10 +305,9 @@ contract VillaAccount {
         maxOrderCollateral = maxCollateral;
     }
 
-    /// @notice Owner-set lifetime risk budgets for the operator. These
-    ///         counters never decrease during the account lifetime, so a
-    ///         compromised operator cannot recycle exposure through fills,
-    ///         burns, redemptions, or market rollover.
+    /// @notice Owner-set upper bounds for current operator exposure. Lowering a
+    ///         bound below live exposure is allowed and acts as an emergency
+    ///         halt for risk-increasing calls until cleanup releases capacity.
     function setRiskLimits(uint256 maxAggregateExposure_, uint256 maxMintExposure_)
         external
         onlyOwner
@@ -284,8 +332,39 @@ contract VillaAccount {
     /// @notice Backwards compatibility setter.
     function setMarketApproval(bytes32 marketId, bool approved) external onlyOwner nonReentrant {
         if (marketId == bytes32(0)) revert InvalidMarket();
-        preparedMarkets[marketId] = approved;
+        if (approved) {
+            _prepareMarket(marketId);
+        } else {
+            // Do not delete the binding: live inventory/order state must remain
+            // visible to the risk walk until an explicit zero-exposure release.
+            preparedMarkets[marketId] = false;
+        }
         emit MarketApprovalUpdated(marketId, approved);
+    }
+
+    /// @notice Current aggregate exposure across all tracked markets. This is
+    /// an authoritative read, not a cumulative volume counter.
+    function currentOperatorExposure() public view returns (uint256 total) {
+        for (uint256 i = 0; i < _trackedMarketIds.length; i++) {
+            total += _marketExposure(_trackedMarketIds[i], marketBindings[_trackedMarketIds[i]]).aggregateExposure;
+        }
+    }
+
+    /// @notice Current inventory plus live sell escrow, used for the mint cap.
+    function currentMintExposure() public view returns (uint256 total) {
+        for (uint256 i = 0; i < _trackedMarketIds.length; i++) {
+            total += _marketExposure(_trackedMarketIds[i], marketBindings[_trackedMarketIds[i]]).mintExposure;
+        }
+    }
+
+    /// @dev Compatibility names retained for the dashboard/account reader. Both
+    /// now report current authoritative state rather than lifetime volume.
+    function aggregateExposure() external view returns (uint256) {
+        return currentOperatorExposure();
+    }
+
+    function mintExposure() external view returns (uint256) {
+        return currentMintExposure();
     }
 
     /// @notice Autonomous market preparation.
@@ -301,13 +380,28 @@ contract VillaAccount {
     /// @notice Remove protocol approvals for one market and its fixed settlement routes.
     function revokeMarketApprovals(bytes32 marketId) external onlyOwner nonReentrant {
         address pool = _recordPool(marketId);
-        if (pool == address(0)) revert InvalidMarket();
         preparedMarkets[marketId] = false;
-        _checkPoolAssetWiring(marketId, pool);
-        _setOutcomeOperator(pool, false);
-        _setOutcomeOperator(binaryModule, false);
-        _setOutcomeOperator(binarySettlement, false);
-        _safeCall(collateralToken, abi.encodeWithSignature("approve(address,uint256)", pool, 0));
+        if (trackedMarkets[marketId]) {
+            MarketBinding memory binding = marketBindings[marketId];
+            _checkSettlementBinding(marketId, binding);
+            IBinaryPoolVillaAccount.BinaryPoolParams memory params = IBinaryPoolVillaAccount(pool).getBinaryPoolParams();
+            // A recycled pool approval is account-wide for its successor. Do
+            // not revoke it while another market is using the same pool.
+            if (params.market == binding.market && params.marketNonce == binding.marketNonce) {
+                _setOutcomeOperator(pool, false);
+                _safeCall(collateralToken, abi.encodeWithSignature("approve(address,uint256)", pool, 0));
+            }
+        } else {
+            _checkPoolAssetWiring(marketId, pool);
+            _setOutcomeOperator(pool, false);
+            _safeCall(collateralToken, abi.encodeWithSignature("approve(address,uint256)", pool, 0));
+        }
+        // The module/settlement grants are global to this account. Keep them
+        // while any tracked market can still require redemption or settlement.
+        if (_trackedMarketIds.length == 0) {
+            _setOutcomeOperator(binaryModule, false);
+            _setOutcomeOperator(binarySettlement, false);
+        }
     }
 
     function operatorPlaceOrder(
@@ -321,10 +415,18 @@ contract VillaAccount {
     ) external onlyOperator nonReentrant returns (bool success, uint128 orderId) {
         if (!autonomousTradingEnabled) revert AutonomousTradingDisabled();
         (address pool, uint256 oneCollateral) = _currentPoolAndUnit(marketId);
-        if (kind > 3 || price == 0 || price >= oneCollateral || quantity == 0 || quantity > maxOrderQuantity) {
+        if (
+            kind > 3 ||
+            price == 0 ||
+            price >= oneCollateral ||
+            quantity == 0 ||
+            quantity > maxOrderQuantity ||
+            userData > ORDER_USER_DATA_PAYLOAD_MASK
+        ) {
             revert InvalidOrder();
         }
         if (orderType > 3) revert InvalidOrder();
+        uint64 encodedUserData = _encodeOrderUserData(kind, userData);
 
         uint256 collateralRequired;
         if (kind == 0) {
@@ -333,28 +435,24 @@ contract VillaAccount {
             collateralRequired = _ceilDiv(quantity * (oneCollateral - price), oneCollateral);
         }
         if (collateralRequired > maxOrderCollateral) revert OrderLimitExceeded();
-        _consumeExposure(collateralRequired, false);
+        _enforceProjectedOrderExposure(marketId, kind, quantity, collateralRequired);
         if (collateralRequired != 0) _approveExact(pool, collateralRequired);
 
-        (success, orderId) = IBinaryPoolVillaAccount(pool).placeBinaryOrder(
+        (success, orderId) = _placeBinaryOrder(
+            pool,
             kind,
             price,
             quantity,
             expireTimestampNs,
             orderType,
-            0,
-            address(0),
-            0,
-            userData
+            encodedUserData
         );
         if (collateralRequired != 0) _safeCall(collateralToken, abi.encodeWithSignature("approve(address,uint256)", pool, 0));
         emit OrderPlaced(marketId, orderId, kind, price, quantity);
     }
 
     function operatorCancelOrder(bytes32 marketId, uint128 orderId) external onlyOwnerOrOperator nonReentrant {
-        address pool = _recordPool(marketId);
-        if (pool == address(0)) revert InvalidMarket();
-        _checkPoolAssetWiring(marketId, pool);
+        address pool = _requireCurrentMarket(marketId);
         IBinaryPoolVillaAccount(pool).cancelOrder(orderId);
         emit OrderCancelled(marketId, orderId);
     }
@@ -364,9 +462,7 @@ contract VillaAccount {
         onlyOwnerOrOperator
         nonReentrant
     {
-        address pool = _recordPool(marketId);
-        if (pool == address(0)) revert InvalidMarket();
-        _checkPoolAssetWiring(marketId, pool);
+        address pool = _requireCurrentMarket(marketId);
         if (newQuantityRemaining == 0 || newQuantityRemaining > maxOrderQuantity) revert InvalidOrder();
         IBinaryPoolVillaAccount(pool).reduceOrder(orderId, newQuantityRemaining);
         emit OrderReduced(marketId, orderId, newQuantityRemaining);
@@ -375,8 +471,8 @@ contract VillaAccount {
     function operatorMintSet(bytes32 marketId, uint256 amount) external onlyOperator nonReentrant {
         if (!autonomousTradingEnabled) revert AutonomousTradingDisabled();
         if (amount == 0 || amount > maxOrderCollateral) revert AmountZero();
-        _consumeExposure(amount, true);
         (address pool, ) = _currentPoolAndUnit(marketId);
+        _enforceMintExposure(amount);
         _approveExact(pool, amount);
         IBinaryPoolVillaAccount(pool).mintSet(address(this), address(this), amount);
         _safeCall(collateralToken, abi.encodeWithSignature("approve(address,uint256)", pool, 0));
@@ -385,9 +481,7 @@ contract VillaAccount {
 
     function operatorBurnSet(bytes32 marketId, uint256 amount) external onlyOwnerOrOperator nonReentrant {
         if (amount == 0 || amount > maxOrderQuantity) revert AmountZero();
-        address pool = _recordPool(marketId);
-        if (pool == address(0)) revert InvalidMarket();
-        _checkPoolAssetWiring(marketId, pool);
+        address pool = _requireCurrentMarket(marketId);
         _setOutcomeOperator(pool, true);
         IBinaryPoolVillaAccount(pool).burnSet(amount);
         emit CompleteSetBurned(marketId, amount);
@@ -395,9 +489,7 @@ contract VillaAccount {
 
     function operatorRedeem(bytes32 marketId, uint8 outcomeIdx, uint256 amount) external onlyOwnerOrOperator nonReentrant {
         if (outcomeIdx > 1 || amount == 0) revert InvalidOutcome();
-        address pool = _recordPool(marketId);
-        if (pool == address(0)) revert InvalidMarket();
-        _checkPoolAssetWiring(marketId, pool);
+        _requireSettlementMarket(marketId);
         _setOutcomeOperator(binaryModule, true);
         IBinaryModuleVillaAccount(binaryModule).redeem(0, bytes32(0), marketId, outcomeIdx, amount);
         emit Redeemed(marketId, outcomeIdx, amount);
@@ -407,9 +499,7 @@ contract VillaAccount {
     ///         It can never pay the operator because the pool sees this account as caller.
     function operatorClaimVault(bytes32 marketId, uint256 amount) external onlyOwnerOrOperator nonReentrant {
         if (amount == 0) revert AmountZero();
-        address pool = _recordPool(marketId);
-        if (pool == address(0)) revert InvalidMarket();
-        _checkPoolAssetWiring(marketId, pool);
+        address pool = _requireSettlementMarket(marketId);
         IBinaryPoolVillaAccount(pool).withdraw(collateralToken, amount);
         emit VaultClaimed(marketId, amount);
     }
@@ -417,9 +507,7 @@ contract VillaAccount {
     /// @notice Owner-only vault recovery, still routed into the account first.
     function ownerClaimVault(bytes32 marketId, uint256 amount) external onlyOwner nonReentrant {
         if (amount == 0) revert AmountZero();
-        address pool = _recordPool(marketId);
-        if (pool == address(0)) revert InvalidMarket();
-        _checkPoolAssetWiring(marketId, pool);
+        address pool = _requireSettlementMarket(marketId);
         IBinaryPoolVillaAccount(pool).withdraw(collateralToken, amount);
         emit VaultClaimed(marketId, amount);
     }
@@ -435,14 +523,70 @@ contract VillaAccount {
     function _prepareMarket(bytes32 marketId) internal {
         if (marketId == bytes32(0)) revert InvalidMarket();
         address pool = _recordPool(marketId);
-        if (pool == address(0)) revert InvalidMarket();
         _checkPoolAssetWiring(marketId, pool);
         IBinaryPoolVillaAccount.BinaryPoolParams memory params = IBinaryPoolVillaAccount(pool).getBinaryPoolParams();
         if (params.finalized || params.oneCollateral == 0) revert MarketNotCurrent();
+
+        _markPoolRecycled(pool, params.market, params.marketNonce);
+        if (!trackedMarkets[marketId]) {
+            if (_trackedMarketIds.length >= MAX_TRACKED_MARKETS) revert TrackedMarketLimitExceeded();
+            trackedMarkets[marketId] = true;
+            _trackedMarketIds.push(marketId);
+            _trackedMarketIndex[marketId] = _trackedMarketIds.length;
+        } else {
+            MarketBinding memory existing = marketBindings[marketId];
+            if (
+                existing.pool != pool ||
+                existing.market != params.market ||
+                existing.marketNonce != params.marketNonce ||
+                existing.yesId != params.yesId ||
+                existing.noId != params.noId
+            ) revert InvalidMarket();
+        }
+        marketBindings[marketId] = MarketBinding(
+            pool,
+            params.market,
+            params.yesId,
+            params.noId,
+            params.oneCollateral,
+            params.marketNonce,
+            false
+        );
         _setOutcomeOperator(pool, true);
         _setOutcomeOperator(binaryModule, true);
         preparedMarkets[marketId] = true;
         emit MarketPrepared(marketId, pool);
+    }
+
+    /// @notice Remove a tracked market only after its authoritative live
+    /// exposure is zero. This bounds the read walk across autonomous rollover.
+    /// It is cleanup-only: it cannot place, mint, or expand permissions.
+    function releaseMarket(bytes32 marketId) external onlyOwnerOrOperator nonReentrant {
+        if (!trackedMarkets[marketId]) revert MarketNotTracked();
+        MarketBinding memory binding = marketBindings[marketId];
+        MarketExposure memory exposure = _marketExposure(marketId, binding);
+        if (exposure.aggregateExposure != 0 || exposure.mintExposure != 0) revert MarketExposureOutstanding();
+
+        IBinaryPoolVillaAccount.BinaryPoolParams memory params = IBinaryPoolVillaAccount(binding.pool).getBinaryPoolParams();
+        if (params.market == binding.market && params.marketNonce == binding.marketNonce) {
+            if (!IBinaryPoolVillaAccount(binding.pool).booksEmpty()) revert MarketExposureOutstanding();
+        } else if (!binding.poolRecycled && !_recycleProven(params, binding)) {
+            revert ExposureStateUnavailable();
+        }
+
+        uint256 index = _trackedMarketIndex[marketId] - 1;
+        uint256 last = _trackedMarketIds.length - 1;
+        if (index != last) {
+            bytes32 moved = _trackedMarketIds[last];
+            _trackedMarketIds[index] = moved;
+            _trackedMarketIndex[moved] = index + 1;
+        }
+        _trackedMarketIds.pop();
+        delete _trackedMarketIndex[marketId];
+        delete trackedMarkets[marketId];
+        delete preparedMarkets[marketId];
+        delete marketBindings[marketId];
+        emit MarketApprovalUpdated(marketId, false);
     }
 
     function _recordPool(bytes32 marketId) internal view returns (address pool) {
@@ -464,12 +608,20 @@ contract VillaAccount {
             }
         }
         pool = _recordPool(marketId);
+        if (!trackedMarkets[marketId]) revert MarketNotTracked();
         _checkPoolAssetWiring(marketId, pool);
+        MarketBinding memory binding = marketBindings[marketId];
         IBinaryPoolVillaAccount.BinaryPoolParams memory params = IBinaryPoolVillaAccount(pool).getBinaryPoolParams();
         oneCollateral = params.oneCollateral;
         if (
             params.finalized ||
-            oneCollateral == 0
+            oneCollateral == 0 ||
+            binding.pool != pool ||
+            binding.market != params.market ||
+            binding.marketNonce != params.marketNonce ||
+            binding.yesId != params.yesId ||
+            binding.noId != params.noId ||
+            binding.poolRecycled
         ) revert MarketNotCurrent();
     }
 
@@ -494,6 +646,204 @@ contract VillaAccount {
         }
     }
 
+    function _checkSettlementBinding(bytes32 marketId, MarketBinding memory binding) internal view {
+        IBinaryModuleVillaAccount.MarketRecord memory record = IBinaryModuleVillaAccount(binaryModule).markets(marketId);
+        if (
+            binding.pool == address(0) ||
+            binding.market == address(0) ||
+            binding.yesId == 0 ||
+            binding.noId == 0 ||
+            binding.yesId == binding.noId ||
+            binding.oneCollateral == 0 ||
+            record.outcomeSlotCount != 2 ||
+            record.collateral != collateralToken ||
+            record.market != binding.market ||
+            record.pool != binding.pool ||
+            record.yesId != binding.yesId ||
+            record.noId != binding.noId
+        ) revert InvalidMarket();
+    }
+
+    function _requireSettlementMarket(bytes32 marketId) internal view returns (address pool) {
+        if (!trackedMarkets[marketId]) revert MarketNotTracked();
+        MarketBinding memory binding = marketBindings[marketId];
+        _checkSettlementBinding(marketId, binding);
+        return binding.pool;
+    }
+
+    function _requireCurrentMarket(bytes32 marketId) internal returns (address pool) {
+        (pool, ) = _currentPoolAndUnit(marketId);
+    }
+
+    function _markPoolRecycled(address pool, address successorMarket, uint64 successorNonce) internal {
+        for (uint256 i = 0; i < _trackedMarketIds.length; i++) {
+            MarketBinding storage binding = marketBindings[_trackedMarketIds[i]];
+            if (
+                binding.pool != pool ||
+                binding.market == successorMarket ||
+                binding.poolRecycled
+            ) continue;
+            // The protocol's recycle is one-way and nonce-delimited. The live
+            // book must be empty before VILLA accepts the successor binding;
+            // otherwise the old market would become unaccounted risk.
+            if (successorNonce <= binding.marketNonce || !IBinaryPoolVillaAccount(pool).booksEmpty()) {
+                revert PoolRecycleNotProven();
+            }
+            binding.poolRecycled = true;
+        }
+    }
+
+    struct MarketExposure {
+        uint256 aggregateExposure;
+        uint256 mintExposure;
+        uint256 orderExposure;
+        uint256 yesInventory;
+        uint256 noInventory;
+    }
+
+    function _marketExposure(bytes32 marketId, MarketBinding memory binding)
+        internal
+        view
+        returns (MarketExposure memory exposure)
+    {
+        if (!trackedMarkets[marketId] || binding.pool == address(0)) revert ExposureStateUnavailable();
+        IBinaryPoolVillaAccount.BinaryPoolParams memory params = IBinaryPoolVillaAccount(binding.pool).getBinaryPoolParams();
+        if (
+            params.collateralToken != collateralToken ||
+            params.outcomeToken != outcomeToken ||
+            params.settlement != binarySettlement ||
+            params.oneCollateral == 0
+        ) revert ExposureStateUnavailable();
+
+        bool current =
+            params.market == binding.market &&
+            params.marketNonce == binding.marketNonce &&
+            params.yesId == binding.yesId &&
+            params.noId == binding.noId;
+        if (!current && !binding.poolRecycled && !_recycleProven(params, binding)) revert ExposureStateUnavailable();
+        if (current && binding.poolRecycled) revert ExposureStateUnavailable();
+
+        exposure.yesInventory = IERC6909VillaAccount(outcomeToken).balanceOf(address(this), binding.yesId);
+        exposure.noInventory = IERC6909VillaAccount(outcomeToken).balanceOf(address(this), binding.noId);
+        uint256 inventory = _max(exposure.yesInventory, exposure.noInventory);
+        exposure.aggregateExposure = inventory;
+        exposure.mintExposure = inventory;
+
+        // Once the pool has moved to a successor, its active order book is for
+        // that successor. The old binding retains inventory accounting but does
+        // not inspect another market's order ids.
+        if (!current) return exposure;
+
+        uint128[] memory orderIds = IBinaryPoolVillaAccount(binding.pool).getOwnOpenOrders();
+        if (orderIds.length > MAX_OPEN_ORDERS_PER_POOL) revert ExposureStateUnavailable();
+        for (uint256 i = 0; i < orderIds.length; i++) {
+            IBinaryPoolVillaAccount.Order memory order = IBinaryPoolVillaAccount(binding.pool).getOrder(orderIds[i]);
+            if (order.owner != address(this) || order.quantityRemaining == 0) revert ExposureStateUnavailable();
+            (uint8 kind, bool tagged) = _decodeOrderUserData(order.userData);
+            uint256 orderExposure = order.quantityRemaining;
+            bool sell = true;
+            if (tagged) {
+                sell = kind == 1 || kind == 3;
+                if (!sell && order.price > 0 && order.price < params.oneCollateral) {
+                    uint256 collateralRequired = kind == 0
+                        ? _ceilDiv(order.quantityRemaining * order.price, params.oneCollateral)
+                        : _ceilDiv(order.quantityRemaining * (params.oneCollateral - order.price), params.oneCollateral);
+                    orderExposure = _max(collateralRequired, order.quantityRemaining);
+                }
+            }
+            exposure.orderExposure += orderExposure;
+            exposure.aggregateExposure += orderExposure;
+            // An untagged order is treated as a possible sell and therefore
+            // also consumes mint/inventory capacity. This is conservative and
+            // avoids relying on the SDK's removed kindOf(userData) convention.
+            if (sell) exposure.mintExposure += order.quantityRemaining;
+        }
+    }
+
+    function _enforceProjectedOrderExposure(
+        bytes32 marketId,
+        uint8 kind,
+        uint256 quantity,
+        uint256 collateralRequired
+    ) internal view {
+        uint256 current = currentOperatorExposure();
+        uint256 projected;
+        if (kind == 0 || kind == 2) {
+            // A buy may fill immediately. Quantity is the full binary payout
+            // liability, while collateralRequired is the resting reservation.
+            projected = current + _max(collateralRequired, quantity);
+        } else {
+            MarketBinding memory binding = marketBindings[marketId];
+            MarketExposure memory market = _marketExposure(marketId, binding);
+            uint256 afterInventory;
+            if (kind == 1) {
+                if (market.yesInventory < quantity) revert InvalidOrder();
+                afterInventory = _max(market.yesInventory - quantity, market.noInventory);
+            } else {
+                if (market.noInventory < quantity) revert InvalidOrder();
+                afterInventory = _max(market.yesInventory, market.noInventory - quantity);
+            }
+            projected = current - market.aggregateExposure + afterInventory + market.orderExposure + quantity;
+        }
+        if (projected > maxAggregateExposure) revert ExposureLimitExceeded();
+    }
+
+    function _enforceMintExposure(uint256 amount) internal view {
+        uint256 currentAggregate = currentOperatorExposure();
+        if (amount > maxAggregateExposure || currentAggregate > maxAggregateExposure - amount) {
+            revert ExposureLimitExceeded();
+        }
+        uint256 currentMint = currentMintExposure();
+        if (amount > maxMintExposure || currentMint > maxMintExposure - amount) {
+            revert MintLimitExceeded();
+        }
+    }
+
+    function _encodeOrderUserData(uint8 kind, uint64 payload) internal pure returns (uint64) {
+        if (kind > 3 || payload > ORDER_USER_DATA_PAYLOAD_MASK) revert OrderUserDataInvalid();
+        return ORDER_USER_DATA_MAGIC | (uint64(kind) << 58) | payload;
+    }
+
+    function _decodeOrderUserData(uint64 userData) internal pure returns (uint8 kind, bool tagged) {
+        tagged = (userData & ORDER_USER_DATA_MAGIC_MASK) == ORDER_USER_DATA_MAGIC;
+        if (tagged) kind = uint8((userData >> 58) & 3);
+    }
+
+    function _recycleProven(
+        IBinaryPoolVillaAccount.BinaryPoolParams memory params,
+        MarketBinding memory binding
+    ) internal view returns (bool) {
+        // DreamDEX increments marketNonce only for a successor binding, and the
+        // protocol permits that transition only after the old book's release
+        // gate has passed. A stale account must not call booksEmpty here: other
+        // accounts may already have opened orders in the successor book.
+        return
+            params.market != binding.market &&
+            params.marketNonce > binding.marketNonce;
+    }
+
+    function _placeBinaryOrder(
+        address pool,
+        uint8 kind,
+        uint256 price,
+        uint256 quantity,
+        uint64 expireTimestampNs,
+        uint8 orderType,
+        uint64 userData
+    ) internal returns (bool success, uint128 orderId) {
+        return IBinaryPoolVillaAccount(pool).placeBinaryOrder(
+            kind,
+            price,
+            quantity,
+            expireTimestampNs,
+            orderType,
+            0,
+            address(0),
+            0,
+            userData
+        );
+    }
+
     function _setOutcomeOperator(address spender, bool approved) internal {
         (bool ok, bytes memory result) = outcomeToken.call(
             abi.encodeWithSignature("setOperator(address,bool)", spender, approved)
@@ -505,18 +855,6 @@ contract VillaAccount {
         uint256 current = IERC20VillaAccount(collateralToken).allowance(address(this), pool);
         if (current != 0) _safeCall(collateralToken, abi.encodeWithSignature("approve(address,uint256)", pool, 0));
         _safeCall(collateralToken, abi.encodeWithSignature("approve(address,uint256)", pool, amount));
-    }
-
-    function _consumeExposure(uint256 amount, bool isMint) internal {
-        if (amount == 0) return;
-        if (amount > maxAggregateExposure || aggregateExposure > maxAggregateExposure - amount) {
-            revert ExposureLimitExceeded();
-        }
-        if (isMint && (amount > maxMintExposure || mintExposure > maxMintExposure - amount)) {
-            revert MintLimitExceeded();
-        }
-        aggregateExposure += amount;
-        if (isMint) mintExposure += amount;
     }
 
     function _safeCall(address target, bytes memory data) internal {
@@ -531,5 +869,9 @@ contract VillaAccount {
 
     function _ceilDiv(uint256 numerator, uint256 denominator) internal pure returns (uint256) {
         return (numerator + denominator - 1) / denominator;
+    }
+
+    function _max(uint256 left, uint256 right) internal pure returns (uint256) {
+        return left >= right ? left : right;
     }
 }

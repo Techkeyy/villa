@@ -41,14 +41,21 @@ test("autonomous trading circuit breaker is owner-only and gates order placement
   assert.match(source, /function revokeOperator\(\) external onlyOwner[\s\S]*autonomousTradingEnabled = false;/);
 });
 
-test("aggregate and mint exposure are lifetime owner-configured on-chain budgets", () => {
+test("aggregate and mint exposure are current authoritative on-chain state", () => {
   assert.match(source, /uint256 public maxAggregateExposure;/);
   assert.match(source, /uint256 public maxMintExposure;/);
-  assert.match(source, /uint256 public aggregateExposure;/);
-  assert.match(source, /uint256 public mintExposure;/);
+  assert.doesNotMatch(source, /uint256 public aggregateExposure;/);
+  assert.doesNotMatch(source, /uint256 public mintExposure;/);
+  assert.match(source, /function currentOperatorExposure\(\) public view returns/);
+  assert.match(source, /function currentMintExposure\(\) public view returns/);
+  assert.match(source, /function aggregateExposure\(\) external view returns/);
+  assert.match(source, /function mintExposure\(\) external view returns/);
+  assert.match(source, /getOwnOpenOrders()/);
+  assert.match(source, /getOrder\(uint128 orderId\)/);
+  assert.match(source, /booksEmpty()/);
+  assert.match(source, /_marketExposure/);
+  assert.doesNotMatch(source, /_consumeExposure/);
   assert.match(source, /function setRiskLimits\(uint256 maxAggregateExposure_, uint256 maxMintExposure_\)\s+external\s+onlyOwner/);
-  assert.match(source, /_consumeExposure\(collateralRequired, false\)/);
-  assert.match(source, /_consumeExposure\(amount, true\)/);
   assert.match(source, /revert ExposureLimitExceeded\(\)/);
   assert.match(source, /revert MintLimitExceeded\(\)/);
 });
