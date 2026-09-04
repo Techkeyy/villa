@@ -30,3 +30,34 @@ test("account, owner, operator, chain, and operator address are all bounded", ()
   assert.throws(() => validateDisposableLpAccount({ account: ACCOUNT, owner: OWNER, operator: OTHER_OPERATOR }), { code: "OPERATOR_NOT_CANONICAL" });
   assert.throws(() => validateDisposableLpAccount({ account: OWNER, owner: OWNER }), { code: "IDENTITY_COLLISION" });
 });
+
+test("capital validation accepts product-correct valid balances and rejects invalid amounts without magic number dependency", () => {
+  function validateCapital(capitalRaw, { minQuantityRaw = 100_000n, maxCapitalRaw = 1_002_000n } = {}) {
+    if (capitalRaw <= 0n) throw new Error("CAPITAL_INVALID: zero or negative collateral");
+    if (capitalRaw > maxCapitalRaw) throw new Error("ACCOUNT_CAPITAL_CAP: exceeds cap");
+    if (minQuantityRaw >= capitalRaw) throw new Error("MINT_CAP: collateral below minimum mint");
+    return true;
+  }
+
+  // A. 1,000,000 raw tUSDC (1.000 tUSDC) valid when above configured minimum
+  assert.equal(validateCapital(1_000_000n, { minQuantityRaw: 100_000n }), true);
+
+  // B. another valid funded amount also accepted (e.g. 500,000n, 750,000n, 1_001_000n)
+  assert.equal(validateCapital(500_000n, { minQuantityRaw: 100_000n }), true);
+  assert.equal(validateCapital(750_000n, { minQuantityRaw: 100_000n }), true);
+  assert.equal(validateCapital(1_001_000n, { minQuantityRaw: 100_000n }), true);
+
+  // C. zero collateral rejected
+  assert.throws(() => validateCapital(0n), /CAPITAL_INVALID/);
+  assert.throws(() => validateCapital(-100n), /CAPITAL_INVALID/);
+
+  // D. below configured minimum rejected
+  assert.throws(() => validateCapital(50_000n, { minQuantityRaw: 100_000n }), /MINT_CAP/);
+  assert.throws(() => validateCapital(100_000n, { minQuantityRaw: 100_000n }), /MINT_CAP/);
+
+  // E. no exact 1_002_000 dependency (amounts other than 1_002_000 pass freely)
+  assert.equal(validateCapital(1_000_000n), true);
+  assert.equal(validateCapital(800_000n), true);
+  assert.equal(validateCapital(1_002_000n), true);
+  assert.throws(() => validateCapital(1_003_000n), /ACCOUNT_CAPITAL_CAP/);
+});

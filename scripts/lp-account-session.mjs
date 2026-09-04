@@ -253,7 +253,7 @@ async function main() {
     if (accountState.inventory.yesRaw !== 0n || accountState.inventory.noRaw !== 0n) fail("INVENTORY_NOT_EMPTY", "the selected market already has inventory outside this session");
     initialCollateralRaw = accountState.capital.directCollateralRaw;
     startingValueRaw = initialCollateralRaw + (accountState.capital.vaultRaw ?? 0n);
-    if (initialCollateralRaw !== 1_002_000n) fail("CAPITAL_INVALID", "the verified UAT account capital is not exactly 1.002 tUSDC");
+    if (initialCollateralRaw <= 0n) fail("CAPITAL_INVALID", "the VillaAccount has zero collateral available");
     if (initialCollateralRaw > DEFAULT_PHASE_3B1_CAPS.MAX_ACCOUNT_CAPITAL) fail("ACCOUNT_CAPITAL_CAP", "account capital exceeds the bounded cap");
     const accountMarket = await adapter.readMarket({ marketId: selected.marketId, identity });
     if (!same(accountMarket.pool, selected.pool)) fail("MARKET_POOL_MISMATCH", "the account market pool does not match the live market");

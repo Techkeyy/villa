@@ -10,7 +10,7 @@ import { fork } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 const workerPath = fileURLToPath(new URL("./lp-account-session.mjs", import.meta.url));
-const worker = fork(workerPath, [], { env: process.env, stdio: ["ignore", "ignore", "ignore", "ipc"] });
+const worker = fork(workerPath, [], { env: process.env, stdio: ["ignore", "inherit", "inherit", "ipc"] });
 let stopping = false;
 
 function requestStop() {

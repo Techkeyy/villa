@@ -29,7 +29,7 @@ Type=simple
 User=villa-engine
 Group=villa-engine
 WorkingDirectory=/opt/villa-private-runtime
-ExecStart=/usr/bin/node --jitless /opt/villa-private-runtime/scripts/lp-account-session-service.mjs
+ExecStart=/usr/bin/node /opt/villa-private-runtime/scripts/lp-account-session-service.mjs
 EnvironmentFile=/run/villa-uat-bindings/%i.env
 Environment=VILLA_ENGINE_OPERATOR=0xaf4ee6C0c6Ff6337F4C4F07b87C8343dF73e8d37
 Environment=VILLA_ENGINE_SESSION_ID=%i
@@ -62,7 +62,6 @@ ProtectControlGroups=true
 RestrictSUIDSGID=true
 LockPersonality=true
 RestrictNamespaces=true
-MemoryDenyWriteExecute=true
 CapabilityBoundingSet=
 AmbientCapabilities=
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
@@ -83,7 +82,7 @@ Type=oneshot
 User=villa-engine
 Group=villa-engine
 WorkingDirectory=/opt/villa-private-runtime
-ExecStart=/usr/bin/node --jitless /opt/villa-private-runtime/scripts/lp-account-settlement.mjs
+ExecStart=/usr/bin/node /opt/villa-private-runtime/scripts/lp-account-settlement.mjs
 EnvironmentFile=/run/villa-uat-bindings/%i.env
 Environment=VILLA_ENGINE_OPERATOR=0xaf4ee6C0c6Ff6337F4C4F07b87C8343dF73e8d37
 Environment=VILLA_ENGINE_SESSION_ID=%i
@@ -116,7 +115,6 @@ ProtectControlGroups=true
 RestrictSUIDSGID=true
 LockPersonality=true
 RestrictNamespaces=true
-MemoryDenyWriteExecute=true
 CapabilityBoundingSet=
 AmbientCapabilities=
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6

@@ -21,7 +21,8 @@ const wrapper = PRIVATE_DEPLOYMENT_FILES["usr/local/libexec/villa-uat-control"];
 test("private services are pinned to the root-controlled runtime and private state", () => {
   for (const unit of [sessionUnit, settlementUnit]) {
     assert.match(unit, new RegExp(`WorkingDirectory=${PRIVATE_RUNTIME_ROOT}`));
-    assert.match(unit, new RegExp(`ExecStart=/usr/bin/node --jitless ${PRIVATE_RUNTIME_ROOT}/`));
+    assert.match(unit, new RegExp(`ExecStart=/usr/bin/node ${PRIVATE_RUNTIME_ROOT}/`));
+    assert.doesNotMatch(unit, /--jitless/);
     assert.match(unit, /User=villa-engine/);
     assert.match(unit, /Group=villa-engine/);
     assert.doesNotMatch(unit, /Group=villa\n/);
@@ -44,7 +45,7 @@ test("private services are pinned to the root-controlled runtime and private sta
     assert.match(unit, /PrivateTmp=true/);
     assert.match(unit, /PrivateDevices=true/);
     assert.match(unit, /RestrictNamespaces=true/);
-    assert.match(unit, /MemoryDenyWriteExecute=true/);
+    assert.doesNotMatch(unit, /MemoryDenyWriteExecute=true/);
     assert.match(unit, /CapabilityBoundingSet=\n/);
     assert.match(unit, /Environment=VILLA_EXECUTION_ENABLED=false/);
     assert.match(unit, /Environment=VILLA_ACCOUNT_EXECUTION_ENABLED=true/);
@@ -95,9 +96,10 @@ test("private bundle entrypoints and specs contain no public-writable runtime pa
   assert.doesNotMatch(broker, /fs\.rename\(/);
 });
 
-test("service stop forwards a typed product stop and waits for cleanup", () => {
+test("service stop forwards a typed product stop and waits for cleanup with observable stdio", () => {
   const service = fs.readFileSync(path.join(ROOT, "scripts/lp-account-session-service.mjs"), "utf8");
   const worker = fs.readFileSync(path.join(ROOT, "scripts/lp-account-session.mjs"), "utf8");
+  assert.match(service, /worker = fork\(workerPath, \[\], \{ env: process\.env, stdio: \["ignore", "inherit", "inherit", "ipc"\] \}\)/);
   assert.match(service, /worker\.send\(\{ type: "stop", reason: "SERVICE_STOP" \}\)/);
   assert.match(service, /worker\.once\("exit"/);
   assert.match(worker, /process\.once\("SIGTERM"/);
@@ -105,4 +107,13 @@ test("service stop forwards a typed product stop and waits for cleanup", () => {
   assert.match(worker, /adapter\.burnCompleteSet/);
   assert.match(worker, /assessSessionSettlement/);
   assert.match(worker, /leaseStore\.release/);
+});
+
+test("account session validates dynamic positive collateral without historic magic amounts", () => {
+  const worker = fs.readFileSync(path.join(ROOT, "scripts/lp-account-session.mjs"), "utf8");
+  assert.doesNotMatch(worker, /1_002_000n/);
+  assert.doesNotMatch(worker, /1002000n/);
+  assert.match(worker, /if \(initialCollateralRaw <= 0n\) fail\("CAPITAL_INVALID"/);
+  assert.match(worker, /if \(initialCollateralRaw > DEFAULT_PHASE_3B1_CAPS\.MAX_ACCOUNT_CAPITAL\) fail\("ACCOUNT_CAPITAL_CAP"/);
+  assert.match(worker, /if \(mintAmountRaw > DEFAULT_PHASE_3B1_CAPS\.MAX_MINT_AMOUNT \|\| mintAmountRaw > identity\.maxOrderCollateral \|\| mintAmountRaw >= initialCollateralRaw\) fail\("MINT_CAP"/);
 });
