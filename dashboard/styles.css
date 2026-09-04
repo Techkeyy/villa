@@ -172,6 +172,14 @@ h3 { margin-bottom: 9px; font-size: 19px; line-height: 1.2; letter-spacing: -.02
 .identity-facts div:last-child { border-bottom: 0; padding-bottom: 0; }
 .identity-facts span { color: var(--muted); font-size: 13px; }
 .identity-facts strong { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 13px; overflow-wrap: anywhere; text-align: right; }
+.account-selector-wrap { display: grid; gap: 8px; margin-top: 20px; }
+.account-selector-wrap label { color: var(--muted); font-size: 13px; font-weight: 700; }
+.account-selector-wrap select { width: 100%; min-height: 44px; border: 1px solid var(--line-strong); border-radius: 8px; padding: 0 12px; background: var(--white); color: var(--ink); }
+.migration-panel { box-shadow: none; }
+.migration-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); padding: 18px 0; }
+.migration-facts span, .migration-facts small { display: block; color: var(--muted); font-size: 13px; }
+.migration-facts strong { display: block; margin: 4px 0; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 14px; overflow-wrap: anywhere; }
+.migration-panel > p:not(.helper):not(.form-message) { max-width: 700px; margin: 20px 0; color: var(--muted); }
 .capital-metrics { grid-template-columns: repeat(3, 1fr); }
 .capital-metrics .metric:nth-child(n + 4) { border-top: 1px solid var(--line); }
 .capital-metrics .metric:nth-child(4) { border-left: 0; padding-left: 0; }
@@ -313,6 +321,7 @@ h3 { margin-bottom: 9px; font-size: 19px; line-height: 1.2; letter-spacing: -.02
   .capital-metrics .metric:nth-child(4) { border-left: 0; padding-left: 0; }
   .capital-metrics .metric:nth-child(3), .capital-metrics .metric:nth-child(5) { border-left: 0; }
   .identity-facts { min-width: 0; }
+  .migration-facts { grid-template-columns: 1fr; }
   .amount-input { width: 100%; }
   .allocation-row .button, .strategy-action .button, .proof-controls .button, .proof-controls select, .authorization-actions .button { width: 100%; }
   .proof-controls .form-message { position: static; margin-top: 0; }

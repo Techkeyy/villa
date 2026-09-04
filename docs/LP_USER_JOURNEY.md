@@ -60,7 +60,10 @@ The app shows a compact loading state while it reads the verified account artifa
 
 ### Connected, no verified account
 
-The app offers Create VILLA account. The copy explains that the connected wallet remains owner and that automation starts unauthorized.
+The app offers Create V2 VILLA account. For an owner with a preserved V1
+account, the migration panel offers Create V2 without requiring a V1
+withdrawal; V1 remains visible and owner-withdrawable while the new V2 is
+deployed and verified by the connected wallet. Automation starts unauthorized.
 
 ### Account ready for setup
 

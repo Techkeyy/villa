@@ -5,7 +5,7 @@
 1. Only `owner` can move collateral directly out of the account.
 2. Every owner withdrawal has the owner as its hard-coded destination.
 3. Operator actions cannot specify a recipient, arbitrary target, arbitrary selector, builder, builder fee, or native value.
-4. Every operator market action requires an owner-approved market ID.
+4. V1 operator market actions require an owner-approved market ID; V2 operator preparation requires autonomous trading to be enabled and validates the canonical market and pool wiring directly.
 5. Current-pool actions require the module record and the pool's live market binding to agree, with the configured collateral, outcome token, settlement singleton, and an unfinalized pool.
 6. Buy-side allowance is exact for the current call and reset to zero after the pool call. No standing unlimited collateral allowance is created by the account.
 7. Outcome-token approvals are limited to the fixed DreamDEX pool, module, and settlement addresses. They are owner-revocable.
@@ -19,11 +19,11 @@
 | --- | :---: | :---: | :---: |
 | `deposit` | yes | no | no |
 | `withdraw` | yes, to owner | no | no |
-| ownership/operator/limits/market approval | yes | no | no |
-| prepare/revoke protocol approvals | yes | no | no |
-| place/cancel/reduce on approved current EC | no | yes | no |
-| mint/burn paired inventory | no | yes | no |
-| redeem approved market | no | yes | no |
+| ownership/operator/limits/autonomy/legacy market approval | yes | no | no |
+| prepare/revoke protocol approvals | yes | V2 prepare only when autonomy is enabled | no |
+| place/cancel/reduce on verified current EC | no | yes, within V1/V2 bounds | no |
+| mint/burn paired inventory | no | yes, within V2 current caps | no |
+| redeem verified market | no | yes, within V1/V2 lifecycle rules | no |
 | claim a fixed pool vault credit | yes or operator | yes, to account only | no |
 | recover unsupported token | yes, to owner | no | no |
 | arbitrary external call or token transfer | no | no | no |
@@ -38,7 +38,13 @@ There is no low-level arbitrary-call entry point. Low-level calls are used only 
 
 ## Revocation behavior
 
-`revokeOperator` immediately makes every operator method fail. Owner market approval can be removed independently. `revokeMarketApprovals` also clears the fixed pool collateral allowance and removes outcome-token approvals for that pool, module, and settlement. Open orders must be cancelled and inventory/vault credits reconciled before a user treats an account as fully closed; the contract does not claim that revocation magically settles open market state.
+`revokeOperator` immediately makes every operator method fail. On V1, owner
+market approval can be removed independently. On V2, the owner can disable
+autonomous trading independently. `revokeMarketApprovals` also clears the
+fixed pool collateral allowance and removes outcome-token approvals for that
+pool, module, and settlement. Open orders must be cancelled and inventory/vault
+credits reconciled before a user treats an account as fully closed; the
+contract does not claim that revocation magically settles open market state.
 
 ## Required adversarial checks
 

@@ -399,6 +399,8 @@ class FakeDocument {
       "switch-network",
       "retry-account",
       "create-account",
+      "account-migration",
+      "create-v2-account",
     ];
     this.elements = new Map(ids.map((id) => [id, new FakeElement(id)]));
   }

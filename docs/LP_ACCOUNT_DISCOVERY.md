@@ -42,7 +42,7 @@ The hint accelerates a later lookup. It is never the account registry.
 
 ## Why this architecture is retained
 
-The direct deployment path avoids adding a factory or mutable registry before the custody boundary is independently proven. The implementation and runtime template are compiled from `contracts/VillaAccount.sol` with the pinned `solc 0.8.30` optimizer settings. The browser artifact records the source hash, source commit, compiler description, and immutable reference ranges for review. A deployed account is accepted only when its normalized runtime matches that local template and its on-chain owner and protocol wiring match the trusted configuration.
+The direct deployment path avoids adding a factory or mutable registry before the custody boundary is independently proven. The V2 implementation and runtime template are compiled from `contracts/VillaAccount.sol` with `solc 0.8.28`, the optimizer enabled for 200 runs, and the Shanghai EVM target. The browser artifact records the source hash, source commit, compiler description, and immutable reference ranges for review. A deployed account is accepted only when its normalized runtime matches that local template and its on-chain owner and protocol wiring match the trusted configuration. Discovery also verifies the preserved V1 artifact, returns both verified accounts when one owner has both versions, and prefers V2 only after full verification.
 
 The wallet and chain guidance follows the official [Somnia network information](https://docs.somnia.network/developer/network-info), including chain ID 50312 and Shannon testnet resources. Testnet funding links stay pointed to Somnia's [official testnet resources](https://testnet.somnia.network/).
 

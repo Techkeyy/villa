@@ -6,7 +6,7 @@ V2 proves the bounded account boundary needed before VILLA can accept liquidity 
 
 | Principal | Meaning | Contract authority |
 | --- | --- | --- |
-| OWNER | The LP wallet that owns one account | Deposit, withdraw to itself, ownership, operator, market approvals, limits, protocol-approval revocation, unsupported-token recovery |
+| OWNER | The LP wallet that owns one account | Deposit, withdraw to itself, ownership, operator, limits, V2 autonomy, V1 legacy market approvals, protocol-approval revocation, unsupported-token recovery |
 | OPERATOR | The VILLA automation identity | Only the explicit approved-market EC actions below |
 | ATTACKER | Any other EOA or contract | No account action |
 
@@ -18,7 +18,7 @@ Phase 1 uses **direct deployment**, not a factory. A factory would reduce the co
 
 ## Fixed protocol wiring
 
-The constructor pins the Shannon collateral ERC-20, the shared ERC-6909 outcome-token singleton, `BinaryMarketsModule` for market lookup and redemption, and `BinarySettlement` for pool-wiring checks. It also sets V2's per-call order cap, lifetime aggregate exposure cap, and lifetime mint cap. The operator cannot replace any of these addresses or caps.
+The constructor pins the Shannon collateral ERC-20, the shared ERC-6909 outcome-token singleton, `BinaryMarketsModule` for market lookup and redemption, and `BinarySettlement` for pool-wiring checks. It also sets V2's per-call order cap, owner-set current aggregate-exposure cap, and owner-set mint-exposure cap. The operator cannot replace any of these addresses or caps.
 
 A V2 operator may prepare a canonical market without a separate owner transaction while `autonomousTradingEnabled` is true. For trading, minting, burning, cancellation, or preparation, the account derives the pool from the module and verifies the pool's collateral, outcome token, settlement singleton, market address, YES/NO IDs, binary shape, and finalized state. A stale or recycled pool binding therefore fails closed. `setMarketApproval` remains only as a compatibility/read-state alias; it is not the V2 autonomy gate.
 
@@ -27,7 +27,7 @@ A V2 operator may prepare a canonical market without a separate owner transactio
 The operator can call only:
 
 1. `prepareMarket`: canonical market preparation when autonomy is enabled. DreamDEX V2 order kinds are `0 BUY_YES`, `1 SELL_YES`, `2 BUY_NO`, and `3 SELL_NO`.
-2. `operatorPlaceOrder`: bounded quantity, bounded buy-side collateral, no builder, no builder fee, fixed self-matching option 0, and a lifetime aggregate collateral budget across all markets.
+2. `operatorPlaceOrder`: bounded quantity, bounded buy-side collateral, no builder, no builder fee, fixed self-matching option 0, and an owner-set current aggregate-exposure cap across all tracked markets.
 3. `operatorCancelOrder` and `operatorReduceOrder` on a verified derived pool; owner cleanup remains available after revocation.
 4. `operatorMintSet` and `operatorBurnSet` on a verified derived pool; minting is separately lifetime-capped.
 5. `operatorRedeem` through the fixed module, with a binary outcome index.
@@ -35,7 +35,15 @@ The operator can call only:
 
 There is no generic `call(address,bytes)`, arbitrary token transfer, arbitrary pool parameter, operator ownership change, operator market approval, or operator-selected withdrawal destination.
 
-The aggregate and mint counters never decrease. A fill, cancel, burn, redemption, vault claim, or rollover cannot recycle the operator's lifetime risk budget. The owner may lower either cap, which can intentionally halt further risk-increasing calls; a fresh V2 account is required after a lifetime budget is exhausted.
+Risk accounting is current-state based rather than lifetime-volume based. The
+account recomputes aggregate exposure from tracked-market balances and live
+DreamDEX orders with bounded scans, treating ambiguous orders conservatively.
+Real release through cancellation, burn, redemption, vault reconciliation, or
+rollover can therefore recycle current risk capacity, while residual inventory
+remains accounted for until it is cleared. Mint exposure has a separate
+owner-set cap and is reusable after genuine release. Historical V1 accounts
+retain their owner-approved market semantics and are rejected by autonomous
+V2 execution.
 
 ## Lifecycle and rollover
 

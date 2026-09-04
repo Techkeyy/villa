@@ -540,16 +540,26 @@ export async function discoverAccount(provider, owner, artifact, hint = "", opti
         }
       }
     }
+    const verifiedAccounts = [];
     for (const candidate of candidates.reverse()) {
       try {
         const account = await readAccount(provider, candidate, artifact, normalizedOwner, { deadline });
-        const source = candidate === normalizeAddress(hint) ? "verified wallet hint" : "verified on-chain ownership event";
-        emitDebug(onDebug, "discovery_complete", { source, accountFound: true });
-        return { kind: "DISCOVERED", account, source };
+        verifiedAccounts.push({ account, candidate });
       } catch (error) {
         if (error?.code === "DISCOVERY_TIMEOUT") throw error;
         verificationFailures.push({ candidate, code: error?.code || "VERIFICATION_FAILED" });
       }
+    }
+    if (verifiedAccounts.length) {
+      const accounts = verifiedAccounts
+        .map(({ account }) => account)
+        .sort((left, right) => Number(right.accountVersion) - Number(left.accountVersion));
+      const account = accounts[0];
+      const source = verifiedAccounts.find(({ account: candidate }) => candidate.address === account.address)?.candidate === normalizeAddress(hint)
+        ? "verified wallet hint"
+        : "verified on-chain ownership event";
+      emitDebug(onDebug, "discovery_complete", { source, accountFound: true, accountCount: accounts.length, accountVersions: accounts.map((item) => item.accountVersion) });
+      return { kind: "DISCOVERED", account, accounts, source };
     }
     if (verificationFailures.length) {
       const firstFailure = verificationFailures[0];

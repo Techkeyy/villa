@@ -24,13 +24,13 @@ The account adapter is the boundary between the existing VILLA engine and a per-
 
 | Engine intent | Account call | Required precondition |
 | --- | --- | --- |
-| prepare a venue | owner-controlled `prepareMarket(marketId)` | not exposed by the engine adapter; owner approval is a separate lifecycle action |
-| buy/sell a binary side | `operatorPlaceOrder(...)` | operator, approved current market, caps |
+| prepare a venue | V1 owner-controlled `prepareMarket(marketId)` or V2 autonomous `prepareMarket(marketId)` | V1 requires owner approval; V2 requires enabled autonomy and canonical pool verification |
+| buy/sell a binary side | `operatorPlaceOrder(...)` | operator, verified current market, version-specific caps |
 | remove quote | `operatorCancelOrder(marketId, orderId)` | order belongs to account on derived pool |
 | shrink quote | `operatorReduceOrder(...)` | same ownership and pool checks |
-| create complete pair | `operatorMintSet(marketId, amount)` | approved current market, collateral cap |
+| create complete pair | `operatorMintSet(marketId, amount)` | verified current market, collateral and mint cap |
 | burn paired inventory | `operatorBurnSet(marketId, amount)` | both outcome sides held by account |
-| redeem settled position | `operatorRedeem(marketId, outcomeIdx, amount)` | owner-approved settlement record |
+| redeem settled position | `operatorRedeem(marketId, outcomeIdx, amount)` | verified settlement record and version-specific lifecycle rules |
 | recover pool credit | `operatorClaimVault(marketId, amount)` | fixed pool record, account receives credit; this is not LP withdrawal |
 
 The adapter never passes an arbitrary target or raw calldata. The contract derives the pool from the approved market ID and pins all recipients internally. The returned call target is always the selected VillaAccount, and its metadata records `orderOwner = account`, `signer = operator`, and `owner = LP wallet`.

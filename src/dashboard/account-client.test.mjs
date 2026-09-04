@@ -433,6 +433,49 @@ test("an invalid candidate does not hide a later valid owner account", async () 
   }
 });
 
+test("dual discovery returns verified V1 and V2 accounts with V2 preferred", async () => {
+  const originalFetch = globalThis.fetch;
+  const owner = "0xcaecf98cd369d57e4e6c0f332c31815c192b7a81";
+  const v1 = "0xfc9dbf0a8468aa56799b4e23b1ebe936426ee30b";
+  const v2 = "0xe78bd09d6869e450e66a49d1d3beebbfa75fb0cd";
+  const addressResult = (value) => `0x${"0".repeat(24)}${value.slice(2)}`;
+  const uintResult = (value) => `0x${BigInt(value).toString(16).padStart(64, "0")}`;
+  globalThis.fetch = async () => ({
+    ok: true,
+    async json() {
+      return { status: "1", result: [{ address: v1 }, { address: v2 }] };
+    },
+  });
+  const provider = {
+    async request({ method, params }) {
+      if (method === "eth_chainId") return VILLA_CHAIN.idHex;
+      if (method === "eth_getCode") return params[0] === v1 ? legacyArtifact.runtimeBytecode : artifact.runtimeBytecode;
+      if (method !== "eth_call") throw new Error(`unexpected method ${method}`);
+      const selector = params[0].data.slice(0, 10);
+      if (selector === VILLA_SELECTORS.owner) return addressResult(owner);
+      if (selector === VILLA_SELECTORS.operator) return addressResult(ZERO_ADDRESS);
+      if (selector === VILLA_SELECTORS.autonomousTradingEnabled) {
+        if (params[0].to === v1) throw new Error("V1 has no autonomy getter");
+        return uintResult(0);
+      }
+      if (selector === VILLA_SELECTORS.collateralToken) return addressResult(VILLA_ACCOUNT_CONFIG.collateralToken);
+      if (selector === VILLA_SELECTORS.outcomeToken) return addressResult(VILLA_ACCOUNT_CONFIG.outcomeToken);
+      if (selector === VILLA_SELECTORS.binaryModule) return addressResult(VILLA_ACCOUNT_CONFIG.binaryModule);
+      if (selector === VILLA_SELECTORS.binarySettlement) return addressResult(VILLA_ACCOUNT_CONFIG.binarySettlement);
+      if (selector === VILLA_SELECTORS.tokenBalanceOf) return uintResult(params[0].data.endsWith(v1.slice(2)) ? 1_000_000n : 0);
+      throw new Error(`unexpected selector ${selector}`);
+    },
+  };
+  try {
+    const result = await discoverAccount(provider, owner, [artifact, { ...legacyArtifact, accountVersion: 1 }]);
+    assert.equal(result.kind, "DISCOVERED");
+    assert.equal(result.account.address, v2);
+    assert.deepEqual(result.accounts.map((account) => [account.address, account.accountVersion]), [[v2, 2], [v1, 1]]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("discovery timeout settles to an explicit error with no indefinite request", async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = () => new Promise(() => {});
@@ -513,7 +556,7 @@ test("discovery UI has explicit stable states, retry, and stale-refresh coalesci
   assert.doesNotMatch(app, /toggle\("account-(loading|empty|workspace|error)"/);
   assert.doesNotMatch(app, /toggle\("wrong-network"/);
   assert.match(app, /retry-account/);
-  assert.match(app, /setAppState\(\{ account: null, currentAccountAddress: "", discoveryStatus,/);
+  assert.match(app, /setAppState\(\{ account: null, accounts: \[\], walletBalance: 0n, currentAccountAddress: "", discoveryStatus,/);
   assert.match(app, /if \(accountRefreshInFlight\) \{\s+refreshQueued = true/);
   assert.match(app, /generation === refreshGeneration && appState\.owner === owner/);
   assert.match(app, /stale_context_invalidation/);

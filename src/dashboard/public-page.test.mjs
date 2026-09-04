@@ -28,7 +28,7 @@ test("LP workspace is a simple owner-scoped onboarding flow", () => {
   assert.match(html, /data-page="app"[^>]*hidden/);
   assert.match(html, /MY LIQUIDITY/);
   assert.match(html, /Connect wallet/);
-  assert.match(html, /Create VILLA account/);
+  assert.match(html, /Create V2 VILLA account/);
   assert.match(html, /Add liquidity<\/button>/);
   assert.match(html, /Authorize VILLA/);
   assert.match(html, /Revoke VILLA/);

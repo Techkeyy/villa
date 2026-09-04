@@ -27,7 +27,7 @@ class FakeElement {
 
 class FakeDocument {
   constructor() {
-    const ids = [...JOURNEY_IDS, "wallet-address", "network-status", "wallet-state", "account-error-title", "account-error-copy", "switch-network", "retry-account", "create-account"];
+    const ids = [...JOURNEY_IDS, "wallet-address", "network-status", "wallet-state", "account-error-title", "account-error-copy", "switch-network", "retry-account", "create-account", "account-migration", "create-v2-account"];
     this.elements = new Map(ids.map((id) => [id, new FakeElement(id)]));
   }
 
@@ -166,4 +166,17 @@ test("renderer fails closed for invalid status and keeps all account surfaces mu
   });
   assert.equal(view.discoveryState, "IDLE");
   assert.deepEqual(assertJourneyInvariant(document), []);
+});
+
+test("a discovered V1 account exposes the safe V2 creation path without enabling it for V2", () => {
+  const document = new FakeDocument();
+  const owner = "0x1111111111111111111111111111111111111111";
+  const v1 = { address: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", accountVersion: 1 };
+  const v2 = { address: "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", accountVersion: 2 };
+  renderAccountJourney(document, { ...baseState, owner, chainStatus: "SHANNON", discoveryStatus: "DISCOVERED", account: v1, accounts: [v1], busy: false });
+  assert.equal(document.getElementById("account-migration").hidden, false);
+  assert.equal(document.getElementById("create-v2-account").disabled, false);
+  renderAccountJourney(document, { ...baseState, owner, chainStatus: "SHANNON", discoveryStatus: "DISCOVERED", account: v2, accounts: [v2, v1], busy: false });
+  assert.equal(document.getElementById("account-migration").hidden, false);
+  assert.equal(document.getElementById("create-v2-account").disabled, true);
 });

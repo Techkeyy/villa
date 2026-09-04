@@ -50,6 +50,8 @@ let appState = {
   controlState: "STOPPED",
   controlBusy: false,
   account: null,
+  accounts: [],
+  walletBalance: 0n,
   transactionStatus: "IDLE",
   controlSnapshot: null,
   controlResult: null,
@@ -305,6 +307,8 @@ function setConnected(connected) {
       controlState: "STOPPED",
       controlBusy: false,
       account: null,
+      accounts: [],
+      walletBalance: 0n,
       transactionStatus: "IDLE",
       error: null,
     });
@@ -506,6 +510,8 @@ async function handleSettleStrategy() {
 function resetAccountView() {
   setAppState({
     account: null,
+    accounts: [],
+    walletBalance: 0n,
     currentAccountAddress: "",
     discoveryStatus: "IDLE",
     transactionStatus: "IDLE",
@@ -519,7 +525,7 @@ function setNetworkState(chainId) {
     chainId,
     chainStatus: correct ? "SHANNON" : "WRONG_NETWORK",
     discoveryStatus: correct ? appState.discoveryStatus : "IDLE",
-    ...(correct ? {} : { account: null, currentAccountAddress: "" }),
+    ...(correct ? {} : { account: null, accounts: [], walletBalance: 0n, currentAccountAddress: "" }),
     error: null,
   });
   debugDiscovery("chain_id_observed", { chainId, networkCorrect: correct });
@@ -543,7 +549,52 @@ function setBusy(busy) {
     if (button.id === "start-villa") return;
     syncButtonDisabled(button, busy);
   });
+  renderAccountJourney(document, appState);
   renderControlControls();
+}
+
+function accountVersionOf(account) {
+  return Number(account?.accountVersion ?? account?.version ?? 0);
+}
+
+function currentAccounts() {
+  if (Array.isArray(appState.accounts) && appState.accounts.length) return appState.accounts;
+  return appState.account ? [appState.account] : [];
+}
+
+function mergeAccount(updated) {
+  const address = normalizeAddress(updated?.address);
+  return [...currentAccounts().filter((account) => normalizeAddress(account?.address) !== address), updated]
+    .sort((left, right) => accountVersionOf(right) - accountVersionOf(left));
+}
+
+function renderAccountSelector(accounts, account) {
+  const selector = element("account-selector");
+  if (!selector) return;
+  selector.replaceChildren();
+  for (const candidate of accounts) {
+    const option = document.createElement("option");
+    option.value = candidate.address;
+    option.textContent = `V${accountVersionOf(candidate)} ${accountVersionOf(candidate) === 1 ? "legacy" : "autonomous"} · ${shorten(candidate.address)}`;
+    selector.append(option);
+  }
+  selector.value = account?.address || "";
+  toggle("account-selector-wrap", accounts.length > 1);
+}
+
+function renderMigrationPanel(accounts, account) {
+  const v1 = accounts.find((candidate) => accountVersionOf(candidate) === 1);
+  const v2 = accounts.find((candidate) => accountVersionOf(candidate) === 2);
+  toggle("account-migration", Boolean(v1));
+  if (!v1) return;
+  text("migration-v1-address", shorten(v1.address));
+  text("migration-v1-balance", formatStrategyAmount(v1.balance));
+  text("migration-v2-status", v2 ? "V2 VERIFIED" : "V2 AVAILABLE");
+  text("migration-copy", v2
+    ? "V2 is verified as the preferred autonomous target. V1 remains visible, owner-controlled, and available for recovery."
+    : "V1 remains funded and intact. Create and verify an empty V2 before deciding whether to migrate funds.");
+  const create = element("create-v2-account");
+  if (create) syncButtonDisabled(create, appState.busy || Boolean(v2) || !account);
 }
 
 function updateWorkspace(account, walletBalance) {
@@ -553,7 +604,7 @@ function updateWorkspace(account, walletBalance) {
   debugLiquidity("account_readiness_check", readinessEvaluation);
   const allocated = account.balance;
   const funded = allocated > 0n;
-  const accountVersion = Number(account.accountVersion ?? account.version ?? 0);
+  const accountVersion = accountVersionOf(account);
   const isV2 = accountVersion === 2;
   const authorized = account.operator === normalizeAddress(VILLA_ACCOUNT_CONFIG.operator);
   const unexpectedOperator = account.operator !== ZERO_ADDRESS && !authorized;
@@ -578,6 +629,9 @@ function updateWorkspace(account, walletBalance) {
   }
   text("advanced-account", account.address);
   text("advanced-operator", VILLA_ACCOUNT_CONFIG.operator);
+  const accounts = currentAccounts();
+  renderAccountSelector(accounts, account);
+  renderMigrationPanel(accounts, account);
 
   const authStatus = element("authorization-status");
   if (authStatus) {
@@ -585,7 +639,7 @@ function updateWorkspace(account, walletBalance) {
     authStatus.textContent = authorized ? "AUTHORIZED" : unexpectedOperator ? "UNRECOGNIZED" : "NOT AUTHORIZED";
   }
   text("authorization-copy", !isV2
-    ? "This is a V1 VillaAccount. V1 accounts do not support bounded autonomous trading. Withdraw to your owner wallet, then create a new V2 account to migrate."
+    ? "This is a V1 VillaAccount. V1 cannot run bounded autonomous trading, but it remains owner-controlled and withdrawable. Create and verify an empty V2 before moving any funds."
     : authorized
       ? "Your wallet is verified. VILLA uses a private account-bound operator for approved DreamDEX liquidity actions. Only your wallet can withdraw."
       : unexpectedOperator
@@ -600,9 +654,9 @@ function updateWorkspace(account, walletBalance) {
     readinessStatus.className = `status-pill ${ready ? "status-safe" : "status-preview"}`;
     readinessStatus.textContent = ready ? "READY" : "SETUP REQUIRED";
   }
-  text("readiness-title", !isV2 ? "V1 migration required." : ready ? "Liquidity setup complete." : "Complete account setup first.");
+  text("readiness-title", !isV2 ? "V1 remains recoverable." : ready ? "Liquidity setup complete." : "Complete account setup first.");
   text("readiness-copy", !isV2
-    ? "V1 is read-only for this autonomous release. Withdraw V1 funds to your owner wallet, create a V2 account, and fund it there."
+    ? "V1 remains funded and recoverable. Create and verify an empty V2 before deciding whether to migrate funds."
     : ready ? "Your account is ready. Start asks the constrained control plane to run a fresh account-bound preflight." : "Add liquidity and authorize VILLA before the workspace can be marked ready.");
   const capitalStatus = element("capital-status");
   if (capitalStatus) {
@@ -622,7 +676,7 @@ function updateWorkspace(account, walletBalance) {
 
 function showDiscoveryError(error) {
   const discoveryStatus = error?.code === "UNVERIFIED_CANDIDATE" ? "SECURITY_ERROR" : "DISCOVERY_ERROR";
-  setAppState({ account: null, currentAccountAddress: "", discoveryStatus, transactionStatus: "IDLE", error });
+  setAppState({ account: null, accounts: [], walletBalance: 0n, currentAccountAddress: "", discoveryStatus, transactionStatus: "IDLE", error });
   debugDiscovery("discovery_error", { lastDiscoveryError: error?.code || "UNKNOWN" });
   setAppNotice("");
   setMessage("wallet-message", "");
@@ -668,7 +722,8 @@ async function runAccountRefresh(owner, generation) {
     writeHint(owner, result.account.address);
     const walletBalance = await readTokenBalance(provider, owner, { deadline });
     if (!walletContextIsCurrent(owner, generation)) return;
-    setAppState({ account: result.account, currentAccountAddress: result.account.address, discoveryStatus: "DISCOVERED", error: null });
+    const accounts = Array.isArray(result.accounts) ? result.accounts : [result.account];
+    setAppState({ account: result.account, accounts, walletBalance, currentAccountAddress: result.account.address, discoveryStatus: "DISCOVERED", error: null });
     updateWorkspace(result.account, walletBalance);
     setMessage("capital-message", "");
     setMessage("withdraw-message", "");
@@ -726,6 +781,8 @@ async function connectWallet(accounts = null) {
     chainStatus: "UNKNOWN",
     discoveryStatus: "IDLE",
     account: null,
+    accounts: [],
+    walletBalance: 0n,
     controlSession: null,
     controlSnapshot: null,
     controlResult: null,
@@ -778,22 +835,27 @@ async function handleSwitchNetwork() {
     if (ownerAtStart !== appState.owner) return;
     setMessage("network-message", humanError(error));
     showActionError("network-message", error);
-    setAppState({ discoveryStatus: "IDLE", account: null, currentAccountAddress: "", error });
+    setAppState({ discoveryStatus: "IDLE", account: null, accounts: [], walletBalance: 0n, currentAccountAddress: "", error });
     try {
       setNetworkState(await getChainId(provider));
     } catch {
       // Keep the actionable wrong-network panel visible when the wallet cannot answer.
-      setAppState({ chainStatus: "WRONG_NETWORK", chainId: null, discoveryStatus: "IDLE", account: null, currentAccountAddress: "" });
+      setAppState({ chainStatus: "WRONG_NETWORK", chainId: null, discoveryStatus: "IDLE", account: null, accounts: [], walletBalance: 0n, currentAccountAddress: "" });
     }
   } finally {
     setBusy(false);
   }
 }
 
-async function handleCreateAccount() {
+async function handleCreateV2Account() {
   if (appState.busy || !provider || !appState.owner) return;
+  if (currentAccounts().some((account) => accountVersionOf(account) === 2)) {
+    showActionError("create-v2-message", new AccountClientError("ACCOUNT_EXISTS", "A verified V2 account is already available for this owner."));
+    return;
+  }
+  const messageId = currentAccounts().some((account) => accountVersionOf(account) === 1) ? "create-v2-message" : "create-message";
   setBusy(true);
-  setMessage("create-message", "");
+  setMessage(messageId, "");
   try {
     const chainId = await getChainId(provider);
     if (!setNetworkState(chainId)) throw new AccountClientError("WRONG_NETWORK", "Switch to Somnia Shannon before creating your account.");
@@ -804,18 +866,33 @@ async function handleCreateAccount() {
     if (!accountAddress) throw new AccountClientError("BAD_CHAIN_RESPONSE", "The account deployment confirmed without an account address.", hash);
     showTransaction("CONFIRMING", "Verifying your VILLA account", "Checking code, owner, token wiring, and initial permissions on-chain.", hash);
     const account = await readAccount(provider, accountAddress, accountArtifact, appState.owner);
+    if (accountVersionOf(account) !== 2) throw new AccountClientError("ACCOUNT_VERSION_MISMATCH", "The new account did not match the verified V2 implementation.", hash);
     if (account.operator !== ZERO_ADDRESS) throw new AccountClientError("UNEXPECTED_OPERATOR", "The new account did not start with automation disabled.", hash);
+    const accounts = mergeAccount(account);
     writeHint(appState.owner, account.address);
     const walletBalance = await readTokenBalance(provider, appState.owner);
-    setAppState({ account, currentAccountAddress: account.address, discoveryStatus: "DISCOVERED", error: null });
+    setAppState({ account, accounts, walletBalance, currentAccountAddress: account.address, discoveryStatus: "DISCOVERED", error: null });
     updateWorkspace(account, walletBalance);
-    showTransaction("SUCCESS", "VILLA account created", "Your account is verified and starts with VILLA automation unauthorized.", hash);
-    setMessage("create-message", "Account created and verified.", "safe");
+    showTransaction("SUCCESS", "V2 VILLA account created", "Your wallet deployed and verified V2. VILLA automation remains unauthorized.", hash);
+    setMessage(messageId, currentAccounts().some((candidate) => accountVersionOf(candidate) === 1)
+      ? "V2 created and verified. V1 remains unchanged and owner-withdrawable."
+      : "V2 account created and verified.", "safe");
   } catch (error) {
-    showActionError("create-message", error);
+    showActionError(messageId, error);
   } finally {
     setBusy(false);
   }
+}
+
+function handleSelectAccount(event) {
+  if (appState.busy) return;
+  const selectedAddress = normalizeAddress(event?.target?.value);
+  const selected = currentAccounts().find((candidate) => normalizeAddress(candidate?.address) === selectedAddress);
+  if (!selected) return;
+  clearControlPoll();
+  controlClient?.clear();
+  setAppState({ account: selected, currentAccountAddress: selected.address, controlState: "STOPPED", controlBusy: false, controlSession: null, controlSnapshot: null, controlResult: null, error: null });
+  updateWorkspace(selected, appState.walletBalance ?? 0n);
 }
 
 function showLiquidityStage(stage, amount = 0n, hash = "") {
@@ -841,7 +918,7 @@ const handleAddLiquidity = createAddLiquidityHandler({
     owner: appState.owner,
     account: appState.account,
     currentAccountAddress: appState.currentAccountAddress,
-    accountArtifact,
+    accountArtifact: accountArtifacts ?? accountArtifact,
     rawInput: element("amount-to-use")?.value ?? "",
     chainId: appState.chainId,
     chainStatus: appState.chainStatus,
@@ -861,7 +938,8 @@ const handleAddLiquidity = createAddLiquidityHandler({
   onDebug: debugLiquidity,
   onError: (error) => showActionError("capital-message", error),
   onSuccess: ({ amount, walletAfter, accountAfter, hash }) => {
-    setAppState({ account: accountAfter, currentAccountAddress: accountAfter.address, discoveryStatus: "DISCOVERED", error: null });
+    const accounts = mergeAccount(accountAfter);
+    setAppState({ account: accountAfter, accounts, walletBalance: walletAfter, currentAccountAddress: accountAfter.address, discoveryStatus: "DISCOVERED", error: null });
     updateWorkspace(accountAfter, walletAfter);
     showTransaction("SUCCESS", "Liquidity added", `${formatRawExact(amount)} tUSDC is now held by your VILLA account.`, hash);
     setMessage("capital-message", `Liquidity added: ${formatRawExact(amount)} tUSDC.`, "safe");
@@ -875,7 +953,7 @@ const handleAuthorize = createAuthorizationHandler({
     owner: appState.owner,
     account: appState.account,
     currentAccountAddress: appState.currentAccountAddress,
-    accountArtifact,
+    accountArtifact: accountArtifacts ?? accountArtifact,
     operator: VILLA_ACCOUNT_CONFIG.operator,
     chainId: appState.chainId,
     chainStatus: appState.chainStatus,
@@ -896,7 +974,8 @@ const handleAuthorize = createAuthorizationHandler({
   onError: (error) => showActionError("authorization-message", error),
   onSuccess: async ({ alreadyAuthorized, accountAfter, hash }) => {
     const walletBalance = await readTokenBalance(provider, appState.owner);
-    setAppState({ account: accountAfter, currentAccountAddress: accountAfter.address, discoveryStatus: "DISCOVERED", error: null });
+    const accounts = mergeAccount(accountAfter);
+    setAppState({ account: accountAfter, accounts, walletBalance, currentAccountAddress: accountAfter.address, discoveryStatus: "DISCOVERED", error: null });
     updateWorkspace(accountAfter, walletBalance);
     if (alreadyAuthorized) {
       setMessage("authorization-message", "VILLA is already authorized.", "safe");
@@ -912,15 +991,16 @@ async function handleRevoke() {
   setBusy(true);
   setMessage("authorization-message", "");
   try {
-    const verified = await readAccount(provider, appState.account.address, accountArtifact, appState.owner);
+    const verified = await readAccount(provider, appState.account.address, accountArtifacts ?? accountArtifact, appState.owner);
     if (verified.operator !== normalizeAddress(VILLA_ACCOUNT_CONFIG.operator)) throw new AccountClientError("NOT_AUTHORIZED", "VILLA is not the current operator.");
     showTransaction("READY", "Revoke VILLA automation", "This stops new VILLA actions for this account. No strategy session is active in this release.");
     const result = await sendTransaction(provider, actionTransaction(appState.owner, appState.account.address, accountCall.revokeOperator()), actionUpdate);
     showTransaction("CONFIRMING", "Verifying revocation", "Checking that the account operator is now zero.", result.hash);
-    const after = await readAccount(provider, appState.account.address, accountArtifact, appState.owner);
+    const after = await readAccount(provider, appState.account.address, accountArtifacts ?? accountArtifact, appState.owner);
     if (after.operator !== ZERO_ADDRESS) throw new AccountClientError("REVOCATION_MISMATCH", "The account operator was not revoked.", result.hash);
-    setAppState({ account: after, currentAccountAddress: after.address, discoveryStatus: "DISCOVERED", error: null });
-    updateWorkspace(after, await readTokenBalance(provider, appState.owner));
+    const walletBalance = await readTokenBalance(provider, appState.owner);
+    setAppState({ account: after, accounts: mergeAccount(after), walletBalance, currentAccountAddress: after.address, discoveryStatus: "DISCOVERED", error: null });
+    updateWorkspace(after, walletBalance);
     showTransaction("SUCCESS", "VILLA revoked", "VILLA can no longer act for this account.", result.hash);
     setMessage("authorization-message", "VILLA revocation confirmed.", "safe");
   } catch (error) {
@@ -936,16 +1016,16 @@ async function handleWithdraw() {
   setMessage("withdraw-message", "");
   try {
     const amount = parseAmount(element("withdraw-amount")?.value);
-    const verified = await readAccount(provider, appState.account.address, accountArtifact, appState.owner);
+    const verified = await readAccount(provider, appState.account.address, accountArtifacts ?? accountArtifact, appState.owner);
     if (amount > verified.balance) throw new AccountClientError("INSUFFICIENT_FUNDS", "That amount is larger than the available capital in your VILLA account.");
     const walletBefore = await readTokenBalance(provider, appState.owner);
     showTransaction("READY", "Withdraw to your wallet", `Your account will return ${formatAmount(amount)} tUSDC to this connected owner wallet.`);
     const result = await sendTransaction(provider, actionTransaction(appState.owner, appState.account.address, accountCall.withdraw(amount)), actionUpdate);
     showTransaction("CONFIRMING", "Verifying your withdrawal", "Checking the account decrease, wallet increase, and owner on-chain.", result.hash);
     const walletAfter = await readTokenBalance(provider, appState.owner);
-    const after = await readAccount(provider, appState.account.address, accountArtifact, appState.owner);
+    const after = await readAccount(provider, appState.account.address, accountArtifacts ?? accountArtifact, appState.owner);
     if (walletAfter - walletBefore !== amount || verified.balance - after.balance !== amount) throw new AccountClientError("BALANCE_MISMATCH", "The withdrawal did not reconcile to the exact amount. No success was recorded.", result.hash);
-    setAppState({ account: after, currentAccountAddress: after.address, discoveryStatus: "DISCOVERED", error: null });
+    setAppState({ account: after, accounts: mergeAccount(after), walletBalance: walletAfter, currentAccountAddress: after.address, discoveryStatus: "DISCOVERED", error: null });
     updateWorkspace(after, walletAfter);
     showTransaction("SUCCESS", "Capital withdrawn", `${formatAmount(amount)} tUSDC returned to your connected wallet.`, result.hash);
     setMessage("withdraw-message", `Withdrawn: ${formatAmount(amount)} tUSDC.`, "safe");
@@ -966,7 +1046,9 @@ function initWallet() {
   element("switch-network")?.addEventListener("click", handleSwitchNetwork);
   element("refresh-account")?.addEventListener("click", () => refreshAccount().catch((error) => showActionError("wallet-message", error)));
   element("retry-account")?.addEventListener("click", () => refreshAccount().catch((error) => showActionError("account-error-message", error)));
-  element("create-account")?.addEventListener("click", handleCreateAccount);
+  element("create-account")?.addEventListener("click", handleCreateV2Account);
+  element("create-v2-account")?.addEventListener("click", handleCreateV2Account);
+  element("account-selector")?.addEventListener("change", handleSelectAccount);
   element("add-liquidity")?.addEventListener("click", handleAddLiquidity);
   element("authorize-villa")?.addEventListener("click", handleAuthorize);
   element("revoke-villa")?.addEventListener("click", handleRevoke);

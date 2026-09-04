@@ -5,10 +5,17 @@
 Every LP has an independent tuple:
 
 ```text
-lpAccount = { owner, accountAddress, operator, approvedMarkets }
+lpAccount = { owner, accountAddress, accountVersion, operator, currentExposure, mintExposure }
 ```
 
 No balance, order, fill, inventory item, vault credit, or settlement claim may be attributed to another LP. The historical VILLA operator wallet is not an LP deposit account in this model.
+
+V1 accounts remain readable and owner-withdrawable for compatibility, but V1
+market preparation is owner-approved and V1 cannot enter autonomous execution.
+V2 uses owner-set current aggregate-exposure and mint-exposure caps; exposure is
+recomputed from tracked-market balances and live orders, so genuine release of
+risk capacity is reusable. A residual inventory or ambiguous order remains
+accounted for until it is cleared.
 
 ## Asset buckets
 

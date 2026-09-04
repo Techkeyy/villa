@@ -103,6 +103,13 @@ export function renderAccountJourney(document, appState = {}) {
   setButtonDisabled(document, "switch-network", !wrongNetwork || busy);
   setButtonDisabled(document, "retry-account", !["DISCOVERY_ERROR", "SECURITY_ERROR"].includes(activeDiscovery) || busy);
   setButtonDisabled(document, "create-account", activeDiscovery !== "NO_ACCOUNT" || busy);
+  const accounts = Array.isArray(appState.accounts) && appState.accounts.length
+    ? appState.accounts
+    : appState.account ? [appState.account] : [];
+  const hasV1 = accounts.some((account) => Number(account?.accountVersion ?? account?.version ?? 0) === 1);
+  const hasV2 = accounts.some((account) => Number(account?.accountVersion ?? account?.version ?? 0) === 2);
+  setHidden(document, "account-migration", activeDiscovery !== "DISCOVERED" || !hasV1);
+  setButtonDisabled(document, "create-v2-account", activeDiscovery !== "DISCOVERED" || !hasV1 || hasV2 || busy);
 
   const connectedElement = document.getElementById("wallet-connected");
   if (connectedElement) {
