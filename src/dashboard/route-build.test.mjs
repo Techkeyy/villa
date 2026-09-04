@@ -20,6 +20,8 @@ test("dashboard build emits an explainer-first root and workspace-first /app rou
   assert.doesNotMatch(app, /<section class="page page-app"[^>]* hidden>/);
   assert.match(app, /MY LIQUIDITY/);
   assert.match(app, /<section class="page page-landing"[^>]* hidden>/);
+  await fs.access(path.join(root, "dist", "dashboard", "villa-account-artifact.json"));
+  await fs.access(path.join(root, "dist", "dashboard", "villa-account-artifact-v1.json"));
   const vercel = JSON.parse(await fs.readFile(path.join(root, "vercel.json"), "utf8"));
   assert.deepEqual(vercel.rewrites, [
     { source: "/app", destination: "/app/index.html" },
