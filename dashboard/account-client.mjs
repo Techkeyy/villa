@@ -194,6 +194,8 @@ export function encodeConstructorArgs({ owner, operator = ZERO_ADDRESS }) {
     encodeAddress(VILLA_ACCOUNT_CONFIG.binarySettlement),
     encodeUint(VILLA_ACCOUNT_CONFIG.initialMaxOrderQuantity),
     encodeUint(VILLA_ACCOUNT_CONFIG.initialMaxOrderCollateral),
+    encodeUint(VILLA_ACCOUNT_CONFIG.initialMaxAggregateExposure),
+    encodeUint(VILLA_ACCOUNT_CONFIG.initialMaxMintExposure),
   ].join("");
 }
 
@@ -289,6 +291,7 @@ export async function loadArtifact(options = {}) {
   if (!response.ok) throw new AccountClientError("ARTIFACT_MISSING", "The verified VILLA account implementation could not be loaded.");
   const artifact = await withDeadline(response.json(), deadline, "VILLA account artifact response body");
   if (artifact?.schema !== "villa-browser-account-artifact-v2"
+    || Number(artifact.accountVersion) !== 2
     || artifact.chainId !== VILLA_CHAIN.id
     || !isBytecode(artifact.creationBytecode)
     || !isBytecode(artifact.runtimeBytecode)
@@ -312,6 +315,38 @@ export async function loadArtifact(options = {}) {
   return artifact;
 }
 
+export async function loadLegacyArtifact(options = {}) {
+  const deadline = options.deadline;
+  const response = await fetchWithDeadline(VILLA_ACCOUNT_CONFIG.legacyArtifactPath, deadline);
+  if (!response.ok) throw new AccountClientError("ARTIFACT_MISSING", "The legacy VILLA account implementation could not be loaded.");
+  const artifact = await withDeadline(response.json(), deadline, "legacy VILLA account artifact response body");
+  if (artifact?.schema !== "villa-browser-account-artifact-v2"
+    || artifact.chainId !== VILLA_CHAIN.id
+    || !isBytecode(artifact.creationBytecode)
+    || !isBytecode(artifact.runtimeBytecode)
+    || !Array.isArray(artifact.runtimeImmutableReferences)
+    || artifact.runtimeImmutableReferences.length === 0) {
+    throw new AccountClientError("ARTIFACT_INVALID", "The legacy VILLA account implementation failed its integrity check.");
+  }
+  const [creationSha256, runtimeSha256] = await withDeadline(Promise.all([
+    bytecodeSha256(artifact.creationBytecode),
+    bytecodeSha256(artifact.runtimeBytecode),
+  ]), deadline, "legacy VILLA account artifact integrity");
+  if (creationSha256 !== VILLA_ACCOUNT_CONFIG.legacyV1CreationSha256
+    || runtimeSha256 !== VILLA_ACCOUNT_CONFIG.legacyV1RuntimeSha256) {
+    throw new AccountClientError("ARTIFACT_INVALID", "The legacy VILLA account implementation failed its audited bytecode check.");
+  }
+  return { ...artifact, accountVersion: 1 };
+}
+
+export async function loadAccountArtifacts(options = {}) {
+  const [v2, v1] = await Promise.all([
+    loadArtifact(options),
+    loadLegacyArtifact(options),
+  ]);
+  return Object.freeze([v2, v1]);
+}
+
 export async function readTokenBalance(provider, wallet, options = {}) {
   return decodeUint(await readCall(provider, VILLA_ACCOUNT_CONFIG.collateralToken, encodeCall(VILLA_SELECTORS.tokenBalanceOf, [encodeAddress(wallet)]), options));
 }
@@ -327,14 +362,27 @@ export async function readAccount(provider, accountAddress, artifact, expectedOw
     throw new AccountClientError("WRONG_NETWORK", "Switch to Somnia Shannon before using this account.");
   }
   const code = await withDeadline(request(provider, "eth_getCode", [account, "latest"]), options.deadline, `eth_getCode ${account}`);
-  const expectedRuntime = String(artifact?.runtimeBytecode || "").toLowerCase();
-  if (!runtimeBytecodeMatches(code, expectedRuntime, artifact?.runtimeImmutableReferences)) {
+  const artifacts = Array.isArray(artifact) ? artifact : [artifact];
+  const matchedArtifact = artifacts.find((candidate) => runtimeBytecodeMatches(code, candidate?.runtimeBytecode, candidate?.runtimeImmutableReferences));
+  if (!matchedArtifact) {
     throw new AccountClientError("WRONG_CODE", "This address is not a verified VILLA account.");
   }
   const owner = decodeAddress(await readCall(provider, account, VILLA_SELECTORS.owner, options));
   const operator = decodeAddress(await readCall(provider, account, VILLA_SELECTORS.operator, options));
   const collateralToken = decodeAddress(await readCall(provider, account, VILLA_SELECTORS.collateralToken, options));
   const outcomeToken = decodeAddress(await readCall(provider, account, VILLA_SELECTORS.outcomeToken, options));
+  const accountVersion = Number(matchedArtifact.accountVersion);
+  if (accountVersion !== 1 && accountVersion !== 2) {
+    throw new AccountClientError("ARTIFACT_INVALID", "The matched VILLA account artifact has no explicit version.");
+  }
+  let autonomousTradingEnabled = accountVersion === 2;
+  try {
+    const result = await readCall(provider, account, VILLA_SELECTORS.autonomousTradingEnabled, options);
+    autonomousTradingEnabled = decodeUint(result) !== 0n;
+  } catch {
+    // V1 accounts do not expose the V2 autonomous-trading circuit breaker.
+    autonomousTradingEnabled = false;
+  }
   const binaryModule = decodeAddress(await readCall(provider, account, VILLA_SELECTORS.binaryModule, options));
   const binarySettlement = decodeAddress(await readCall(provider, account, VILLA_SELECTORS.binarySettlement, options));
   if (collateralToken !== normalizeAddress(VILLA_ACCOUNT_CONFIG.collateralToken)) {
@@ -349,7 +397,7 @@ export async function readAccount(provider, accountAddress, artifact, expectedOw
     throw new AccountClientError("WRONG_OWNER", "This VILLA account belongs to a different wallet.");
   }
   const balance = await readTokenBalance(provider, account, options);
-  return { address: account, owner, operator, collateralToken, outcomeToken, binaryModule, binarySettlement, balance, code, verification: "VERIFIED" };
+  return { address: account, owner, operator, accountVersion, version: accountVersion, autonomousTradingEnabled: accountVersion === 2 && autonomousTradingEnabled, collateralToken, outcomeToken, binaryModule, binarySettlement, balance, code, verification: "VERIFIED" };
 }
 
 function classifyExplorerBody(body) {

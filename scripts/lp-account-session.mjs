@@ -206,13 +206,18 @@ async function main() {
   };
   const readAccount = (marketId) => adapter.readAccountState({ marketId });
   const readProtocol = async (marketId, pool, identity) => {
-    const [marketApproved, moduleOperator, poolOperator, collateralAllowance] = await Promise.all([
-      publicClient.readContract({ address: config.account, abi: VILLA_ACCOUNT_READ_ABI, functionName: "approvedMarkets", args: [marketId] }),
+    let marketPrepared = false;
+    try {
+      marketPrepared = Boolean(await publicClient.readContract({ address: config.account, abi: VILLA_ACCOUNT_READ_ABI, functionName: "preparedMarkets", args: [marketId] }));
+    } catch {
+      marketPrepared = Boolean(await publicClient.readContract({ address: config.account, abi: VILLA_ACCOUNT_READ_ABI, functionName: "approvedMarkets", args: [marketId] }));
+    }
+    const [moduleOperator, poolOperator, collateralAllowance] = await Promise.all([
       publicClient.readContract({ address: identity.outcomeToken, abi: OPERATOR_ABI, functionName: "isOperator", args: [config.account, identity.binaryModule] }),
       publicClient.readContract({ address: identity.outcomeToken, abi: OPERATOR_ABI, functionName: "isOperator", args: [config.account, pool] }),
       publicClient.readContract({ address: identity.collateralToken, abi: ALLOWANCE_ABI, functionName: "allowance", args: [config.account, pool] }),
     ]);
-    return { marketApproved: Boolean(marketApproved), moduleOperator: Boolean(moduleOperator), poolOperator: Boolean(poolOperator), collateralAllowance: raw(collateralAllowance, "collateral allowance") };
+    return { marketApproved: marketPrepared, marketPrepared, moduleOperator: Boolean(moduleOperator), poolOperator: Boolean(poolOperator), collateralAllowance: raw(collateralAllowance, "collateral allowance") };
   };
   const readSettlement = async (marketAddress) => {
     const [status, isResolved, isVoided, payoutNumerators] = await Promise.all([
@@ -246,6 +251,7 @@ async function main() {
     const params = await exchange.client.getBinaryBookParams(selected.pool);
     const decimals = Number(marketInfo.info.baseDecimals ?? marketInfo.info.quoteDecimals);
     const identity = await adapter.readAccountIdentity({ account: config.account });
+    if (identity.accountVersion !== 2 || identity.version !== 2) fail("ACCOUNT_VERSION_UNSUPPORTED", "V1 VillaAccounts cannot enter autonomous execution");
     if (!same(identity.owner, config.owner) || !same(identity.operator, config.operator)) fail("ACCOUNT_IDENTITY_MISMATCH", "the VillaAccount owner or operator does not match the UAT scope");
     if (!same(identity.collateralToken, VILLA_ACCOUNT_CONFIG.collateralToken) || !same(identity.outcomeToken, VILLA_ACCOUNT_CONFIG.outcomeToken) || !same(identity.binaryModule, VILLA_ACCOUNT_CONFIG.binaryModule) || !same(identity.binarySettlement, VILLA_ACCOUNT_CONFIG.binarySettlement)) fail("ACCOUNT_WIRING_MISMATCH", "the VillaAccount wiring does not match the trusted Shannon configuration");
     accountState = await readAccount(selected.marketId);
@@ -258,8 +264,10 @@ async function main() {
     const accountMarket = await adapter.readMarket({ marketId: selected.marketId, identity });
     if (!same(accountMarket.pool, selected.pool)) fail("MARKET_POOL_MISMATCH", "the account market pool does not match the live market");
     const protocol = await readProtocol(selected.marketId, selected.pool, identity);
-    if (!protocol.marketApproved) fail("MARKET_NOT_APPROVED", "the selected live market has not been approved by the owner");
-    if (!protocol.moduleOperator || !protocol.poolOperator) fail("PROTOCOL_APPROVAL_MISSING", "the selected live market is not prepared by the owner");
+    if (!identity.autonomousTradingEnabled) {
+      if (!protocol.marketApproved) fail("MARKET_NOT_APPROVED", "the selected live market has not been approved by the owner");
+      if (!protocol.moduleOperator || !protocol.poolOperator) fail("PROTOCOL_APPROVAL_MISSING", "the selected live market is not prepared by the owner");
+    }
     if (protocol.collateralAllowance !== 0n) fail("COLLATERAL_ALLOWANCE_PRESENT", "the selected pool has a nonzero collateral allowance");
 
     const initialDecision = evaluateRisk(live.snapshot, DEFAULT_RISK_CONFIG);
@@ -280,7 +288,14 @@ async function main() {
     const preflight = evaluateWetExecutionPreflight({
       nowMs: Date.now(), session, lease: { ...lease, held: true }, chain: { id: 50312 }, executionEnabled: true,
       account: { address: config.account, owner: config.owner, operator: config.operator, runtimeVerified: true }, owner: { address: config.owner, verified: true }, operator: { configuredAddress: config.operator, signerAddress: signerInfo.address }, capital: { collateralRaw: initialCollateralRaw },
-      market: { marketId: selected.marketId, series: selected.series, status: 1, valid: true, current: true, currentMarketId: selected.marketId }, orders: accountState.orders, inventory: { ...accountState.inventory, status: "VERIFIED" }, reconciliation, permissions: { requiresMarketApproval: true, marketApproved: protocol.marketApproved, requiresProtocolApproval: true, protocolPrepared: protocol.moduleOperator && protocol.poolOperator }, riskLimits: { valid: true }, risk: { state: projected.projectedDecision.state }, executionConfig: { mode: "WET", minimumCollateralRaw: 1n, sessionActive: false }, caps: DEFAULT_PHASE_3B1_CAPS,
+      market: { marketId: selected.marketId, series: selected.series, status: 1, valid: true, current: true, currentMarketId: selected.marketId }, orders: accountState.orders, inventory: { ...accountState.inventory, status: "VERIFIED" }, reconciliation,
+      permissions: {
+        requiresMarketApproval: !identity.autonomousTradingEnabled,
+        marketApproved: protocol.marketApproved,
+        requiresProtocolApproval: !identity.autonomousTradingEnabled,
+        protocolPrepared: protocol.moduleOperator && protocol.poolOperator,
+      },
+      riskLimits: { valid: true }, risk: { state: projected.projectedDecision.state }, executionConfig: { mode: "WET", minimumCollateralRaw: 1n, sessionActive: false }, caps: DEFAULT_PHASE_3B1_CAPS,
     });
     if (!preflight.allowed || !reconciliation.safeToStart) fail("ACCOUNT_PREFLIGHT_BLOCKED", `the fresh account preflight did not pass: ${(preflight.reasons ?? []).join(",") || reconciliation.reasons.join(",")}`);
     const policy = createLpTransactionPolicy({ session, caps: DEFAULT_PHASE_3B1_CAPS });
@@ -290,6 +305,12 @@ async function main() {
     send({ type: "ready", session: { sessionId: session.sessionId, account: session.account, owner: session.owner, operator: session.operator, marketSeries: session.marketSeries, currentMarketId: session.currentMarketId } });
     send({ type: "state", state: "RUNNING", session });
     emitSnapshot("preflight_passed");
+
+    if (identity.autonomousTradingEnabled && (!protocol.marketPrepared || !protocol.moduleOperator || !protocol.poolOperator)) {
+      const prepPlan = adapter.prepareMarket({ marketId: selected.marketId });
+      await enqueue(prepPlan);
+      emitSnapshot("market_prepared");
+    }
 
     const mintPlan = adapter.mintCompleteSet({ marketId: selected.marketId, amountRaw: mintAmountRaw });
     await enqueue(mintPlan);

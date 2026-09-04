@@ -312,6 +312,7 @@ function ownerFixturePreload(artifact) {
     selectors: {
       owner: "0x8da5cb5b",
       operator: "0x570ca735",
+      autonomousTradingEnabled: "0x015d0803",
       collateralToken: "0xb2016bd4",
       outcomeToken: "0xa998d6d8",
       binaryModule: "0x36e5d64f",
@@ -343,6 +344,7 @@ function ownerFixturePreload(artifact) {
     "      const target = '0x' + data.slice(-40);",
     "      if (selector === fixture.selectors.owner) return addressWord(fixture.owner);",
     "      if (selector === fixture.selectors.operator) return addressWord(fixture.zero);",
+    "      if (selector === fixture.selectors.autonomousTradingEnabled) return uint(1);",
     "      if (selector === fixture.selectors.collateralToken) return addressWord(fixture.collateralToken);",
     "      if (selector === fixture.selectors.outcomeToken) return addressWord(fixture.outcomeToken);",
     "      if (selector === fixture.selectors.binaryModule) return addressWord(fixture.binaryModule);",

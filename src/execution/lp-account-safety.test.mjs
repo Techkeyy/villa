@@ -72,10 +72,13 @@ test("session preflight adapter contract has readMarket defined and enforces rea
   let writeAttempted = false;
   const publicClient = {
     async readContract(request) {
+      if (request.functionName === "accountVersion") return 2;
       if (request.functionName === "owner") return OWNER;
       if (request.functionName === "operator") return CANONICAL_VILLA_OPERATOR;
       if (request.functionName === "collateralToken" || request.functionName === "outcomeToken" || request.functionName === "binaryModule" || request.functionName === "binarySettlement") return MODULE_ADDR;
       if (request.functionName === "maxOrderQuantity" || request.functionName === "maxOrderCollateral") return 10_000_000n;
+      if (request.functionName === "maxAggregateExposure" || request.functionName === "maxMintExposure") return 10_000_000n;
+      if (request.functionName === "aggregateExposure" || request.functionName === "mintExposure") return 0n;
       if (request.functionName === "markets") return { collateral: WRITING_ADDR, market: WRITING_ADDR, pool: POOL_ADDR, yesId: 101n, noId: 102n, tradingStart: 100n, expiry: 9000n };
       if (request.functionName === "balanceOf") return 1_000_000n;
       if (request.functionName === "getWithdrawableBalance") return 0n;

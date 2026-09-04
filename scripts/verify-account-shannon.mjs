@@ -102,7 +102,7 @@ async function deployAccount(publicClient, walletClient, account, artifact, oper
   const data = encodeDeployData({
     abi: artifact.abi,
     bytecode: artifact.bytecode,
-    args: [account.address, operator, TUSDC, OUTCOME_TOKEN, MODULE, OUTCOME, MAX_ORDER_QUANTITY, MAX_ORDER_COLLATERAL],
+    args: [account.address, operator, TUSDC, OUTCOME_TOKEN, MODULE, OUTCOME, MAX_ORDER_QUANTITY, MAX_ORDER_COLLATERAL, MAX_ORDER_COLLATERAL * 1000n, MAX_ORDER_COLLATERAL * 1000n],
   });
   const hash = await walletClient.sendTransaction({
     account,

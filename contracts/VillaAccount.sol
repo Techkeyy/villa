@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-/// @title VILLA per-user Event Contract account
+/// @title VILLA per-user Event Contract account V2
 /// @notice A deliberately narrow account boundary for one LP wallet and one
-///         VILLA automation operator. It is not a generic smart wallet.
+///         VILLA automation operator with bounded autonomous market operation.
+///         It is not a generic smart wallet.
 
 interface IERC20VillaAccount {
     function allowance(address owner, address spender) external view returns (uint256);
@@ -82,11 +83,15 @@ contract VillaAccount {
     error AmountZero();
     error CallerNotOwner();
     error CallerNotOperator();
+    error AutonomousTradingDisabled();
     error InvalidAddress();
     error InvalidMarket();
+    error MarketNotPrepared();
     error MarketNotApproved();
     error MarketNotCurrent();
     error OrderLimitExceeded();
+    error ExposureLimitExceeded();
+    error MintLimitExceeded();
     error InvalidOrder();
     error InvalidOutcome();
     error NativeNotAccepted();
@@ -98,6 +103,9 @@ contract VillaAccount {
     event Withdrawn(address indexed owner, uint256 amount);
     event OperatorUpdated(address indexed operator);
     event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
+    event AutonomousTradingUpdated(bool indexed enabled);
+    event ExposureLimitsUpdated(uint256 maxAggregateExposure, uint256 maxMintExposure);
+    event MarketPrepared(bytes32 indexed marketId, address indexed pool);
     event MarketApprovalUpdated(bytes32 indexed marketId, bool approved);
     event OrderPlaced(bytes32 indexed marketId, uint128 indexed orderId, uint8 kind, uint256 price, uint256 quantity);
     event OrderCancelled(bytes32 indexed marketId, uint128 indexed orderId);
@@ -114,10 +122,16 @@ contract VillaAccount {
 
     address public owner;
     address public operator;
+    uint8 public constant accountVersion = 2;
+    bool public autonomousTradingEnabled;
     uint256 public maxOrderQuantity;
     uint256 public maxOrderCollateral;
+    uint256 public maxAggregateExposure;
+    uint256 public maxMintExposure;
+    uint256 public aggregateExposure;
+    uint256 public mintExposure;
 
-    mapping(bytes32 marketId => bool approved) public approvedMarkets;
+    mapping(bytes32 marketId => bool prepared) public preparedMarkets;
     uint256 private _entered;
 
     modifier onlyOwner() {
@@ -127,6 +141,13 @@ contract VillaAccount {
 
     modifier onlyOperator() {
         if (msg.sender != operator || operator == address(0)) revert CallerNotOperator();
+        _;
+    }
+
+    /// @dev Owner cleanup remains available after operator revocation. The
+    ///      operator branch is deliberately limited to cleanup methods below.
+    modifier onlyOwnerOrOperator() {
+        if (msg.sender != owner && (msg.sender != operator || operator == address(0))) revert CallerNotOperator();
         _;
     }
 
@@ -145,7 +166,9 @@ contract VillaAccount {
         address binaryModule_,
         address binarySettlement_,
         uint256 maxOrderQuantity_,
-        uint256 maxOrderCollateral_
+        uint256 maxOrderCollateral_,
+        uint256 maxAggregateExposure_,
+        uint256 maxMintExposure_
     ) {
         if (
             owner_ == address(0) ||
@@ -154,7 +177,11 @@ contract VillaAccount {
             binaryModule_ == address(0) ||
             binarySettlement_ == address(0) ||
             maxOrderQuantity_ == 0 ||
-            maxOrderCollateral_ == 0
+            maxOrderCollateral_ == 0 ||
+            maxAggregateExposure_ == 0 ||
+            maxMintExposure_ == 0 ||
+            maxOrderCollateral_ > maxAggregateExposure_ ||
+            maxMintExposure_ > maxAggregateExposure_
         ) revert InvalidAddress();
         owner = owner_;
         operator = operator_;
@@ -164,8 +191,13 @@ contract VillaAccount {
         binarySettlement = binarySettlement_;
         maxOrderQuantity = maxOrderQuantity_;
         maxOrderCollateral = maxOrderCollateral_;
+        maxAggregateExposure = maxAggregateExposure_;
+        maxMintExposure = maxMintExposure_;
+        autonomousTradingEnabled = true;
         emit OwnershipTransferred(address(0), owner_);
         emit OperatorUpdated(operator_);
+        emit AutonomousTradingUpdated(true);
+        emit ExposureLimitsUpdated(maxAggregateExposure_, maxMintExposure_);
     }
 
     receive() external payable {
@@ -207,35 +239,71 @@ contract VillaAccount {
 
     function revokeOperator() external onlyOwner nonReentrant {
         operator = address(0);
+        autonomousTradingEnabled = false;
         emit OperatorUpdated(address(0));
+        emit AutonomousTradingUpdated(false);
+    }
+
+    function setAutonomousTrading(bool enabled) external onlyOwner nonReentrant {
+        autonomousTradingEnabled = enabled;
+        emit AutonomousTradingUpdated(enabled);
     }
 
     function setOrderLimits(uint256 maxQuantity, uint256 maxCollateral) external onlyOwner nonReentrant {
         if (maxQuantity == 0 || maxCollateral == 0) revert AmountZero();
+        if (maxCollateral > maxAggregateExposure) revert OrderLimitExceeded();
         maxOrderQuantity = maxQuantity;
         maxOrderCollateral = maxCollateral;
     }
 
-    /// @notice Owner pre-authorizes exact Event Contract market ids, including a successor.
+    /// @notice Owner-set lifetime risk budgets for the operator. These
+    ///         counters never decrease during the account lifetime, so a
+    ///         compromised operator cannot recycle exposure through fills,
+    ///         burns, redemptions, or market rollover.
+    function setRiskLimits(uint256 maxAggregateExposure_, uint256 maxMintExposure_)
+        external
+        onlyOwner
+        nonReentrant
+    {
+        if (
+            maxAggregateExposure_ == 0 ||
+            maxMintExposure_ == 0 ||
+            maxMintExposure_ > maxAggregateExposure_ ||
+            maxOrderCollateral > maxAggregateExposure_
+        ) revert OrderLimitExceeded();
+        maxAggregateExposure = maxAggregateExposure_;
+        maxMintExposure = maxMintExposure_;
+        emit ExposureLimitsUpdated(maxAggregateExposure_, maxMintExposure_);
+    }
+
+    /// @notice Backwards compatibility alias for preparedMarkets.
+    function approvedMarkets(bytes32 marketId) external view returns (bool) {
+        return preparedMarkets[marketId];
+    }
+
+    /// @notice Backwards compatibility setter.
     function setMarketApproval(bytes32 marketId, bool approved) external onlyOwner nonReentrant {
         if (marketId == bytes32(0)) revert InvalidMarket();
-        approvedMarkets[marketId] = approved;
+        preparedMarkets[marketId] = approved;
         emit MarketApprovalUpdated(marketId, approved);
     }
 
-    /// @notice Set protocol operator approvals for this account on one approved market.
-    ///         Targets are fixed to the deployed DreamDEX singleton and derived pool.
-    function prepareMarket(bytes32 marketId) external onlyOwner nonReentrant {
-        _requireApproved(marketId);
-        address pool = _currentPool(marketId);
-        _setOutcomeOperator(pool, true);
-        _setOutcomeOperator(binaryModule, true);
+    /// @notice Autonomous market preparation.
+    ///         Callable by owner OR operator (when autonomous trading is enabled).
+    function prepareMarket(bytes32 marketId) public nonReentrant {
+        if (msg.sender != owner) {
+            if (msg.sender != operator || operator == address(0)) revert CallerNotOperator();
+            if (!autonomousTradingEnabled) revert AutonomousTradingDisabled();
+        }
+        _prepareMarket(marketId);
     }
 
     /// @notice Remove protocol approvals for one market and its fixed settlement routes.
     function revokeMarketApprovals(bytes32 marketId) external onlyOwner nonReentrant {
         address pool = _recordPool(marketId);
         if (pool == address(0)) revert InvalidMarket();
+        preparedMarkets[marketId] = false;
+        _checkPoolAssetWiring(marketId, pool);
         _setOutcomeOperator(pool, false);
         _setOutcomeOperator(binaryModule, false);
         _setOutcomeOperator(binarySettlement, false);
@@ -251,6 +319,7 @@ contract VillaAccount {
         uint8 orderType,
         uint64 userData
     ) external onlyOperator nonReentrant returns (bool success, uint128 orderId) {
+        if (!autonomousTradingEnabled) revert AutonomousTradingDisabled();
         (address pool, uint256 oneCollateral) = _currentPoolAndUnit(marketId);
         if (kind > 3 || price == 0 || price >= oneCollateral || quantity == 0 || quantity > maxOrderQuantity) {
             revert InvalidOrder();
@@ -264,6 +333,7 @@ contract VillaAccount {
             collateralRequired = _ceilDiv(quantity * (oneCollateral - price), oneCollateral);
         }
         if (collateralRequired > maxOrderCollateral) revert OrderLimitExceeded();
+        _consumeExposure(collateralRequired, false);
         if (collateralRequired != 0) _approveExact(pool, collateralRequired);
 
         (success, orderId) = IBinaryPoolVillaAccount(pool).placeBinaryOrder(
@@ -281,43 +351,53 @@ contract VillaAccount {
         emit OrderPlaced(marketId, orderId, kind, price, quantity);
     }
 
-    function operatorCancelOrder(bytes32 marketId, uint128 orderId) external onlyOperator nonReentrant {
-        address pool = _currentPool(marketId);
+    function operatorCancelOrder(bytes32 marketId, uint128 orderId) external onlyOwnerOrOperator nonReentrant {
+        address pool = _recordPool(marketId);
+        if (pool == address(0)) revert InvalidMarket();
+        _checkPoolAssetWiring(marketId, pool);
         IBinaryPoolVillaAccount(pool).cancelOrder(orderId);
         emit OrderCancelled(marketId, orderId);
     }
 
     function operatorReduceOrder(bytes32 marketId, uint128 orderId, uint256 newQuantityRemaining)
         external
-        onlyOperator
+        onlyOwnerOrOperator
         nonReentrant
     {
-        address pool = _currentPool(marketId);
+        address pool = _recordPool(marketId);
+        if (pool == address(0)) revert InvalidMarket();
+        _checkPoolAssetWiring(marketId, pool);
         if (newQuantityRemaining == 0 || newQuantityRemaining > maxOrderQuantity) revert InvalidOrder();
         IBinaryPoolVillaAccount(pool).reduceOrder(orderId, newQuantityRemaining);
         emit OrderReduced(marketId, orderId, newQuantityRemaining);
     }
 
     function operatorMintSet(bytes32 marketId, uint256 amount) external onlyOperator nonReentrant {
+        if (!autonomousTradingEnabled) revert AutonomousTradingDisabled();
         if (amount == 0 || amount > maxOrderCollateral) revert AmountZero();
-        address pool = _currentPool(marketId);
+        _consumeExposure(amount, true);
+        (address pool, ) = _currentPoolAndUnit(marketId);
         _approveExact(pool, amount);
         IBinaryPoolVillaAccount(pool).mintSet(address(this), address(this), amount);
         _safeCall(collateralToken, abi.encodeWithSignature("approve(address,uint256)", pool, 0));
         emit CompleteSetMinted(marketId, amount);
     }
 
-    function operatorBurnSet(bytes32 marketId, uint256 amount) external onlyOperator nonReentrant {
+    function operatorBurnSet(bytes32 marketId, uint256 amount) external onlyOwnerOrOperator nonReentrant {
         if (amount == 0 || amount > maxOrderQuantity) revert AmountZero();
-        address pool = _currentPool(marketId);
+        address pool = _recordPool(marketId);
+        if (pool == address(0)) revert InvalidMarket();
+        _checkPoolAssetWiring(marketId, pool);
         _setOutcomeOperator(pool, true);
         IBinaryPoolVillaAccount(pool).burnSet(amount);
         emit CompleteSetBurned(marketId, amount);
     }
 
-    function operatorRedeem(bytes32 marketId, uint8 outcomeIdx, uint256 amount) external onlyOperator nonReentrant {
-        _requireApproved(marketId);
+    function operatorRedeem(bytes32 marketId, uint8 outcomeIdx, uint256 amount) external onlyOwnerOrOperator nonReentrant {
         if (outcomeIdx > 1 || amount == 0) revert InvalidOutcome();
+        address pool = _recordPool(marketId);
+        if (pool == address(0)) revert InvalidMarket();
+        _checkPoolAssetWiring(marketId, pool);
         _setOutcomeOperator(binaryModule, true);
         IBinaryModuleVillaAccount(binaryModule).redeem(0, bytes32(0), marketId, outcomeIdx, amount);
         emit Redeemed(marketId, outcomeIdx, amount);
@@ -325,9 +405,11 @@ contract VillaAccount {
 
     /// @notice Claims this account's fixed DreamDEX pool-vault credit into the account.
     ///         It can never pay the operator because the pool sees this account as caller.
-    function operatorClaimVault(bytes32 marketId, uint256 amount) external onlyOperator nonReentrant {
+    function operatorClaimVault(bytes32 marketId, uint256 amount) external onlyOwnerOrOperator nonReentrant {
         if (amount == 0) revert AmountZero();
-        address pool = _approvedRecordPool(marketId);
+        address pool = _recordPool(marketId);
+        if (pool == address(0)) revert InvalidMarket();
+        _checkPoolAssetWiring(marketId, pool);
         IBinaryPoolVillaAccount(pool).withdraw(collateralToken, amount);
         emit VaultClaimed(marketId, amount);
     }
@@ -335,7 +417,9 @@ contract VillaAccount {
     /// @notice Owner-only vault recovery, still routed into the account first.
     function ownerClaimVault(bytes32 marketId, uint256 amount) external onlyOwner nonReentrant {
         if (amount == 0) revert AmountZero();
-        address pool = _approvedRecordPool(marketId);
+        address pool = _recordPool(marketId);
+        if (pool == address(0)) revert InvalidMarket();
+        _checkPoolAssetWiring(marketId, pool);
         IBinaryPoolVillaAccount(pool).withdraw(collateralToken, amount);
         emit VaultClaimed(marketId, amount);
     }
@@ -348,46 +432,64 @@ contract VillaAccount {
         _safeCall(token, abi.encodeWithSignature("transfer(address,uint256)", owner, amount));
     }
 
-    function _requireApproved(bytes32 marketId) internal view {
-        if (!approvedMarkets[marketId]) revert MarketNotApproved();
-        if (_recordPool(marketId) == address(0)) revert InvalidMarket();
+    function _prepareMarket(bytes32 marketId) internal {
+        if (marketId == bytes32(0)) revert InvalidMarket();
+        address pool = _recordPool(marketId);
+        if (pool == address(0)) revert InvalidMarket();
+        _checkPoolAssetWiring(marketId, pool);
+        IBinaryPoolVillaAccount.BinaryPoolParams memory params = IBinaryPoolVillaAccount(pool).getBinaryPoolParams();
+        if (params.finalized || params.oneCollateral == 0) revert MarketNotCurrent();
+        _setOutcomeOperator(pool, true);
+        _setOutcomeOperator(binaryModule, true);
+        preparedMarkets[marketId] = true;
+        emit MarketPrepared(marketId, pool);
     }
 
     function _recordPool(bytes32 marketId) internal view returns (address pool) {
         IBinaryModuleVillaAccount.MarketRecord memory record = IBinaryModuleVillaAccount(binaryModule).markets(marketId);
         pool = record.pool;
-        if (record.collateral != collateralToken) revert InvalidMarket();
+        if (pool == address(0) || record.collateral != collateralToken) revert InvalidMarket();
     }
 
-    function _approvedRecordPool(bytes32 marketId) internal view returns (address pool) {
-        _requireApproved(marketId);
-        pool = _recordPool(marketId);
-        _checkPoolAssetWiring(pool);
-    }
-
-    function _currentPool(bytes32 marketId) internal view returns (address pool) {
+    function _currentPool(bytes32 marketId) internal returns (address pool) {
         (pool, ) = _currentPoolAndUnit(marketId);
     }
 
-    function _currentPoolAndUnit(bytes32 marketId) internal view returns (address pool, uint256 oneCollateral) {
-        _requireApproved(marketId);
+    function _currentPoolAndUnit(bytes32 marketId) internal returns (address pool, uint256 oneCollateral) {
+        if (!preparedMarkets[marketId]) {
+            if (msg.sender == owner || (msg.sender == operator && autonomousTradingEnabled)) {
+                _prepareMarket(marketId);
+            } else {
+                revert MarketNotPrepared();
+            }
+        }
         pool = _recordPool(marketId);
+        _checkPoolAssetWiring(marketId, pool);
         IBinaryPoolVillaAccount.BinaryPoolParams memory params = IBinaryPoolVillaAccount(pool).getBinaryPoolParams();
-        IBinaryModuleVillaAccount.MarketRecord memory record = IBinaryModuleVillaAccount(binaryModule).markets(marketId);
         oneCollateral = params.oneCollateral;
         if (
-            params.collateralToken != collateralToken ||
-            params.outcomeToken != outcomeToken ||
-            params.settlement != binarySettlement ||
-            params.market != record.market ||
             params.finalized ||
             oneCollateral == 0
         ) revert MarketNotCurrent();
     }
 
-    function _checkPoolAssetWiring(address pool) internal view {
+    function _checkPoolAssetWiring(bytes32 marketId, address pool) internal view {
+        IBinaryModuleVillaAccount.MarketRecord memory record = IBinaryModuleVillaAccount(binaryModule).markets(marketId);
         IBinaryPoolVillaAccount.BinaryPoolParams memory params = IBinaryPoolVillaAccount(pool).getBinaryPoolParams();
-        if (params.collateralToken != collateralToken || params.outcomeToken != outcomeToken || params.settlement != binarySettlement) {
+        if (
+            record.outcomeSlotCount != 2 ||
+            record.market == address(0) ||
+            record.yesId == 0 ||
+            record.noId == 0 ||
+            record.yesId == record.noId ||
+            params.collateralToken != collateralToken ||
+            params.outcomeToken != outcomeToken ||
+            params.settlement != binarySettlement ||
+            params.market == address(0) ||
+            params.market != record.market ||
+            params.yesId != record.yesId ||
+            params.noId != record.noId
+        ) {
             revert InvalidMarket();
         }
     }
@@ -403,6 +505,18 @@ contract VillaAccount {
         uint256 current = IERC20VillaAccount(collateralToken).allowance(address(this), pool);
         if (current != 0) _safeCall(collateralToken, abi.encodeWithSignature("approve(address,uint256)", pool, 0));
         _safeCall(collateralToken, abi.encodeWithSignature("approve(address,uint256)", pool, amount));
+    }
+
+    function _consumeExposure(uint256 amount, bool isMint) internal {
+        if (amount == 0) return;
+        if (amount > maxAggregateExposure || aggregateExposure > maxAggregateExposure - amount) {
+            revert ExposureLimitExceeded();
+        }
+        if (isMint && (amount > maxMintExposure || mintExposure > maxMintExposure - amount)) {
+            revert MintLimitExceeded();
+        }
+        aggregateExposure += amount;
+        if (isMint) mintExposure += amount;
     }
 
     function _safeCall(address target, bytes memory data) internal {

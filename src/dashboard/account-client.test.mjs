@@ -22,6 +22,7 @@ import {
 import { VILLA_ACCOUNT_CONFIG, VILLA_CHAIN, VILLA_SELECTORS, ZERO_ADDRESS, ZERO_TOPIC } from "../../dashboard/account-config.mjs";
 
 const artifact = JSON.parse(fs.readFileSync(new URL("../../dashboard/villa-account-artifact.json", import.meta.url), "utf8"));
+const legacyArtifact = JSON.parse(fs.readFileSync(new URL("../../dashboard/villa-account-artifact-v1.json", import.meta.url), "utf8"));
 
 test("amount parsing is exact and rejects unsafe numeric input", () => {
   assert.equal(parseAmount("25"), 25_000_000n);
@@ -37,7 +38,7 @@ test("addresses and constructor encoding stay fixed to the audited config", () =
   const owner = "0xCAecf98CD369D57e4e6c0f332C31815C192b7a81";
   assert.equal(normalizeAddress(owner), owner.toLowerCase());
   assert.equal(encodeAddress(owner).length, 64);
-  assert.equal(encodeConstructorArgs({ owner }).length, 8 * 64);
+  assert.equal(encodeConstructorArgs({ owner }).length, 10 * 64);
   const data = buildDeploymentData(artifact, owner);
   assert.equal(data.slice(0, 2), "0x");
   assert.equal(data.slice(2, 2 + artifact.creationBytecode.length - 2), artifact.creationBytecode.slice(2));
@@ -91,17 +92,46 @@ test("account verification isolates owners and rejects mismatched immutable wiri
       throw new Error(`unexpected selector ${selector}`);
     },
   };
-  const accountData = await readAccount(provider, account, { runtimeBytecode }, owner);
+  const accountData = await readAccount(provider, account, { runtimeBytecode, accountVersion: 2 }, owner);
   assert.equal(accountData.owner, owner);
   assert.equal(accountData.balance, 25_000_000n);
   assert.equal(balanceTarget.toLowerCase(), VILLA_ACCOUNT_CONFIG.collateralToken.toLowerCase());
-  await assert.rejects(() => readAccount(provider, account, { runtimeBytecode }, otherOwner), /different wallet/i);
+  await assert.rejects(() => readAccount(provider, account, { runtimeBytecode, accountVersion: 2 }, otherOwner), /different wallet/i);
   const wrongWiringProvider = { ...provider, request: async (request) => {
     const result = await provider.request(request);
     if (request.method === "eth_call" && request.params[0].data.startsWith(VILLA_SELECTORS.binaryModule)) return addressResult(otherOwner);
     return result;
   } };
-  await assert.rejects(() => readAccount(wrongWiringProvider, account, { runtimeBytecode }, owner), /wired/i);
+  await assert.rejects(() => readAccount(wrongWiringProvider, account, { runtimeBytecode, accountVersion: 2 }, owner), /wired/i);
+});
+
+test("dashboard account reads report V1 explicitly and never enable autonomous trading", async () => {
+  const owner = "0xcaecf98cd369d57e4e6c0f332c31815c192b7a81";
+  const account = "0xfc9dbf0a8468aa56799b4e23b1ebe936426ee30b";
+  const addressResult = (value) => `0x${"0".repeat(24)}${value.slice(2)}`;
+  const uintResult = (value) => `0x${BigInt(value).toString(16).padStart(64, "0")}`;
+  const provider = {
+    async request({ method, params }) {
+      if (method === "eth_chainId") return VILLA_CHAIN.idHex;
+      if (method === "eth_getCode") return legacyArtifact.runtimeBytecode;
+      if (method !== "eth_call") throw new Error(`unexpected method ${method}`);
+      const selector = params[0].data.slice(0, 10);
+      if (selector === VILLA_SELECTORS.owner) return addressResult(owner);
+      if (selector === VILLA_SELECTORS.operator) return addressResult(ZERO_ADDRESS);
+      if (selector === VILLA_SELECTORS.autonomousTradingEnabled) throw new Error("V1 has no autonomy getter");
+      if (selector === VILLA_SELECTORS.collateralToken) return addressResult(VILLA_ACCOUNT_CONFIG.collateralToken);
+      if (selector === VILLA_SELECTORS.outcomeToken) return addressResult(VILLA_ACCOUNT_CONFIG.outcomeToken);
+      if (selector === VILLA_SELECTORS.binaryModule) return addressResult(VILLA_ACCOUNT_CONFIG.binaryModule);
+      if (selector === VILLA_SELECTORS.binarySettlement) return addressResult(VILLA_ACCOUNT_CONFIG.binarySettlement);
+      if (selector === VILLA_SELECTORS.tokenBalanceOf) return uintResult(1_000_000n);
+      throw new Error(`unexpected selector ${selector}`);
+    },
+  };
+  const result = await readAccount(provider, account, { ...legacyArtifact, accountVersion: 1 }, owner);
+  assert.equal(result.accountVersion, 1);
+  assert.equal(result.version, 1);
+  assert.equal(result.autonomousTradingEnabled, false);
+  assert.equal(result.balance, 1_000_000n);
 });
 
 test("runtime identity masks only compiler immutable slots and preserves logic checks", () => {
@@ -137,7 +167,7 @@ test("normalized runtime acceptance still rejects wrong immutable protocol wirin
     },
   };
   await assert.rejects(
-    () => readAccount(provider, account, { runtimeBytecode: runtimeTemplate, runtimeImmutableReferences }, owner),
+    () => readAccount(provider, account, { runtimeBytecode: runtimeTemplate, runtimeImmutableReferences, accountVersion: 2 }, owner),
     (error) => error.code === "WRONG_WIRING",
   );
 });
@@ -146,11 +176,12 @@ test("chain reads verify exact runtime, owner, and trusted operator before UI st
   const source = fs.readFileSync(new URL("../../dashboard/account-client.mjs", import.meta.url), "utf8");
   const app = fs.readFileSync(new URL("../../dashboard/app.mjs", import.meta.url), "utf8");
   assert.match(source, /eth_getCode/);
-  assert.match(source, /artifact\?\.runtimeBytecode/);
+  assert.match(source, /candidate\?\.runtimeBytecode/);
   assert.match(source, /artifactCreationSha256/);
   assert.match(source, /artifactRuntimeSha256/);
   assert.match(source, /runtimeImmutableReferences/);
   assert.match(source, /runtimeBytecodeMatches/);
+  assert.match(source, /matchedArtifact\.accountVersion/);
   assert.match(source, /SHA-256/);
   assert.match(source, /expectedOwner/);
   assert.match(source, /eth_getLogs/);

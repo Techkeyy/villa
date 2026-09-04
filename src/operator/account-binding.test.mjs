@@ -27,12 +27,36 @@ async function fixture(identityPatch = {}, code = null) {
   });
 }
 
+async function v1Fixture(identityPatch = {}) {
+  const v2 = JSON.parse(await fs.readFile(new URL("../../dashboard/villa-account-artifact.json", import.meta.url), "utf8"));
+  const v1 = JSON.parse(await fs.readFile(new URL("../../dashboard/villa-account-artifact-v1.json", import.meta.url), "utf8"));
+  const identity = {
+    account: ACCOUNT,
+    owner: OWNER,
+    operator: OPERATOR,
+    collateralToken: "0x70a86D8842FB63C4Ad2b7cdddF530eBf1BB25d8E",
+    outcomeToken: "0xB52c5934113Af5c0Bb20eb3C72290C8215f755b9",
+    binaryModule: "0x3ecC694Cef705358864a646142ac17A90E29e388",
+    binarySettlement: "0xbF4a49e0Dfd092e5FBE8E5761064C49533e6Ed23",
+    ...identityPatch,
+  };
+  return createOnChainAccountVerifier({
+    env: { VILLA_ENGINE_OPERATOR: OPERATOR },
+    artifactLoader: async () => ({ ...v2, v2, v1 }),
+    publicClient: { async getBytecode() { return v1.runtimeBytecode; } },
+    identityReader: { async readAccountIdentity() { return identity; } },
+  });
+}
+
 test("on-chain verifier accepts only the audited VillaAccount and its owner/operator wiring", async () => {
   const verify = await fixture();
   const result = await verify({ caller: OWNER, account: ACCOUNT });
   assert.equal(result.account, ACCOUNT);
   assert.equal(result.owner, OWNER);
   assert.equal(result.operator, OPERATOR.toLowerCase());
+  assert.equal(result.accountVersion, 2);
+  assert.equal(result.version, 2);
+  assert.equal(result.identity.accountVersion, 2);
   assert.equal(result.runtimeVerified, true);
 });
 
@@ -49,6 +73,30 @@ test("recovery verification can prove owner and wiring without granting operator
   assert.equal(result.operatorAuthorized, false);
   assert.equal(result.runtimeVerified, true);
   assert.equal(result.identity.operatorAuthorized, false);
+});
+
+test("verifier recognizes the trusted V1 runtime while preserving owner and wiring checks", async () => {
+  const verify = await v1Fixture();
+  const result = await verify({ caller: OWNER, account: ACCOUNT });
+  assert.equal(result.runtimeVerified, true);
+  assert.equal(result.operatorAuthorized, true);
+  assert.equal(result.accountVersion, 1);
+  assert.equal(result.version, 1);
+  assert.equal(result.identity.accountVersion, 1);
+  assert.equal(result.identity.autonomousTradingEnabled, false);
+});
+
+test("verifier rejects a tampered trusted artifact before reading account identity", async () => {
+  const artifact = JSON.parse(await fs.readFile(new URL("../../dashboard/villa-account-artifact.json", import.meta.url), "utf8"));
+  let identityReaderCalled = false;
+  const verify = createOnChainAccountVerifier({
+    env: { VILLA_ENGINE_OPERATOR: OPERATOR },
+    artifactLoader: async () => ({ ...artifact, runtimeBytecode: "0x6000" }),
+    publicClient: { async getBytecode() { return artifact.runtimeBytecode; } },
+    identityReader: { async readAccountIdentity() { identityReaderCalled = true; return {}; } },
+  });
+  await assert.rejects(() => verify({ caller: OWNER, account: ACCOUNT }), { code: "ACCOUNT_VERIFICATION_UNAVAILABLE" });
+  assert.equal(identityReaderCalled, false);
 });
 
 test("verifier defaults to VILLA_CHAIN.rpcUrl when env.RPC_URL is omitted", async () => {

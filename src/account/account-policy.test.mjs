@@ -5,7 +5,9 @@ import { ACCOUNT_ROLES, OPERATOR_ACTIONS, OWNER_ACTIONS, accountActionAllowed, o
 test("only owner has custody and configuration actions", () => {
   for (const action of OWNER_ACTIONS) {
     assert.equal(accountActionAllowed(ACCOUNT_ROLES.OWNER, action), true, action);
-    assert.equal(accountActionAllowed(ACCOUNT_ROLES.OPERATOR, action), false, action);
+    if (action !== "prepareMarket") {
+      assert.equal(accountActionAllowed(ACCOUNT_ROLES.OPERATOR, action), false, action);
+    }
     assert.equal(accountActionAllowed(ACCOUNT_ROLES.ATTACKER, action), false, action);
   }
 });
@@ -23,6 +25,7 @@ test("operator order gate fails closed on stale, unapproved, or revoked state", 
   assert.equal(operatorOrderAllowed({ ...base, marketApproved: false }), false);
   assert.equal(operatorOrderAllowed({ ...base, currentMarket: false }), false);
   assert.equal(operatorOrderAllowed({ ...base, operatorSet: false }), false);
+  assert.equal(operatorOrderAllowed({ ...base, autonomousTradingEnabled: false }), false);
 });
 
 test("operator order gate enforces explicit kind, type, quantity, and collateral caps", () => {

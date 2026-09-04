@@ -167,7 +167,7 @@ test("production release wires owner-authenticated safe account control", async 
   const server = createProductionOperatorServer(env, {
     readOnlyReader: async () => ({ mode: "LIVE", snapshot: null }),
     runnerFactory: async () => { runnerSpawns += 1; throw new Error("runner must not spawn"); },
-    accountVerifier: async ({ caller, account }) => ({ account, owner: caller, operator: operator.address, runtimeVerified: true, onChain: true }),
+    accountVerifier: async ({ caller, account }) => ({ account, owner: caller, operator: operator.address, accountVersion: 2, version: 2, runtimeVerified: true, onChain: true }),
   });
   server.listen(0, "127.0.0.1");
   await once(server, "listening");
@@ -215,7 +215,7 @@ test("verified account Start works with global execution false and the account g
     VILLA_UAT_EXECUTION_ENABLED: "false",
   }, {
     readOnlyReader: async () => ({ mode: "LIVE", snapshot: null }),
-    accountVerifier: async ({ caller, account }) => ({ account, owner: caller, operator: operator.address, runtimeVerified: true, onChain: true }),
+    accountVerifier: async ({ caller, account }) => ({ account, owner: caller, operator: operator.address, accountVersion: 2, version: 2, runtimeVerified: true, onChain: true }),
     controlFactory: () => ({
       async getState() { return { state: "STOPPED", session: null }; },
       async start() { starts += 1; return { state: "STARTING" }; },
@@ -258,7 +258,7 @@ test("API restart recovers the bound account for its owner and rejects another w
     if (caller.toLowerCase() !== owner.address.toLowerCase() || account.toLowerCase() !== villaAccount) {
       throw new AccountControlError("OWNER_SCOPE_MISMATCH", "account does not belong to this wallet", 403);
     }
-    return { account, owner: owner.address, operator: operator.address, runtimeVerified: true, onChain: true };
+    return { account, owner: owner.address, operator: operator.address, accountVersion: 2, version: 2, runtimeVerified: true, onChain: true };
   };
   let stopArgs = null;
   const commandRunner = (_command, args, _options, callback) => {

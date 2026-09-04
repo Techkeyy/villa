@@ -92,7 +92,7 @@ async function readProvisioningReceipts() {
 
 const marketId = parseMarketId();
 const block = await publicClient.getBlock();
-const [owner, operator, collateralToken, outcomeToken, binaryModule, binarySettlement, maxOrderQuantity, maxOrderCollateral, directCollateralRaw, code] = await Promise.all([
+const [owner, operator, collateralToken, outcomeToken, binaryModule, binarySettlement, maxOrderQuantity, maxOrderCollateral, maxAggregateExposure, maxMintExposure, directCollateralRaw, code] = await Promise.all([
   publicClient.readContract({ address: ACCOUNT, abi: VILLA_ACCOUNT_READ_ABI, functionName: "owner" }),
   publicClient.readContract({ address: ACCOUNT, abi: VILLA_ACCOUNT_READ_ABI, functionName: "operator" }),
   publicClient.readContract({ address: ACCOUNT, abi: VILLA_ACCOUNT_READ_ABI, functionName: "collateralToken" }),
@@ -101,6 +101,8 @@ const [owner, operator, collateralToken, outcomeToken, binaryModule, binarySettl
   publicClient.readContract({ address: ACCOUNT, abi: VILLA_ACCOUNT_READ_ABI, functionName: "binarySettlement" }),
   publicClient.readContract({ address: ACCOUNT, abi: VILLA_ACCOUNT_READ_ABI, functionName: "maxOrderQuantity" }),
   publicClient.readContract({ address: ACCOUNT, abi: VILLA_ACCOUNT_READ_ABI, functionName: "maxOrderCollateral" }),
+  publicClient.readContract({ address: ACCOUNT, abi: VILLA_ACCOUNT_READ_ABI, functionName: "maxAggregateExposure" }),
+  publicClient.readContract({ address: ACCOUNT, abi: VILLA_ACCOUNT_READ_ABI, functionName: "maxMintExposure" }),
   publicClient.readContract({ address: VILLA_ACCOUNT_CONFIG.collateralToken, abi: ERC20_BALANCE_ABI, functionName: "balanceOf", args: [ACCOUNT] }),
   publicClient.getBytecode({ address: ACCOUNT }),
 ]);
@@ -114,6 +116,8 @@ assertEqual(binarySettlement, VILLA_ACCOUNT_CONFIG.binarySettlement, "binarySett
 if (directCollateralRaw !== EXPECTED_COLLATERAL_RAW) throw new Error(`collateral mismatch: ${directCollateralRaw} != ${EXPECTED_COLLATERAL_RAW}`);
 if (maxOrderQuantity !== VILLA_ACCOUNT_CONFIG.initialMaxOrderQuantity) throw new Error(`maxOrderQuantity mismatch: ${maxOrderQuantity}`);
 if (maxOrderCollateral !== VILLA_ACCOUNT_CONFIG.initialMaxOrderCollateral) throw new Error(`maxOrderCollateral mismatch: ${maxOrderCollateral}`);
+if (maxAggregateExposure !== VILLA_ACCOUNT_CONFIG.initialMaxAggregateExposure) throw new Error(`maxAggregateExposure mismatch: ${maxAggregateExposure}`);
+if (maxMintExposure !== VILLA_ACCOUNT_CONFIG.initialMaxMintExposure) throw new Error(`maxMintExposure mismatch: ${maxMintExposure}`);
 if (!code || !runtimeBytecodeMatches(code, artifact.runtimeBytecode, artifact.runtimeImmutableReferences)) throw new Error("VillaAccount runtime bytecode does not match the verified artifact");
 
 const receipts = await readProvisioningReceipts();
@@ -160,7 +164,7 @@ console.log(JSON.stringify({
   account: ACCOUNT,
   owner: OWNER,
   operator: OPERATOR,
-  identity: { owner, operator, collateralToken, outcomeToken, binaryModule, binarySettlement, maxOrderQuantity: maxOrderQuantity.toString(), maxOrderCollateral: maxOrderCollateral.toString() },
+  identity: { version: 2, owner, operator, collateralToken, outcomeToken, binaryModule, binarySettlement, maxOrderQuantity: maxOrderQuantity.toString(), maxOrderCollateral: maxOrderCollateral.toString(), maxAggregateExposure: maxAggregateExposure.toString(), maxMintExposure: maxMintExposure.toString() },
   collateral: { token: collateralToken, raw: directCollateralRaw.toString(), human: "1.00 tUSDC" },
   runtime: { verified: true, runtimeBytes: (code.length - 2) / 2, artifact: artifact.schema },
   provisioningReceipts: receipts,

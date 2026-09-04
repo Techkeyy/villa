@@ -14,6 +14,7 @@ import { LP_SESSION_VERSION, assertLpSessionScope } from "./lp-session.mjs";
 export const LP_TRANSACTION_POLICY_VERSION = "villa-lp-tx-policy-v1";
 export const LP_INTENT_VERSION = "villa-lp-intent-v1";
 export const LP_ALLOWED_ACCOUNT_OPERATIONS = Object.freeze([
+  "prepareMarket",
   "operatorPlaceOrder",
   "operatorCancelOrder",
   "operatorReduceOrder",
@@ -27,8 +28,8 @@ export const LP_DENIED_OPERATIONS = Object.freeze([
   "transferOwnership",
   "setOperator",
   "revokeOperator",
+  "setAutonomousTrading",
   "setMarketApproval",
-  "prepareMarket",
   "revokeMarketApprovals",
   "recoverUnsupportedToken",
   "arbitraryCall",
@@ -48,6 +49,7 @@ export const DEFAULT_PHASE_3B1_CAPS = Object.freeze({
 });
 
 const OPERATION_ACTIONS = Object.freeze({
+  prepareMarket: "PREPARE_MARKET",
   operatorPlaceOrder: "PLACE_ORDER",
   operatorCancelOrder: "CANCEL_ORDER",
   operatorReduceOrder: "REDUCE_ORDER",
@@ -129,6 +131,8 @@ function planFacts(plan) {
   const action = actionForPlan(plan);
   const market = bytes32(args[0], "plan marketId");
   switch (plan.functionName) {
+    case "prepareMarket":
+      return { action, marketId: market };
     case "operatorPlaceOrder":
       return {
         action,
@@ -137,7 +141,7 @@ function planFacts(plan) {
         priceRaw: raw(args[2], "order price", { positive: true }),
         amountRaw: raw(args[3], "order quantity", { positive: true }),
         expirationNs: raw(args[4], "order expiration", { positive: true }),
-        side: ["BUY_YES", "BUY_NO", "SELL_YES", "SELL_NO"][integer(args[1], "order kind")],
+        side: ["BUY_YES", "SELL_YES", "BUY_NO", "SELL_NO"][integer(args[1], "order kind")],
       };
     case "operatorCancelOrder":
       return { action, marketId: market, orderId: raw(args[1], "order id") };

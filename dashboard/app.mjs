@@ -11,6 +11,7 @@ import {
   formatAmount,
   formatRawExact,
   getChainId,
+  loadAccountArtifacts,
   loadArtifact,
   normalizeAddress,
   parseAmount,
@@ -35,6 +36,7 @@ const ACCOUNT_HINT_PREFIX = "villa.account.owner.";
 let provider = null;
 let controlClient = null;
 let accountArtifact = null;
+let accountArtifacts = null;
 let walletInitialized = false;
 let proofInitialized = false;
 let refreshGeneration = 0;
@@ -551,11 +553,14 @@ function updateWorkspace(account, walletBalance) {
   debugLiquidity("account_readiness_check", readinessEvaluation);
   const allocated = account.balance;
   const funded = allocated > 0n;
+  const accountVersion = Number(account.accountVersion ?? account.version ?? 0);
+  const isV2 = accountVersion === 2;
   const authorized = account.operator === normalizeAddress(VILLA_ACCOUNT_CONFIG.operator);
   const unexpectedOperator = account.operator !== ZERO_ADDRESS && !authorized;
   text("account-address", shorten(account.address));
   text("account-owner", shorten(account.owner));
-  text("account-verification", "Owner verified");
+  text("account-version", `VillaAccount V${accountVersion || "?"}`);
+  text("account-verification", isV2 ? "Owner verified · V2" : "Owner verified · V1 legacy");
   text("wallet-balance", `${formatAmount(walletBalance)} tUSDC`);
   text("allocated-balance", `${formatStrategyAmount(allocated)} tUSDC`);
   text("available-balance", `${formatStrategyAmount(allocated)} tUSDC`);
@@ -579,22 +584,26 @@ function updateWorkspace(account, walletBalance) {
     authStatus.className = `status-pill ${authorized ? "status-safe" : "status-preview"}`;
     authStatus.textContent = authorized ? "AUTHORIZED" : unexpectedOperator ? "UNRECOGNIZED" : "NOT AUTHORIZED";
   }
-  text("authorization-copy", authorized
-    ? "Your wallet is verified. VILLA uses a private account-bound operator for approved DreamDEX liquidity actions. Only your wallet can withdraw."
-    : unexpectedOperator
-      ? "This account has a different automation address. VILLA actions are paused until you review it."
-      : "VILLA is not authorized to use this account.");
-  toggle("authorize-villa", accountReady && !authorized && !unexpectedOperator);
+  text("authorization-copy", !isV2
+    ? "This is a V1 VillaAccount. V1 accounts do not support bounded autonomous trading. Withdraw to your owner wallet, then create a new V2 account to migrate."
+    : authorized
+      ? "Your wallet is verified. VILLA uses a private account-bound operator for approved DreamDEX liquidity actions. Only your wallet can withdraw."
+      : unexpectedOperator
+        ? "This account has a different automation address. VILLA actions are paused until you review it."
+        : "VILLA is not authorized to use this account.");
+  toggle("authorize-villa", isV2 && accountReady && !authorized && !unexpectedOperator);
   toggle("revoke-villa", accountReady && authorized);
 
-  const ready = accountReady && authorized && allocated > 0n;
+  const ready = isV2 && accountReady && authorized && allocated > 0n;
   const readinessStatus = element("readiness-status");
   if (readinessStatus) {
     readinessStatus.className = `status-pill ${ready ? "status-safe" : "status-preview"}`;
     readinessStatus.textContent = ready ? "READY" : "SETUP REQUIRED";
   }
-  text("readiness-title", ready ? "Liquidity setup complete." : "Complete account setup first.");
-  text("readiness-copy", ready ? "Your account is ready. Start asks the constrained control plane to run a fresh account-bound preflight." : "Add liquidity and authorize VILLA before the workspace can be marked ready.");
+  text("readiness-title", !isV2 ? "V1 migration required." : ready ? "Liquidity setup complete." : "Complete account setup first.");
+  text("readiness-copy", !isV2
+    ? "V1 is read-only for this autonomous release. Withdraw V1 funds to your owner wallet, create a V2 account, and fund it there."
+    : ready ? "Your account is ready. Start asks the constrained control plane to run a fresh account-bound preflight." : "Add liquidity and authorize VILLA before the workspace can be marked ready.");
   const capitalStatus = element("capital-status");
   if (capitalStatus) {
     capitalStatus.className = `status-pill ${accountReady ? "status-safe" : "status-preview"}`;
@@ -639,8 +648,9 @@ async function runAccountRefresh(owner, generation) {
     }
     setDiscoveryState("DISCOVERING");
     accountArtifact ??= await loadArtifact({ deadline });
+    accountArtifacts ??= await loadAccountArtifacts({ deadline });
     if (!walletContextIsCurrent(owner, generation)) return;
-    const result = await discoverAccount(provider, owner, accountArtifact, readHint(owner), { deadline, onDebug });
+    const result = await discoverAccount(provider, owner, accountArtifacts, readHint(owner), { deadline, onDebug });
     onDebug("discovery_result", { discoveryKind: result.kind, discoverySource: result.source, accountFound: Boolean(result.account) });
     if (!walletContextIsCurrent(owner, generation)) return;
     if (result.kind === "ERROR") {

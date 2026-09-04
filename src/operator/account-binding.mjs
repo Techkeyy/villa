@@ -1,4 +1,5 @@
 import fs from "node:fs/promises";
+import crypto from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createPublicClient, http, isAddress } from "viem";
@@ -10,6 +11,7 @@ import { AccountControlError } from "./account-control.mjs";
 
 const ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
 const ARTIFACT_PATH = fileURLToPath(new URL("../../dashboard/villa-account-artifact.json", import.meta.url));
+const ARTIFACT_V1_PATH = fileURLToPath(new URL("../../dashboard/villa-account-artifact-v1.json", import.meta.url));
 const VILLA_ACCOUNT_CONFIG_CHAIN_ID = 50312;
 
 function address(value, label) {
@@ -22,22 +24,64 @@ function same(left, right) {
   return String(left ?? "").toLowerCase() === String(right ?? "").toLowerCase();
 }
 
+function bytecodeHash(bytecode) {
+  const text = String(bytecode ?? "");
+  if (!/^0x[0-9a-fA-F]*$/.test(text) || text.length % 2 !== 0) return "";
+  return crypto.createHash("sha256").update(Buffer.from(text.slice(2), "hex")).digest("hex");
+}
+
 async function readTrustedArtifact() {
   try {
-    return JSON.parse(await fs.readFile(ARTIFACT_PATH, "utf8"));
+    const v2 = JSON.parse(await fs.readFile(ARTIFACT_PATH, "utf8"));
+    let v1 = null;
+    try {
+      v1 = JSON.parse(await fs.readFile(ARTIFACT_V1_PATH, "utf8"));
+    } catch {}
+    return { ...v2, accountVersion: 2, v2: { ...v2, accountVersion: 2 }, v1: v1 ? { ...v1, accountVersion: 1 } : null };
   } catch (error) {
     throw new AccountControlError("ACCOUNT_VERIFICATION_UNAVAILABLE", "The verified VILLA account implementation is unavailable.", 503, { cause: error?.code ?? "ARTIFACT_READ_FAILED" });
   }
 }
 
 function assertTrustedArtifact(artifact) {
-  if (artifact?.schema !== "villa-browser-account-artifact-v2"
-    || Number(artifact.chainId) !== VILLA_ACCOUNT_CONFIG_CHAIN_ID
-    || typeof artifact.runtimeBytecode !== "string"
-    || !Array.isArray(artifact.runtimeImmutableReferences)
-    || artifact.runtimeImmutableReferences.length === 0) {
+  const primary = artifact.v2 || artifact;
+  if (primary?.schema !== "villa-browser-account-artifact-v2"
+    || Number(primary.chainId) !== VILLA_ACCOUNT_CONFIG_CHAIN_ID
+    || typeof primary.creationBytecode !== "string"
+    || typeof primary.runtimeBytecode !== "string"
+    || !Array.isArray(primary.runtimeImmutableReferences)
+    || primary.runtimeImmutableReferences.length === 0) {
     throw new AccountControlError("ACCOUNT_VERIFICATION_UNAVAILABLE", "The verified VILLA account implementation failed its integrity metadata check.", 503);
   }
+  if (bytecodeHash(primary.creationBytecode) !== VILLA_ACCOUNT_CONFIG.artifactCreationSha256
+    || bytecodeHash(primary.runtimeBytecode) !== VILLA_ACCOUNT_CONFIG.artifactRuntimeSha256) {
+    throw new AccountControlError("ACCOUNT_VERIFICATION_UNAVAILABLE", "The verified VILLA account implementation failed its audited bytecode check.", 503);
+  }
+  if (artifact.v1) {
+    const legacy = artifact.v1;
+    if (legacy.schema !== "villa-browser-account-artifact-v2"
+      || Number(legacy.chainId) !== VILLA_ACCOUNT_CONFIG_CHAIN_ID
+      || typeof legacy.creationBytecode !== "string"
+      || typeof legacy.runtimeBytecode !== "string"
+      || !Array.isArray(legacy.runtimeImmutableReferences)
+      || legacy.runtimeImmutableReferences.length === 0
+      || bytecodeHash(legacy.creationBytecode) !== VILLA_ACCOUNT_CONFIG.legacyV1CreationSha256
+      || bytecodeHash(legacy.runtimeBytecode) !== VILLA_ACCOUNT_CONFIG.legacyV1RuntimeSha256) {
+      throw new AccountControlError("ACCOUNT_VERIFICATION_UNAVAILABLE", "The legacy VILLA account implementation failed its audited bytecode check.", 503);
+    }
+  }
+}
+
+function matchesAnyArtifact(code, artifact) {
+  if (!code) return null;
+  const primary = artifact.v2 || artifact;
+  if (primary && runtimeBytecodeMatches(code, primary.runtimeBytecode, primary.runtimeImmutableReferences)) {
+    return 2;
+  }
+  if (artifact.v1 && runtimeBytecodeMatches(code, artifact.v1.runtimeBytecode, artifact.v1.runtimeImmutableReferences)) {
+    return 1;
+  }
+  return null;
 }
 
 /**
@@ -81,7 +125,8 @@ export function createOnChainAccountVerifier({
       throw new AccountControlError("ACCOUNT_VERIFICATION_UNAVAILABLE", "The VILLA account could not be verified on Shannon.", 503, { cause: error?.code ?? "READ_FAILED" });
     }
 
-    if (!code || !runtimeBytecodeMatches(code, artifact.runtimeBytecode, artifact.runtimeImmutableReferences)) {
+    const accountVersion = matchesAnyArtifact(code, artifact);
+    if (!accountVersion) {
       throw new AccountControlError("ACCOUNT_INVALID", "The selected address is not a verified VILLA account.", 403);
     }
 
@@ -93,7 +138,7 @@ export function createOnChainAccountVerifier({
       throw new AccountControlError("ACCOUNT_VERIFICATION_UNAVAILABLE", "The VILLA account could not be verified on Shannon.", 503, { cause: error?.code ?? "READ_FAILED" });
     }
 
-    if (!runtimeBytecodeMatches(code, artifact.runtimeBytecode, artifact.runtimeImmutableReferences)) {
+    if (matchesAnyArtifact(code, artifact) !== accountVersion) {
       throw new AccountControlError("ACCOUNT_INVALID", "The selected address is not a verified VILLA account.", 403);
     }
     if (!same(identity?.owner, owner)) {
@@ -116,7 +161,9 @@ export function createOnChainAccountVerifier({
       account: target,
       owner,
       operator: expectedOperator,
-      identity: Object.freeze({ ...identity, account: target, owner, actualOperator: identity?.operator ?? null, operator: expectedOperator, operatorAuthorized, runtimeVerified: true }),
+      accountVersion,
+      version: accountVersion,
+      identity: Object.freeze({ ...identity, account: target, owner, accountVersion, version: accountVersion, actualOperator: identity?.operator ?? null, operator: expectedOperator, operatorAuthorized, autonomousTradingEnabled: accountVersion === 2 && identity?.autonomousTradingEnabled === true, runtimeVerified: true }),
       runtimeVerified: true,
       onChain: true,
       operatorAuthorized,

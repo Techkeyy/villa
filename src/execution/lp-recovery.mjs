@@ -78,7 +78,7 @@ function transactionFacts(record, transaction, config) {
       : String(decoded.args[functionName === "operatorPlaceOrder" ? 3 : functionName === "operatorRedeem" ? 2 : 1]),
     outcomeIdx: functionName === "operatorRedeem" ? Number(decoded.args?.[1]) : null,
     priceRaw: functionName === "operatorPlaceOrder" && decoded.args?.[2] !== undefined ? String(decoded.args[2]) : null,
-    side: functionName === "operatorPlaceOrder" ? ["BUY_YES", "BUY_NO", "SELL_YES", "SELL_NO"][Number(decoded.args?.[1])] : null,
+    side: functionName === "operatorPlaceOrder" ? ["BUY_YES", "SELL_YES", "BUY_NO", "SELL_NO"][Number(decoded.args?.[1])] : null,
   };
 }
 

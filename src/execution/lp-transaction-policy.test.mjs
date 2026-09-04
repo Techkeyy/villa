@@ -35,6 +35,7 @@ function adapter() {
 function prepared(functionName, args, extras = {}) {
   const value = adapter();
   const plan = value[{
+    prepareMarket: "prepareMarket",
     operatorPlaceOrder: "placeOrder",
     operatorCancelOrder: "cancelOrder",
     operatorReduceOrder: "reduceOrder",
@@ -48,6 +49,7 @@ function prepared(functionName, args, extras = {}) {
 
 test("policy accepts only the exact account operator methods from VillaAccount.sol", () => {
   const plans = [
+    prepared("prepareMarket", { marketId: MARKET }),
     prepared("operatorPlaceOrder", { marketId: MARKET, action: "BUY_YES", priceRaw: 500_000n, quantityRaw: 1_000n, expireTimestampNs: 2_000n }),
     prepared("operatorCancelOrder", { marketId: MARKET, orderId: 7n }),
     prepared("operatorReduceOrder", { marketId: MARKET, orderId: 7n, newQuantityRemaining: 500n }),
@@ -56,7 +58,7 @@ test("policy accepts only the exact account operator methods from VillaAccount.s
     prepared("operatorRedeem", { marketId: MARKET, outcomeIdx: 0, amountRaw: 1_000n }),
     prepared("operatorClaimVault", { marketId: MARKET, amountRaw: 1_000n }),
   ];
-  assert.deepEqual(plans.map((plan) => createLpTransactionPolicy({ session: session(), now: () => 1000 }).validate(plan).allowed), [true, true, true, true, true, true, true]);
+  assert.deepEqual(plans.map((plan) => createLpTransactionPolicy({ session: session(), now: () => 1000 }).validate(plan).allowed), [true, true, true, true, true, true, true, true]);
   assert.deepEqual(LP_ALLOWED_ACCOUNT_OPERATIONS, plans.map((plan) => plan.functionName));
 });
 

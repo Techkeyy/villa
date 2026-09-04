@@ -19,18 +19,26 @@ const BYTES32_RE = /^0x[0-9a-fA-F]{64}$/;
 const UINT64_MAX = (1n << 64n) - 1n;
 
 export const VILLA_ACCOUNT_READ_ABI = Object.freeze([
+  { type: "function", name: "accountVersion", stateMutability: "view", inputs: [], outputs: [{ type: "uint8" }] },
   { type: "function", name: "owner", stateMutability: "view", inputs: [], outputs: [{ type: "address" }] },
   { type: "function", name: "operator", stateMutability: "view", inputs: [], outputs: [{ type: "address" }] },
+  { type: "function", name: "autonomousTradingEnabled", stateMutability: "view", inputs: [], outputs: [{ type: "bool" }] },
   { type: "function", name: "collateralToken", stateMutability: "view", inputs: [], outputs: [{ type: "address" }] },
   { type: "function", name: "outcomeToken", stateMutability: "view", inputs: [], outputs: [{ type: "address" }] },
   { type: "function", name: "binaryModule", stateMutability: "view", inputs: [], outputs: [{ type: "address" }] },
   { type: "function", name: "binarySettlement", stateMutability: "view", inputs: [], outputs: [{ type: "address" }] },
   { type: "function", name: "maxOrderQuantity", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] },
   { type: "function", name: "maxOrderCollateral", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] },
+  { type: "function", name: "maxAggregateExposure", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] },
+  { type: "function", name: "maxMintExposure", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] },
+  { type: "function", name: "aggregateExposure", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] },
+  { type: "function", name: "mintExposure", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] },
+  { type: "function", name: "preparedMarkets", stateMutability: "view", inputs: [{ name: "marketId", type: "bytes32" }], outputs: [{ type: "bool" }] },
   { type: "function", name: "approvedMarkets", stateMutability: "view", inputs: [{ name: "marketId", type: "bytes32" }], outputs: [{ type: "bool" }] },
 ]);
 
 export const VILLA_ACCOUNT_OPERATOR_ABI = Object.freeze([
+  { type: "function", name: "prepareMarket", stateMutability: "nonpayable", inputs: [{ name: "marketId", type: "bytes32" }], outputs: [] },
   { type: "function", name: "operatorPlaceOrder", stateMutability: "nonpayable", inputs: [{ name: "marketId", type: "bytes32" }, { name: "kind", type: "uint8" }, { name: "price", type: "uint256" }, { name: "quantity", type: "uint256" }, { name: "expireTimestampNs", type: "uint64" }, { name: "orderType", type: "uint8" }, { name: "userData", type: "uint64" }], outputs: [{ name: "success", type: "bool" }, { name: "orderId", type: "uint128" }] },
   { type: "function", name: "operatorCancelOrder", stateMutability: "nonpayable", inputs: [{ name: "marketId", type: "bytes32" }, { name: "orderId", type: "uint128" }], outputs: [] },
   { type: "function", name: "operatorReduceOrder", stateMutability: "nonpayable", inputs: [{ name: "marketId", type: "bytes32" }, { name: "orderId", type: "uint128" }, { name: "newQuantityRemaining", type: "uint256" }], outputs: [] },
@@ -114,7 +122,7 @@ function scopedReadResult(result, account, label) {
 
 function orderKind({ kind, action } = {}) {
   if (kind !== undefined) return Number(raw(kind, "kind", { max: 3n }));
-  const map = { BUY_YES: 0, BUY_NO: 1, SELL_YES: 2, SELL_NO: 3 };
+  const map = { BUY_YES: 0, SELL_YES: 1, BUY_NO: 2, SELL_NO: 3 };
   if (map[String(action)] === undefined) fail("ORDER_INVALID", "kind or a supported binary action is required");
   return map[String(action)];
 }
@@ -138,16 +146,47 @@ export function createViemLpAccountReader({ publicClient, listOpenOrderIds = nul
     const target = address(account, "account");
     const names = ["owner", "operator", "collateralToken", "outcomeToken", "binaryModule", "binarySettlement", "maxOrderQuantity", "maxOrderCollateral"];
     const values = await Promise.all(names.map((functionName) => readContract(publicClient, { address: target, abi: VILLA_ACCOUNT_READ_ABI, functionName })));
+    let accountVersion = 1;
+    try {
+      accountVersion = Number(await readContract(publicClient, { address: target, abi: VILLA_ACCOUNT_READ_ABI, functionName: "accountVersion" }));
+    } catch {
+      // V1 accounts have no explicit version getter and are never autonomous.
+      accountVersion = 1;
+    }
+    if (accountVersion !== 1 && accountVersion !== 2) fail("ACCOUNT_VERSION_INVALID", "the VillaAccount version is unsupported");
+    let autonomousTradingEnabled = true;
+    try {
+      const result = await readContract(publicClient, { address: target, abi: VILLA_ACCOUNT_READ_ABI, functionName: "autonomousTradingEnabled" });
+      autonomousTradingEnabled = Boolean(result);
+    } catch {
+      // V1 fallback
+      autonomousTradingEnabled = false;
+    }
+    let riskValues = [null, null, null, null];
+    if (accountVersion === 2) {
+      try {
+        riskValues = await Promise.all(["maxAggregateExposure", "maxMintExposure", "aggregateExposure", "mintExposure"].map((functionName) => readContract(publicClient, { address: target, abi: VILLA_ACCOUNT_READ_ABI, functionName })));
+      } catch {
+        fail("ACCOUNT_RISK_STATE_UNAVAILABLE", "the V2 VillaAccount risk budget state could not be read");
+      }
+    }
     return {
       account: target,
+      accountVersion,
+      version: accountVersion,
       owner: address(values[0], "account owner"),
       operator: address(values[1], "account operator"),
+      autonomousTradingEnabled,
       collateralToken: address(values[2], "collateral token"),
       outcomeToken: address(values[3], "outcome token"),
       binaryModule: address(values[4], "binary module"),
       binarySettlement: address(values[5], "binary settlement"),
       maxOrderQuantity: raw(values[6], "maxOrderQuantity"),
       maxOrderCollateral: raw(values[7], "maxOrderCollateral"),
+      maxAggregateExposure: accountVersion === 2 ? raw(riskValues[0], "maxAggregateExposure") : null,
+      maxMintExposure: accountVersion === 2 ? raw(riskValues[1], "maxMintExposure") : null,
+      aggregateExposure: accountVersion === 2 ? raw(riskValues[2], "aggregateExposure") : null,
+      mintExposure: accountVersion === 2 ? raw(riskValues[3], "mintExposure") : null,
     };
   }
 
@@ -231,7 +270,11 @@ export function createLpExecutionAdapter({ account, owner, operator, chain = SHA
   if (!reader || typeof reader.readAccountIdentity !== "function" || typeof reader.readCapital !== "function" || typeof reader.readOutcomeInventory !== "function" || typeof reader.readOrders !== "function") fail("READER_INVALID", "account-scoped read methods are required");
 
   const scopedContext = (input = {}) => ({ ...input, account: accountAddress });
-  const readIdentity = async () => scopedReadResult(await reader.readAccountIdentity({ account: accountAddress }), accountAddress, "account identity");
+  const readIdentity = async () => {
+    const identity = scopedReadResult(await reader.readAccountIdentity({ account: accountAddress }), accountAddress, "account identity");
+    if (identity.accountVersion === 1 || identity.version === 1) fail("ACCOUNT_VERSION_UNSUPPORTED", "V1 VillaAccounts cannot enter autonomous execution");
+    return identity;
+  };
 
   async function readMarket(input = {}) {
     if (typeof reader.readMarket !== "function") fail("READER_INVALID", "market read method is required");
@@ -286,6 +329,10 @@ export function createLpExecutionAdapter({ account, owner, operator, chain = SHA
     return freezePlan(plan);
   }
 
+  function prepareMarket({ marketId } = {}) {
+    return writePlan("PREPARE_MARKET", "prepareMarket", [accountMarketId({ marketId })], { marketId: accountMarketId({ marketId }) });
+  }
+
   function placeOrder({ marketId, kind, action, priceRaw, quantityRaw, expireTimestampNs, orderType = 3, userData = 0n } = {}) {
     const normalizedKind = orderKind({ kind, action });
     const price = raw(priceRaw, "order price", { positive: true });
@@ -293,7 +340,7 @@ export function createLpExecutionAdapter({ account, owner, operator, chain = SHA
     const expiry = raw(expireTimestampNs, "order expiry", { positive: true, max: UINT64_MAX });
     const type = raw(orderType, "order type", { max: 3n });
     const data = raw(userData, "order userData", { max: UINT64_MAX });
-    return writePlan("PLACE_ORDER", "operatorPlaceOrder", [accountMarketId({ marketId }), normalizedKind, price, quantity, expiry, type, data], { action: action ?? ["BUY_YES", "BUY_NO", "SELL_YES", "SELL_NO"][normalizedKind], marketId: accountMarketId({ marketId }) });
+    return writePlan("PLACE_ORDER", "operatorPlaceOrder", [accountMarketId({ marketId }), normalizedKind, price, quantity, expiry, type, data], { action: action ?? ["BUY_YES", "SELL_YES", "BUY_NO", "SELL_NO"][normalizedKind], marketId: accountMarketId({ marketId }) });
   }
 
   function cancelOrder({ marketId, orderId } = {}) {
@@ -334,6 +381,7 @@ export function createLpExecutionAdapter({ account, owner, operator, chain = SHA
     readOrders,
     readPositions,
     readAccountState,
+    prepareMarket,
     placeOrder,
     cancelOrder,
     reduceOrder,

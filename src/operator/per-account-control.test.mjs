@@ -11,7 +11,7 @@ const ACCOUNT_B = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
 const OTHER_OPERATOR = "0x3333333333333333333333333333333333333333";
 
 function identity(owner, account, operator = OPERATOR) {
-  return { owner, account, operator, runtimeVerified: true, onChain: true };
+  return { owner, account, operator, accountVersion: 2, version: 2, runtimeVerified: true, onChain: true };
 }
 
 function fixture({ accountExecutionEnabled = true, verify = null, initialState = "STOPPED" } = {}) {

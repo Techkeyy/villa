@@ -1,8 +1,9 @@
-/** Pure Phase 1 account-boundary policy mirror. It never performs chain I/O. */
+/** Pure Phase 1 / V2 account-boundary policy mirror. It never performs chain I/O. */
 
 export const ACCOUNT_ROLES = Object.freeze({ OWNER: "OWNER", OPERATOR: "OPERATOR", ATTACKER: "ATTACKER" });
 
 export const OPERATOR_ACTIONS = Object.freeze([
+  "prepareMarket",
   "operatorPlaceOrder",
   "operatorCancelOrder",
   "operatorReduceOrder",
@@ -18,6 +19,7 @@ export const OWNER_ACTIONS = Object.freeze([
   "transferOwnership",
   "setOperator",
   "revokeOperator",
+  "setAutonomousTrading",
   "setOrderLimits",
   "setMarketApproval",
   "prepareMarket",
@@ -32,8 +34,22 @@ export function accountActionAllowed(role, action) {
   return false;
 }
 
-export function operatorOrderAllowed({ marketApproved, currentMarket, operatorSet, kind, orderType, price, quantity, oneCollateral, maxQuantity, maxCollateral }) {
-  if (!operatorSet || !marketApproved || !currentMarket) return false;
+export function operatorOrderAllowed({
+  autonomousTradingEnabled = true,
+  marketPrepared,
+  marketApproved,
+  currentMarket,
+  operatorSet,
+  kind,
+  orderType,
+  price,
+  quantity,
+  oneCollateral,
+  maxQuantity,
+  maxCollateral
+}) {
+  const preparedOrApproved = marketPrepared !== undefined ? marketPrepared : (marketApproved ?? true);
+  if (!operatorSet || !preparedOrApproved || !currentMarket || !autonomousTradingEnabled) return false;
   if (!Number.isInteger(kind) || kind < 0 || kind > 3) return false;
   if (!Number.isInteger(orderType) || orderType < 0 || orderType > 3) return false;
   if (!Number.isSafeInteger(price) || price <= 0 || price >= oneCollateral) return false;

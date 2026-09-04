@@ -81,7 +81,7 @@ test("market-scoped inventory keeps a finalized f920 residual out of a fresh mar
     [f920, { collateral: TOKEN, market: TOKEN, pool: POOL, yesId: 11n, noId: 12n, tradingStart: 1n, expiry: 999n }],
     [fresh, { collateral: TOKEN, market: TOKEN, pool: POOL, yesId: 21n, noId: 22n, tradingStart: 1n, expiry: 999n }],
   ]);
-  const identityValues = { owner: OWNER, operator: OPERATOR, collateralToken: TOKEN, outcomeToken: TOKEN, binaryModule: TOKEN, binarySettlement: TOKEN, maxOrderQuantity: 1000n, maxOrderCollateral: 1000n };
+  const identityValues = { accountVersion: 2, owner: OWNER, operator: OPERATOR, collateralToken: TOKEN, outcomeToken: TOKEN, binaryModule: TOKEN, binarySettlement: TOKEN, maxOrderQuantity: 1000n, maxOrderCollateral: 1000n, maxAggregateExposure: 1000n, maxMintExposure: 1000n, aggregateExposure: 0n, mintExposure: 0n };
   const publicClient = {
     async readContract(request) {
       if (identityValues[request.functionName] !== undefined) return identityValues[request.functionName];
@@ -119,6 +119,17 @@ test("place-order plan targets the VillaAccount and identifies the signer separa
   assert.equal(decoded.args[2], 500_000n);
 });
 
+test("adapter uses the installed DreamDEX V2 order-kind enum", () => {
+  const value = adapter();
+  const expected = { BUY_YES: 0, SELL_YES: 1, BUY_NO: 2, SELL_NO: 3 };
+  for (const [action, kind] of Object.entries(expected)) {
+    const plan = value.placeOrder({ marketId: MARKET, action, priceRaw: 500_000n, quantityRaw: 1000n, expireTimestampNs: 123n });
+    const decoded = decodeFunctionData({ abi: VILLA_ACCOUNT_OPERATOR_ABI, data: plan.data });
+    assert.equal(decoded.args[1], kind, action);
+    assert.equal(plan.action, action, action);
+  }
+});
+
 test("all engine write intents use explicit VillaAccount methods only", () => {
   const value = adapter();
   const plans = [
@@ -145,7 +156,7 @@ test("invalid or stale-shaped order inputs are rejected before a plan exists", (
 
 test("viem reader passes VillaAccount to on-chain token reads, never the signer", async () => {
   const calls = [];
-  const identityValues = { owner: OWNER, operator: OPERATOR, collateralToken: TOKEN, outcomeToken: TOKEN, binaryModule: TOKEN, binarySettlement: TOKEN, maxOrderQuantity: 1000n, maxOrderCollateral: 1000n };
+  const identityValues = { accountVersion: 2, owner: OWNER, operator: OPERATOR, collateralToken: TOKEN, outcomeToken: TOKEN, binaryModule: TOKEN, binarySettlement: TOKEN, maxOrderQuantity: 1000n, maxOrderCollateral: 1000n, maxAggregateExposure: 1000n, maxMintExposure: 1000n, aggregateExposure: 0n, mintExposure: 0n };
   const publicClient = {
     async readContract(request) {
       calls.push(request);
