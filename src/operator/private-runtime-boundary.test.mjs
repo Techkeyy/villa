@@ -48,6 +48,7 @@ test("private services are pinned to the root-controlled runtime and private sta
     assert.doesNotMatch(unit, /MemoryDenyWriteExecute=true/);
     assert.match(unit, /CapabilityBoundingSet=\n/);
     assert.match(unit, /Environment=VILLA_EXECUTION_ENABLED=false/);
+    assert.match(unit, /Environment=VILLA_UAT_EXECUTION_ENABLED=false/);
     assert.match(unit, /Environment=VILLA_ACCOUNT_EXECUTION_ENABLED=true/);
     assert.match(unit, new RegExp(`ReadWritePaths=${STATUS_ROOT} ${PRIVATE_STATE_ROOT}`));
     assert.doesNotMatch(unit, /\/opt\/villa-operator/);

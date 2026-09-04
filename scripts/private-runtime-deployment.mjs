@@ -34,6 +34,7 @@ EnvironmentFile=/run/villa-uat-bindings/%i.env
 Environment=VILLA_ENGINE_OPERATOR=0xaf4ee6C0c6Ff6337F4C4F07b87C8343dF73e8d37
 Environment=VILLA_ENGINE_SESSION_ID=%i
 Environment=VILLA_UAT_SESSION_EXECUTION=true
+Environment=VILLA_UAT_EXECUTION_ENABLED=false
 Environment=VILLA_UAT_SETTLEMENT_EXECUTION=false
 Environment=VILLA_EXECUTION_ENABLED=false
 Environment=VILLA_ACCOUNT_EXECUTION_ENABLED=true
@@ -87,6 +88,7 @@ EnvironmentFile=/run/villa-uat-bindings/%i.env
 Environment=VILLA_ENGINE_OPERATOR=0xaf4ee6C0c6Ff6337F4C4F07b87C8343dF73e8d37
 Environment=VILLA_ENGINE_SESSION_ID=%i
 Environment=VILLA_UAT_SESSION_EXECUTION=false
+Environment=VILLA_UAT_EXECUTION_ENABLED=false
 Environment=VILLA_UAT_SETTLEMENT_EXECUTION=true
 Environment=VILLA_EXECUTION_ENABLED=false
 Environment=VILLA_ACCOUNT_EXECUTION_ENABLED=true
