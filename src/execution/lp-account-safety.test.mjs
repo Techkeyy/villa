@@ -61,3 +61,63 @@ test("capital validation accepts product-correct valid balances and rejects inva
   assert.equal(validateCapital(1_002_000n), true);
   assert.throws(() => validateCapital(1_003_000n), /ACCOUNT_CAPITAL_CAP/);
 });
+
+test("session preflight adapter contract has readMarket defined and enforces read-only safety", async () => {
+  const { createLpExecutionAdapter, createViemLpAccountReader } = await import("./lp-adapter.mjs");
+  const MARKET_ID = "0x" + "aa".repeat(32);
+  const POOL_ADDR = "0x" + "55".repeat(20);
+  const MODULE_ADDR = "0x" + "66".repeat(20);
+  const WRITING_ADDR = "0x" + "77".repeat(20);
+
+  let writeAttempted = false;
+  const publicClient = {
+    async readContract(request) {
+      if (request.functionName === "owner") return OWNER;
+      if (request.functionName === "operator") return CANONICAL_VILLA_OPERATOR;
+      if (request.functionName === "collateralToken" || request.functionName === "outcomeToken" || request.functionName === "binaryModule" || request.functionName === "binarySettlement") return MODULE_ADDR;
+      if (request.functionName === "maxOrderQuantity" || request.functionName === "maxOrderCollateral") return 10_000_000n;
+      if (request.functionName === "markets") return { collateral: WRITING_ADDR, market: WRITING_ADDR, pool: POOL_ADDR, yesId: 101n, noId: 102n, tradingStart: 100n, expiry: 9000n };
+      if (request.functionName === "balanceOf") return 1_000_000n;
+      if (request.functionName === "getWithdrawableBalance") return 0n;
+      return null;
+    },
+    async writeContract() {
+      writeAttempted = true;
+      throw new Error("writes forbidden in preflight");
+    },
+    async sendTransaction() {
+      writeAttempted = true;
+      throw new Error("transactions forbidden in preflight");
+    },
+  };
+
+  const reader = createViemLpAccountReader({ publicClient });
+  const adapter = createLpExecutionAdapter({
+    account: ACCOUNT,
+    owner: OWNER,
+    operator: CANONICAL_VILLA_OPERATOR,
+    reader,
+    sessionId: "test-session-123",
+  });
+
+  // 1. adapter.readMarket is a function
+  assert.equal(typeof adapter.readMarket, "function");
+
+  // 2. adapter.readMarket returns real market structure
+  const accountMarket = await adapter.readMarket({ marketId: MARKET_ID });
+  assert.equal(accountMarket.account, ACCOUNT);
+  assert.equal(accountMarket.marketId, MARKET_ID);
+  assert.equal(accountMarket.pool, POOL_ADDR);
+  assert.equal(accountMarket.yesId, 101n);
+  assert.equal(accountMarket.noId, 102n);
+
+  // 3. account state still comes from the VillaAccount
+  const state = await adapter.readAccountState({ marketId: MARKET_ID });
+  assert.equal(state.account, ACCOUNT);
+  assert.equal(state.owner, OWNER);
+  assert.equal(state.operator, CANONICAL_VILLA_OPERATOR);
+  assert.equal(state.capital.directCollateralRaw, 1_000_000n);
+
+  // 4. No write was attempted during read-only preflight
+  assert.equal(writeAttempted, false);
+});

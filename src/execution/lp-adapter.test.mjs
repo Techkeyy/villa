@@ -31,6 +31,10 @@ function readerFixture(calls = []) {
       calls.push(["capital", input]);
       return { account: input.account, directCollateralRaw: 2_000_000n, vaultRaw: 0n, collateralAvailableRaw: 2_000_000n, marketId: input.marketId ?? null, pool: POOL };
     },
+    async readMarket(input) {
+      calls.push(["market", input]);
+      return { account: input.account, marketId: input.marketId, collateral: TOKEN, market: TOKEN, pool: POOL, yesId: 100n, noId: 200n, tradingStart: 1n, expiry: 9999n };
+    },
     async readOutcomeInventory(input) {
       calls.push(["inventory", input]);
       return { account: input.account, marketId: input.marketId, yesRaw: 1000n, noRaw: 1000n };
@@ -183,6 +187,28 @@ test("shadow adapter has no wallet or broadcast dependency", () => {
   assert.equal("broadcast" in value, false);
   assert.equal("sendTransaction" in value, false);
   assert.equal("writeContract" in value, false);
+});
+
+test("adapter exposes readMarket that remains account-scoped and fails closed on mismatch", async () => {
+  const calls = [];
+  const value = createLpExecutionAdapter({ account: ACCOUNT, owner: OWNER, operator: OPERATOR, reader: readerFixture(calls) });
+  const market = await value.readMarket({ marketId: MARKET });
+  assert.equal(market.account, ACCOUNT);
+  assert.equal(market.marketId, MARKET);
+  assert.equal(market.pool, POOL);
+  assert.equal(market.yesId, 100n);
+  assert.equal(market.noId, 200n);
+  assert.deepEqual(calls.find(([name]) => name === "market")?.[1], { marketId: MARKET, account: ACCOUNT });
+
+  const badReader = readerFixture();
+  badReader.readMarket = async () => ({ account: OWNER, marketId: MARKET });
+  const badAdapter = createLpExecutionAdapter({ account: ACCOUNT, owner: OWNER, operator: OPERATOR, reader: badReader });
+  await assert.rejects(() => badAdapter.readMarket({ marketId: MARKET }), { code: "ACCOUNT_SCOPE_MISMATCH" });
+
+  const noMarketReader = readerFixture();
+  delete noMarketReader.readMarket;
+  const noMarketAdapter = createLpExecutionAdapter({ account: ACCOUNT, owner: OWNER, operator: OPERATOR, reader: noMarketReader });
+  await assert.rejects(() => noMarketAdapter.readMarket({ marketId: MARKET }), { code: "READER_INVALID" });
 });
 
 test("adapter exposes no owner withdrawal, arbitrary call, or permission mutation", () => {

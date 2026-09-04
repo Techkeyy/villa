@@ -233,6 +233,11 @@ export function createLpExecutionAdapter({ account, owner, operator, chain = SHA
   const scopedContext = (input = {}) => ({ ...input, account: accountAddress });
   const readIdentity = async () => scopedReadResult(await reader.readAccountIdentity({ account: accountAddress }), accountAddress, "account identity");
 
+  async function readMarket(input = {}) {
+    if (typeof reader.readMarket !== "function") fail("READER_INVALID", "market read method is required");
+    return scopedReadResult(await reader.readMarket(scopedContext(input)), accountAddress, "account market");
+  }
+
   async function readCapital(input = {}) {
     return scopedReadResult(await reader.readCapital(scopedContext(input)), accountAddress, "capital");
   }
@@ -323,6 +328,7 @@ export function createLpExecutionAdapter({ account, owner, operator, chain = SHA
     owner: ownerAddress,
     operator: operatorAddress,
     readAccountIdentity: readIdentity,
+    readMarket,
     readCapital,
     readOutcomeInventory,
     readOrders,
