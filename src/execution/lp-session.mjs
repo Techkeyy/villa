@@ -33,7 +33,7 @@ export const LP_SESSION_STATES = Object.freeze([
 const ACTIVE_STATES = new Set(["CREATED", "PREFLIGHT", "RUNNING", "PAUSED", "STOPPING", "SETTLEMENT_READY", "SETTLING", "ERROR"]);
 const TRANSITIONS = Object.freeze({
   CREATED: Object.freeze(["PREFLIGHT", "STOPPED", "ERROR"]),
-  PREFLIGHT: Object.freeze(["RUNNING", "STOPPING", "STOPPED", "ERROR"]),
+  PREFLIGHT: Object.freeze(["RUNNING", "STOPPING", "STOPPED", "SETTLEMENT_READY", "ERROR"]),
   RUNNING: Object.freeze(["PAUSED", "STOPPING", "ERROR"]),
   PAUSED: Object.freeze(["PREFLIGHT", "STOPPING", "ERROR"]),
   STOPPING: Object.freeze(["STOPPED", "STOPPED_CLEAN", "STOPPED_SETTLEMENT_PENDING", "ERROR"]),
@@ -77,6 +77,37 @@ function finiteMs(value, label) {
 
 function copy(value) {
   return value ? structuredClone(value) : null;
+}
+
+function sameScope(lease, session) {
+  return Boolean(lease && session)
+    && lease.account === session.account
+    && lease.owner === session.owner
+    && lease.operator === session.operator
+    && lease.sessionId === session.sessionId;
+}
+
+function sameIdentity(lease, session) {
+  return sameScope(lease, session)
+    && Boolean(session.leaseId)
+    && lease.leaseId === session.leaseId;
+}
+
+function recoveredLease(session, existing, at, leaseDurationMs) {
+  return {
+    version: "villa-account-lease-v1",
+    leaseId: `lease-${randomUUID()}`,
+    account: session.account,
+    sessionId: session.sessionId,
+    owner: session.owner,
+    operator: session.operator,
+    acquiredAt: at,
+    heartbeatAt: at,
+    expiresAt: at + leaseDurationMs,
+    recoveredExpiredLease: true,
+    recoveredLeaseId: existing.leaseId,
+    state: "HELD",
+  };
 }
 
 export function createLpExecutionSession({
@@ -152,17 +183,17 @@ export function createAccountLeaseStore({ now = () => Date.now(), leaseDurationM
   function timestamp(value) { return finiteMs(value ?? now(), "lease time"); }
   function get(account) { return copy(leases.get(address(account, "account"))); }
   function assertLease(lease, session, atMs = now()) {
-    if (!lease || lease.account !== session.account || lease.sessionId !== session.sessionId) throw new LpSessionError("LEASE_SCOPE_MISMATCH", "lease does not belong to this session");
+    if (!sameIdentity(lease, session)) throw new LpSessionError("LEASE_SCOPE_MISMATCH", "lease does not belong to this exact owner/account/operator/session authority");
     if (lease.expiresAt <= timestamp(atMs)) throw new LpSessionError("LEASE_EXPIRED", "account lease has expired");
     return lease;
   }
 
-  function acquire(session, { reconciled = false, atMs = now() } = {}) {
+  function acquire(session, { atMs = now() } = {}) {
     if (!session || session.version !== LP_SESSION_VERSION) throw new LpSessionError("SESSION_INVALID", "a valid LP session is required");
     const at = timestamp(atMs);
     const existing = leases.get(session.account);
     if (existing && existing.expiresAt > at) throw new LpSessionError("ACCOUNT_LEASE_HELD", `VillaAccount ${session.account} already has an active controller`);
-    if (existing && !reconciled) throw new LpSessionError("STALE_LEASE_REQUIRES_RECONCILIATION", "an expired account lease requires chain/venue reconciliation before recovery");
+    if (existing) throw new LpSessionError("STALE_LEASE_REQUIRES_RECONCILIATION", "an expired account lease requires the explicit scoped recovery API");
     const lease = {
       version: "villa-account-lease-v1",
       leaseId: `lease-${randomUUID()}`,
@@ -173,9 +204,23 @@ export function createAccountLeaseStore({ now = () => Date.now(), leaseDurationM
       acquiredAt: at,
       heartbeatAt: at,
       expiresAt: at + leaseDurationMs,
-      recoveredExpiredLease: Boolean(existing),
+      recoveredExpiredLease: false,
       state: "HELD",
     };
+    leases.set(session.account, lease);
+    return copy(lease);
+  }
+
+  function recoverExpired(session, { expectedLeaseId, atMs = now() } = {}) {
+    if (!session || session.version !== LP_SESSION_VERSION) throw new LpSessionError("SESSION_INVALID", "a valid LP session is required");
+    const at = timestamp(atMs);
+    const existing = leases.get(session.account);
+    if (!existing) throw new LpSessionError("RECOVERY_LEASE_REQUIRED", "no expired account lease exists for recovery");
+    if (existing.expiresAt > at) throw new LpSessionError("ACCOUNT_LEASE_HELD", `VillaAccount ${session.account} still has an active controller`);
+    if (!sameScope(existing, session) || existing.leaseId !== String(expectedLeaseId ?? "")) {
+      throw new LpSessionError("LEASE_SCOPE_MISMATCH", "recovery does not match the expired owner/account/operator/session lease");
+    }
+    const lease = recoveredLease(session, existing, at, leaseDurationMs);
     leases.set(session.account, lease);
     return copy(lease);
   }
@@ -190,9 +235,9 @@ export function createAccountLeaseStore({ now = () => Date.now(), leaseDurationM
 
   function release(session, { reconciled = false, atMs = now() } = {}) {
     if (!reconciled) throw new LpSessionError("LEASE_RELEASE_BLOCKED", "lease remains held until reconciliation is complete");
-    if (!session || !["STOPPING", "STOPPED", "ERROR"].includes(session.state)) throw new LpSessionError("LEASE_RELEASE_BLOCKED", "only a stopping or terminal session may release its lease");
+    if (!session || !["STOPPING", "STOPPED", "STOPPED_CLEAN", "STOPPED_SETTLEMENT_PENDING", "SETTLEMENT_READY", "SETTLING", "SETTLED", "WITHDRAWABLE", "ERROR"].includes(session.state)) throw new LpSessionError("LEASE_RELEASE_BLOCKED", "only a stopping or terminal session may release its lease");
     const current = leases.get(session.account);
-    if (!current || current.sessionId !== session.sessionId) throw new LpSessionError("LEASE_SCOPE_MISMATCH", "session does not own the account lease");
+    if (!sameIdentity(current, session)) throw new LpSessionError("LEASE_SCOPE_MISMATCH", "session does not own the exact account lease");
     leases.delete(session.account);
     return { released: true, account: session.account, sessionId: session.sessionId, releasedAt: timestamp(atMs) };
   }
@@ -203,6 +248,7 @@ export function createAccountLeaseStore({ now = () => Date.now(), leaseDurationM
 
   return Object.freeze({
     acquire,
+    recoverExpired,
     heartbeat,
     release,
     get,
@@ -240,22 +286,18 @@ export function createFileAccountLeaseStore({ directory, now = () => Date.now(),
     }
   }
   function assertLease(lease, session, atMs = now()) {
-    if (!lease || lease.account !== session.account || lease.sessionId !== session.sessionId) throw new LpSessionError("LEASE_SCOPE_MISMATCH", "lease does not belong to this session");
+    if (!sameIdentity(lease, session)) throw new LpSessionError("LEASE_SCOPE_MISMATCH", "lease does not belong to this exact owner/account/operator/session authority");
     if (lease.expiresAt <= timestamp(atMs)) throw new LpSessionError("LEASE_EXPIRED", "account lease has expired");
     return lease;
   }
 
-  function acquire(session, { reconciled = false, atMs = now() } = {}) {
+  function acquire(session, { atMs = now() } = {}) {
     if (!session || session.version !== LP_SESSION_VERSION) throw new LpSessionError("SESSION_INVALID", "a valid LP session is required");
     const file = fileFor(session.account);
     const at = timestamp(atMs);
     const existing = read(file);
     if (existing && existing.expiresAt > at) throw new LpSessionError("ACCOUNT_LEASE_HELD", `VillaAccount ${session.account} already has an active controller`);
-    if (existing && !reconciled) throw new LpSessionError("STALE_LEASE_REQUIRES_RECONCILIATION", "an expired account lease requires chain/venue reconciliation before recovery");
-    if (existing) {
-      const staleFile = `${file}.stale-${randomUUID()}`;
-      try { fs.renameSync(file, staleFile); fs.unlinkSync(staleFile); } catch { throw new LpSessionError("ACCOUNT_LEASE_HELD", "another controller changed the account lease during recovery"); }
-    }
+    if (existing) throw new LpSessionError("STALE_LEASE_REQUIRES_RECONCILIATION", "an expired account lease requires the explicit scoped recovery API");
     const lease = {
       version: "villa-account-lease-v1",
       leaseId: `lease-${randomUUID()}`,
@@ -266,7 +308,7 @@ export function createFileAccountLeaseStore({ directory, now = () => Date.now(),
       acquiredAt: at,
       heartbeatAt: at,
       expiresAt: at + leaseDurationMs,
-      recoveredExpiredLease: Boolean(existing),
+      recoveredExpiredLease: false,
       state: "HELD",
     };
     let handle;
@@ -281,8 +323,44 @@ export function createFileAccountLeaseStore({ directory, now = () => Date.now(),
     return copy(lease);
   }
 
+  function recoverExpired(session, { expectedLeaseId, atMs = now() } = {}) {
+    if (!session || session.version !== LP_SESSION_VERSION) throw new LpSessionError("SESSION_INVALID", "a valid LP session is required");
+    const file = fileFor(session.account);
+    const lockFile = `${file}.recovery.lock`;
+    const at = timestamp(atMs);
+    let lockHandle;
+    let temporary = null;
+    try {
+      lockHandle = fs.openSync(lockFile, "wx", 0o600);
+      const existing = read(file);
+      if (!existing) throw new LpSessionError("RECOVERY_LEASE_REQUIRED", "no expired account lease exists for recovery");
+      if (existing.expiresAt > at) throw new LpSessionError("ACCOUNT_LEASE_HELD", `VillaAccount ${session.account} still has an active controller`);
+      if (!sameScope(existing, session) || existing.leaseId !== String(expectedLeaseId ?? "")) {
+        throw new LpSessionError("LEASE_SCOPE_MISMATCH", "recovery does not match the expired owner/account/operator/session lease");
+      }
+      const lease = recoveredLease(session, existing, at, leaseDurationMs);
+      temporary = `${file}.recover-${randomUUID()}`;
+      fs.writeFileSync(temporary, JSON.stringify(lease), { encoding: "utf8", mode: 0o600, flag: "wx" });
+      const current = read(file);
+      if (!current || current.leaseId !== existing.leaseId || current.heartbeatAt !== existing.heartbeatAt || current.expiresAt !== existing.expiresAt) {
+        throw new LpSessionError("ACCOUNT_LEASE_HELD", "another controller changed the account lease during recovery");
+      }
+      fs.renameSync(temporary, file);
+      temporary = null;
+      return copy(lease);
+    } catch (error) {
+      if (error?.code === "EEXIST") throw new LpSessionError("ACCOUNT_LEASE_HELD", "another recovery controller already owns the recovery lock");
+      throw error;
+    } finally {
+      if (lockHandle !== undefined) fs.closeSync(lockHandle);
+      if (temporary) { try { fs.unlinkSync(temporary); } catch { /* best effort */ } }
+      if (lockHandle !== undefined) { try { fs.unlinkSync(lockFile); } catch { /* best effort */ } }
+    }
+  }
+
   function heartbeat(session, { atMs = now() } = {}) {
     const file = fileFor(session.account);
+    if (fs.existsSync(`${file}.recovery.lock`)) throw new LpSessionError("LEASE_RECOVERY_ACTIVE", "a scoped recovery controller is replacing the expired lease");
     const current = assertLease(read(file), session, atMs);
     const at = timestamp(atMs);
     const next = { ...current, heartbeatAt: at, expiresAt: at + leaseDurationMs };
@@ -295,7 +373,7 @@ export function createFileAccountLeaseStore({ directory, now = () => Date.now(),
     if (!session || !["STOPPING", "STOPPED", "STOPPED_CLEAN", "STOPPED_SETTLEMENT_PENDING", "SETTLEMENT_READY", "SETTLING", "SETTLED", "WITHDRAWABLE", "ERROR"].includes(session.state)) throw new LpSessionError("LEASE_RELEASE_BLOCKED", "only a stopping or terminal session may release its lease");
     const file = fileFor(session.account);
     const current = read(file);
-    if (!current || current.sessionId !== session.sessionId) throw new LpSessionError("LEASE_SCOPE_MISMATCH", "session does not own the account lease");
+    if (!sameIdentity(current, session)) throw new LpSessionError("LEASE_SCOPE_MISMATCH", "session does not own the exact account lease");
     fs.unlinkSync(file);
     return { released: true, account: session.account, sessionId: session.sessionId, releasedAt: timestamp(atMs) };
   }
@@ -304,6 +382,7 @@ export function createFileAccountLeaseStore({ directory, now = () => Date.now(),
 
   return Object.freeze({
     acquire,
+    recoverExpired,
     heartbeat,
     release,
     get,

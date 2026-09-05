@@ -51,7 +51,7 @@ function safeState(identity, publicEnabled, reason = "ACCOUNT_EXECUTION_DISABLED
       accountScope: "verified-owner-account",
       privateService: false,
     }),
-    controls: Object.freeze({ canStart: false, canPause: false, canResume: false, canStop: false, canSettle: false }),
+    controls: Object.freeze({ canStart: false, canPause: false, canResume: false, canStop: false, canSettle: false, canRecover: false }),
   });
 }
 
@@ -177,6 +177,13 @@ export function createPerAccountControl({
     return getControl(identity).settle({ caller: identity.owner });
   }
 
+  async function recover({ caller, account } = {}) {
+    const identity = await resolve({ caller, account });
+    requireV2(identity);
+    if (!accountExecutionEnabled) throw new AccountControlError("ACCOUNT_EXECUTION_DISABLED", "account execution is disabled; no recovery writer was started", 423);
+    return getControl(identity).recover({ caller: identity.owner });
+  }
+
   async function pause({ caller, account } = {}) {
     const identity = await resolve({ caller, account });
     requireV2(identity);
@@ -192,5 +199,5 @@ export function createPerAccountControl({
     return getControl(identity).resume({ caller: identity.owner });
   }
 
-  return Object.freeze({ getState, start, stop, settle, pause, resume });
+  return Object.freeze({ getState, start, stop, settle, recover, pause, resume });
 }

@@ -140,6 +140,7 @@ export function createUatAccountControl({
   spawnImpl = spawn,
   commandRunner = execFile,
   readyTimeoutMs = 30_000,
+  recoveryTimeoutMs = 180_000,
   pollMs = 250,
 } = {}) {
   const owner = normalizeAddress(env.VILLA_ENGINE_OWNER, "VILLA_ENGINE_OWNER");
@@ -176,7 +177,7 @@ export function createUatAccountControl({
   }
 
   function serviceCommand(action, sessionId) {
-    if (!["start", "stop", "settle"].includes(action) || !SESSION_RE.test(String(sessionId))) {
+    if (!["start", "stop", "settle", "recover"].includes(action) || !SESSION_RE.test(String(sessionId))) {
       throw new AccountControlError("UAT_SERVICE_SCOPE_INVALID", "the private UAT service operation is outside the fixed scope", 403);
     }
     const args = [action, sessionId];
@@ -209,6 +210,7 @@ export function createUatAccountControl({
         canResume: launchMode === "process" && Boolean(child) && state === "PAUSED",
         canStop: Boolean(child || activeSessionId) && ["STARTING", "RUNNING", "PAUSED", "ERROR", "STOPPING"].includes(state),
         canSettle: enabled && launchMode === "systemd" && Boolean(activeSessionId) && ["STOPPED_SETTLEMENT_PENDING", "SETTLEMENT_READY"].includes(state),
+        canRecover: enabled && launchMode === "systemd" && Boolean(activeSessionId) && state === "ERROR",
       }),
     });
   }
@@ -237,6 +239,7 @@ export function createUatAccountControl({
         return;
       }
       applyExternal(external);
+      return external;
     } catch {
       // A missing file during service startup is not a successful session.
     }
@@ -341,6 +344,17 @@ export function createUatAccountControl({
       await delay(pollMs);
     }
     throw new AccountControlError("SETTLEMENT_TIMEOUT", "the private settlement worker did not finish in time", 503);
+  }
+
+  async function waitForRecovery(sessionId, requestedAt) {
+    const deadline = Date.now() + recoveryTimeoutMs;
+    while (Date.now() < deadline) {
+      const external = await syncExternal();
+      if (["STOPPED_CLEAN", "STOPPED_SETTLEMENT_PENDING", "SETTLEMENT_READY", "SETTLED"].includes(state)) return publicState();
+      if (state === "ERROR" && Number(external?.updatedAt ?? 0) >= requestedAt) throw new AccountControlError(lastError?.code ?? "SESSION_RECOVERY_FAILED", lastError?.message ?? "The private recovery worker failed.", 409);
+      await delay(pollMs);
+    }
+    throw new AccountControlError("SESSION_RECOVERY_TIMEOUT", "the private recovery worker did not finish in time", 503);
   }
 
   async function start({ caller = null } = {}) {
@@ -449,6 +463,19 @@ export function createUatAccountControl({
     return waitForSettlement(activeSessionId);
   }
 
+  async function recover({ caller = null } = {}) {
+    assertCaller(caller);
+    if (launchMode !== "systemd") throw new AccountControlError("RECOVERY_PRIVATE_SERVICE_REQUIRED", "expired-session recovery requires the private systemd boundary", 503);
+    await recoverExternal();
+    await syncExternal();
+    if (!activeSessionId || state !== "ERROR") throw new AccountControlError("SESSION_RECOVERY_NOT_REQUIRED", "there is no errored account session requiring recovery", 409);
+    const requestedAt = Date.now();
+    state = "STOPPING";
+    lastError = null;
+    await serviceCommand("recover", activeSessionId);
+    return waitForRecovery(activeSessionId, requestedAt);
+  }
+
   async function pause({ caller = null } = {}) {
     assertCaller(caller);
     if (launchMode !== "process" || !child || state !== "RUNNING") throw new AccountControlError("SESSION_NOT_RUNNING", "VILLA is not running", 409);
@@ -471,6 +498,7 @@ export function createUatAccountControl({
     start,
     stop,
     settle,
+    recover,
     pause,
     resume,
   });

@@ -242,6 +242,12 @@ export function createOperatorApiServer({
           send(response, 202, await accountControl.settle({ caller: session.address, account: accountFromBody(body) }), origin, origins);
           return;
         }
+        if (url.pathname === "/account/session/recover") {
+          if (!accountControl) { send(response, 404, { error: "Account control is not enabled." }, origin, origins); return; }
+          rejectArbitraryTransactionPayload(body);
+          send(response, 202, await accountControl.recover({ caller: session.address, account: accountFromBody(body) }), origin, origins);
+          return;
+        }
       }
       send(response, 404, { error: "Operator route not found." }, origin, origins);
     } catch (error) {

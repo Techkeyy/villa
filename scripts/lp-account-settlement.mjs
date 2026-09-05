@@ -15,6 +15,7 @@ import { createLpExecutionAdapter, createViemLpAccountReader } from "../src/exec
 import { createAccountBoundPrivateWriter } from "../src/execution/lp-private-writer.mjs";
 import { reconcileDurableJournal } from "../src/execution/lp-recovery.mjs";
 import { createFileAccountLeaseStore, createLpExecutionSession, transitionLpSession, attachLease } from "../src/execution/lp-session.mjs";
+import { createLeaseHeartbeat, LP_LEASE_DURATION_MS, LP_LEASE_HEARTBEAT_INTERVAL_MS } from "../src/execution/lp-lease-heartbeat.mjs";
 import { DEFAULT_PHASE_3B1_CAPS, createLpTransactionPolicy } from "../src/execution/lp-transaction-policy.mjs";
 import { loadPrivateSigner } from "../src/execution/lp-private-runtime.mjs";
 import { assessSessionSettlement, classifySessionPnl } from "../src/settlement/session-lifecycle.mjs";
@@ -162,9 +163,12 @@ async function main() {
     return;
   }
   const sessionBase = createLpExecutionSession({ sessionId: config.sessionId, account: config.account, owner: config.owner, operator: config.operator, chainId: 50312, marketSeries: restored.marketSeries, currentMarketId: restored.marketId, riskPolicyVersion: "villa-risk-v1", executionMode: "WET", createdAt: Date.now(), maxSessionDurationSec: DEFAULT_PHASE_3B1_CAPS.MAX_SESSION_DURATION_SEC });
-  const preflightSession = transitionLpSession(sessionBase, "PREFLIGHT");
-  const leaseStore = createFileAccountLeaseStore({ directory: env.VILLA_LEASE_DIR || env.VILLA_STATE_DIR || "/var/lib/villa-engine", leaseDurationMs: 30_000 });
-  const lease = leaseStore.acquire(preflightSession, { reconciled: true });
+  let preflightSession = transitionLpSession(sessionBase, "PREFLIGHT");
+  const leaseStore = createFileAccountLeaseStore({ directory: env.VILLA_LEASE_DIR || env.VILLA_STATE_DIR || "/var/lib/villa-engine", leaseDurationMs: LP_LEASE_DURATION_MS });
+  const lease = leaseStore.acquire(preflightSession);
+  preflightSession = attachLease(preflightSession, lease);
+  const heartbeat = createLeaseHeartbeat({ leaseStore, session: preflightSession, lease, leaseDurationMs: LP_LEASE_DURATION_MS, intervalMs: LP_LEASE_HEARTBEAT_INTERVAL_MS, onFailure: (error) => send(env, { type: "error", code: "ACCOUNT_LEASE_LOST", message: `Settlement lease heartbeat failed; no further writes are allowed. ${error.message}` }) });
+  heartbeat.start();
   let writer = null;
   try {
     const signerInfo = loadPrivateSigner({ credentialsDirectory: env.CREDENTIALS_DIRECTORY, expectedOperator: config.operator });
@@ -172,7 +176,7 @@ async function main() {
     const readySession = transitionLpSession(preflightSession, "SETTLEMENT_READY");
     const running = transitionLpSession(readySession, "SETTLING");
     const walletClient = createWalletClient({ account: signerInfo.signer, chain: somniaShannon, transport: http(env.RPC_URL || VILLA_ACCOUNT_CONFIG.rpcUrl, { timeout: 15_000 }) });
-    writer = createAccountBoundPrivateWriter({ session: running, lease: { ...lease, held: true }, policy, signer: signerInfo.signer, publicClient, walletClient, executionEnabled: true, readLatestNonce: () => publicClient.getTransactionCount({ address: signerInfo.address, blockTag: "latest" }), readPendingNonce: () => publicClient.getTransactionCount({ address: signerInfo.address, blockTag: "pending" }), readReceipt: (hash) => publicClient.getTransactionReceipt({ hash }), journalPath });
+    writer = createAccountBoundPrivateWriter({ session: running, lease: heartbeat.authority, policy, signer: signerInfo.signer, publicClient, walletClient, executionEnabled: true, readLatestNonce: () => publicClient.getTransactionCount({ address: signerInfo.address, blockTag: "latest" }), readPendingNonce: () => publicClient.getTransactionCount({ address: signerInfo.address, blockTag: "pending" }), readReceipt: (hash) => publicClient.getTransactionReceipt({ hash }), journalPath });
     send(env, { type: "state", state: "SETTLING", session: { ...restored.session, state: "SETTLING" }, snapshot: { marketId: restored.marketId, intervalSec: Number(String(restored.marketSeries).split(":").pop()), collateralRaw: accountState.capital.directCollateralRaw, yesRaw: accountState.inventory.yesRaw, noRaw: accountState.inventory.noRaw, trackedYesRaw: restored.tracked.yesRaw, trackedNoRaw: restored.tracked.noRaw, startingValueRaw: restored.startingValueRaw, pendingSettlement: null, settlement, lastAction: "settlement_submitting" } });
     let txIndex = 0;
     for (const leg of settlement.plan.legs.filter((item) => item.action === "REDEEM")) {
@@ -180,6 +184,7 @@ async function main() {
       const prepared = policy.prepare({ ...plan, accountCapitalRaw: accountState.capital.directCollateralRaw }, { txIndex, createdAt: Date.now() });
       const validation = policy.validate(prepared, { nowMs: Date.now() });
       if (!validation.allowed) fail(validation.code ?? "POLICY_DENIED", validation.reason ?? "the settlement claim was denied by policy");
+      heartbeat.renewNow();
       const record = await writer.enqueue(prepared);
       if (record.state !== "CONFIRMED") fail("REDEEM_NOT_CONFIRMED", "settlement did not return an authoritative receipt");
       txIndex += 1;
@@ -191,12 +196,15 @@ async function main() {
     const pnl = classifySessionPnl({ startingValueRaw: restored.startingValueRaw, endingValueRaw: finalValueRaw });
     const terminalSession = { ...restored.session, state: "SETTLED", stoppedAt: Date.now() };
     leaseStore.release({ ...running, state: "SETTLED" }, { reconciled: true });
+    heartbeat.authority.held = false;
+    heartbeat.stop();
     send(env, { type: "result", session: terminalSession, result: { status: "SETTLED", marketId: restored.marketId, settlement, startingValueRaw: restored.startingValueRaw, finalValueRaw, pendingValueRaw: 0n, pnl } });
     send(env, { type: "state", state: "SETTLED", session: terminalSession, snapshot: { marketId: restored.marketId, intervalSec: Number(String(restored.marketSeries).split(":").pop()), collateralRaw: after.capital.directCollateralRaw, yesRaw: after.inventory.yesRaw, noRaw: after.inventory.noRaw, trackedYesRaw: restored.tracked.yesRaw, trackedNoRaw: restored.tracked.noRaw, startingValueRaw: restored.startingValueRaw, pendingSettlement: null, settlement, pnl, lastAction: "settlement_confirmed" } });
   } finally {
+    heartbeat.stop();
     writer?.close?.();
     if (writer === null) {
-      try { leaseStore.release(preflightSession, { reconciled: true }); } catch { /* retain a lease if setup failed before a safe terminal state */ }
+      try { leaseStore.release(transitionLpSession(preflightSession, "STOPPED"), { reconciled: true }); } catch { /* retain a lease if setup failed before a safe terminal state */ }
     }
   }
 }

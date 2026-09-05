@@ -77,11 +77,12 @@ test("expired lease recovery requires reconciliation and cannot transfer control
   clock = 1200;
   assert.throws(() => leases.acquire(session(), { atMs: clock }), { code: "STALE_LEASE_REQUIRES_RECONCILIATION" });
   const recovered = session(ACCOUNT_A, clock);
-  const recoveredLease = leases.acquire(recovered, { atMs: clock, reconciled: true });
+  const recoveredLease = leases.recoverExpired(recovered, { atMs: clock, expectedLeaseId: oldLease.leaseId });
   assert.equal(recoveredLease.recoveredExpiredLease, true);
-  assert.throws(() => leases.assertHeld({ ...recovered, account: ACCOUNT_B }), { code: "LEASE_SCOPE_MISMATCH" });
+  const attached = attachLease(recovered, recoveredLease);
+  assert.throws(() => leases.assertHeld({ ...attached, account: ACCOUNT_B }), { code: "LEASE_SCOPE_MISMATCH" });
   assert.throws(() => leases.release(recovered, { reconciled: false }), { code: "LEASE_RELEASE_BLOCKED" });
-  const stopped = transitionLpSession(transitionLpSession(recovered, "PREFLIGHT", { atMs: 1210 }), "STOPPED", { atMs: 1220 });
+  const stopped = transitionLpSession(transitionLpSession(attached, "PREFLIGHT", { atMs: 1210 }), "STOPPED", { atMs: 1220 });
   assert.equal(leases.release(stopped, { reconciled: true, atMs: 1220 }).released, true);
   assert.equal(leases.has(ACCOUNT_A), false);
   assert.equal(oldLease.account, ACCOUNT_A);
@@ -104,14 +105,15 @@ test("durable lease files enforce one controller across independent stores and r
     const firstStore = createFileAccountLeaseStore({ directory, now: () => clock, leaseDurationMs: 100 });
     const secondStore = createFileAccountLeaseStore({ directory, now: () => clock, leaseDurationMs: 100 });
     const first = session();
-    firstStore.acquire(first);
+    const firstLease = firstStore.acquire(first);
     assert.throws(() => secondStore.acquire(session()), { code: "ACCOUNT_LEASE_HELD" });
     clock = 1200;
     assert.throws(() => secondStore.acquire(session(), { atMs: clock }), { code: "STALE_LEASE_REQUIRES_RECONCILIATION" });
     const recovered = session(ACCOUNT_A, clock);
-    const lease = secondStore.acquire(recovered, { atMs: clock, reconciled: true });
+    const lease = secondStore.recoverExpired(recovered, { atMs: clock, expectedLeaseId: firstLease.leaseId });
     assert.equal(lease.recoveredExpiredLease, true);
-    const stopped = transitionLpSession(transitionLpSession(recovered, "PREFLIGHT", { atMs: 1210 }), "STOPPED", { atMs: 1220 });
+    const attached = attachLease(recovered, lease);
+    const stopped = transitionLpSession(transitionLpSession(attached, "PREFLIGHT", { atMs: 1210 }), "STOPPED", { atMs: 1220 });
     secondStore.release(stopped, { reconciled: true, atMs: 1220 });
     assert.equal(firstStore.has(ACCOUNT_A), false);
   } finally {

@@ -4,7 +4,7 @@
  * the policy-approved writer and fresh reconciliation reads.
  */
 
-import { LP_SESSION_STATES, assertLpSessionScope, transitionLpSession } from "./lp-session.mjs";
+import { LP_SESSION_STATES, assertLpSessionScope, transitionLpSession, attachLease } from "./lp-session.mjs";
 import { evaluateWetExecutionPreflight } from "./lp-preflight.mjs";
 import { assertReconciledForLeaseRelease } from "./lp-reconciliation.mjs";
 
@@ -37,7 +37,7 @@ export function createLpSessionController({
 } = {}) {
   if (!session || !leaseStore || !lease) throw new LpControlError("CONTROL_INVALID", "session and account lease are required");
   if (typeof reconcile !== "function") throw new LpControlError("RECONCILIATION_REQUIRED", "fresh reconciliation callback is required");
-  let current = session;
+  let current = session.leaseId ? session : attachLease(session, lease);
   let heldLease = lease;
   let lastReconciliation = null;
 

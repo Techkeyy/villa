@@ -10,7 +10,7 @@ const SOCKET_PATH = process.env.VILLA_UAT_BROKER_SOCKET || "/run/villa-uat-broke
 const BINDING_DIR = "/run/villa-uat-bindings";
 const SESSION_RE = /^uat-[0-9]+-[0-9a-f]{8}$/;
 const ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
-const ACTIONS = new Set(["start", "stop", "settle"]);
+const ACTIONS = new Set(["start", "stop", "settle", "recover"]);
 const verifyAccount = createOnChainAccountVerifier({ env: { ...process.env, VILLA_ENGINE_OPERATOR: "0xaf4ee6C0c6Ff6337F4C4F07b87C8343dF73e8d37" } });
 
 function validAddress(value) {
@@ -56,7 +56,22 @@ async function writeBinding(sessionId, owner, account) {
 }
 
 async function runSystemd(action, sessionId) {
-  const unit = action === "settle" ? `villa-engine-uat-settle@${sessionId}.service` : `villa-engine-uat@${sessionId}.service`;
+  const unit = action === "settle"
+    ? `villa-engine-uat-settle@${sessionId}.service`
+    : action === "recover"
+      ? `villa-engine-uat-recover@${sessionId}.service`
+      : `villa-engine-uat@${sessionId}.service`;
+  if (action === "recover") {
+    try {
+      await execFileAsync("/usr/bin/systemctl", ["is-active", "--quiet", `villa-engine-uat@${sessionId}.service`], { windowsHide: true });
+      throw new Error("the original session worker is still active");
+    } catch (error) {
+      if (error?.message === "the original session worker is still active") throw error;
+      if (Number(error?.code) !== 3) throw error;
+    }
+    await execFileAsync("/usr/bin/systemctl", ["start", "--no-block", unit], { windowsHide: true });
+    return;
+  }
   const verb = action === "settle" ? "start" : action;
   await execFileAsync("/usr/bin/systemctl", [verb, unit], { windowsHide: true });
 }
@@ -72,7 +87,7 @@ async function handle(socket, raw) {
     return;
   }
   try {
-    if (action === "start" || action === "settle") await verifyAccount({ caller: owner, account, requireOperator: true });
+    if (action === "start" || action === "settle" || action === "recover") await verifyAccount({ caller: owner, account, requireOperator: true });
     if (action === "start") await writeBinding(sessionId, owner.toLowerCase(), account.toLowerCase());
     else await assertExistingBinding(sessionId, owner, account);
     await runSystemd(action, sessionId);

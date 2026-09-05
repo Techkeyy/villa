@@ -336,6 +336,7 @@ test("optional account control routes are wallet-authenticated and reject arbitr
       async start(input) { calls.push(["start", input]); return { state: "RUNNING" }; },
       async stop(input) { calls.push(["stop", input]); return { state: "STOPPED" }; },
       async settle(input) { calls.push(["settle", input]); return { state: "SETTLED" }; },
+      async recover(input) { calls.push(["recover", input]); return { state: "STOPPED_CLEAN" }; },
     },
     allowedOrigins: ["http://allowed.test"],
   });
@@ -362,7 +363,13 @@ test("optional account control routes are wallet-authenticated and reject arbitr
     const arbitrarySettle = await request(base, "/account/session/settle", { method: "POST", token, body: { account: villaAccount, destination: account.address } });
     assert.equal(arbitrarySettle.status, 400);
     assert.equal(arbitrarySettle.body.code, "ARBITRARY_CALL_DENIED");
-    assert.equal(calls.length, 3);
+    const recovered = await request(base, "/account/session/recover", { method: "POST", token, body: { account: villaAccount } });
+    assert.equal(recovered.status, 202);
+    assert.equal(calls[3][0], "recover");
+    const arbitraryRecover = await request(base, "/account/session/recover", { method: "POST", token, body: { account: villaAccount, calldata: "0x1234" } });
+    assert.equal(arbitraryRecover.status, 400);
+    assert.equal(arbitraryRecover.body.code, "ARBITRARY_CALL_DENIED");
+    assert.equal(calls.length, 4);
   } finally {
     server.close();
   }

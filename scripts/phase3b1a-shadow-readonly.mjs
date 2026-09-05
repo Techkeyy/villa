@@ -167,7 +167,7 @@ async function main() {
   const sessionBase = createLpExecutionSession({ sessionId: `phase3b1a-shadow-${selected.marketId.slice(-8)}`, account: ACCOUNT, owner: OWNER, operator: OPERATOR, marketSeries: MARKET_SERIES, currentMarketId: selected.marketId, riskPolicyVersion: decision.governorVersion, executionMode: "WET", createdAt: Date.now() });
   const session = transitionLpSession(sessionBase, "PREFLIGHT");
   const leases = createAccountLeaseStore();
-  const lease = leases.acquire(session, { reconciled: true });
+  const lease = leases.acquire(session);
   const policy = createLpTransactionPolicy({ session, caps: DEFAULT_PHASE_3B1_CAPS, now: () => Date.now() });
   const shadow = buildLpShadowPlan({ adapter, accountState, readinessInput, market: { marketId: selected.marketId }, decision, quotePlan, orderExpiryNs: BigInt(Math.floor(selected.expirySec - 2)) * 1_000_000_000n, transactionPolicy: policy, txIndexStart: 0, createdAtMs: Date.now() });
   const preflight = evaluateWetExecutionPreflight({

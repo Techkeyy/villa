@@ -323,7 +323,7 @@ export async function runPrivateLpOneShot({ env = process.env, args = {}, depend
     const reconciliation = reconcileLpSession({ session, accountState: accountStateForPreflight({ account: config.account, owner: config.owner, operator: config.operator, accountState }), market: { marketId: config.marketId, series: config.marketSeries }, orders: accountStateForPreflight({ account: config.account, owner: config.owner, operator: config.operator, accountState }).orders, inventory: accountStateForPreflight({ account: config.account, owner: config.owner, operator: config.operator, accountState }).inventory, transactions: journal.records, risk: { state: shadow.risk.state } });
     if (reconciliation.status !== "RECONCILED") fail("RECONCILIATION_REQUIRED", "authoritative account reconciliation did not pass");
     const leaseStore = dependencies.leaseStore ?? createFileAccountLeaseStore({ directory: env.VILLA_LEASE_DIR || env.VILLA_STATE_DIR || "/var/lib/villa-engine", leaseDurationMs: 30_000 });
-    const lease = leaseStore.acquire(session, { reconciled: true });
+    const lease = leaseStore.acquire(session);
     let activeSession = attachLease(session, lease);
     try {
       const preflight = evaluateWetExecutionPreflight(preflightInput({ config, session: activeSession, lease, feasibility, accountState, protocol, signerAddress: signerInfo.address, reconciliation }));

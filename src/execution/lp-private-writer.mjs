@@ -97,6 +97,8 @@ export function createAccountBoundPrivateWriter({
   if (!session || typeof session.account !== "string" || typeof session.operator !== "string") throw new LpPrivateWriterError("SESSION_REQUIRED", "an immutable account-bound session is required");
   const leaseIsHeld = () => Boolean(lease?.held) &&
     String(lease.account ?? "").toLowerCase() === session.account.toLowerCase() &&
+    String(lease.owner ?? "").toLowerCase() === session.owner.toLowerCase() &&
+    String(lease.operator ?? "").toLowerCase() === session.operator.toLowerCase() &&
     String(lease.sessionId ?? "") === String(session.sessionId ?? "") &&
     (!session.leaseId || String(lease.leaseId ?? "") === String(session.leaseId)) &&
     (lease.state === undefined || lease.state === "HELD") &&
@@ -226,6 +228,7 @@ export function createAccountBoundPrivateWriter({
       // allowlisted function and typed arguments. No caller-supplied target,
       // selector, calldata, or native value reaches this closure.
       const simulation = await publicClient.simulateContract({ account: signer, address: session.account, abi: VILLA_ACCOUNT_OPERATOR_ABI, functionName: plan.functionName, args: plan.args, value: 0n });
+      if (!leaseIsHeld()) throw new LpPrivateWriterError("ACCOUNT_LEASE_REQUIRED", "the account lease was lost before broadcast");
       txHash = await walletClient.writeContract({ ...(simulation.request ?? { address: session.account, abi: VILLA_ACCOUNT_OPERATOR_ABI, functionName: plan.functionName, args: plan.args, value: 0n }), account: signer, chain: walletClient.chain, nonce: txNonce });
       if (!txHash || typeof txHash !== "string") throw Object.assign(new Error("private wallet returned no transaction hash"), { uncertain: true, code: "UNKNOWN" });
       const current = records.get(provisionalHash);
@@ -233,6 +236,12 @@ export function createAccountBoundPrivateWriter({
       records.set(txHash, { ...current, hash: txHash, sentAt: now(), updatedAt: now() });
       persist();
     } catch (error) {
+      if (!txHash && error?.code === "ACCOUNT_LEASE_REQUIRED") {
+        records.delete(provisionalHash);
+        nextNonce = txNonce;
+        persist();
+        throw error;
+      }
       if (uncertain(error)) {
         halted = true;
         update(provisionalHash, { state: "UNKNOWN", reason: "broadcast outcome is uncertain", errorCode: error?.code ?? "UNKNOWN" });

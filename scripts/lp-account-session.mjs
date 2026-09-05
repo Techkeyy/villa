@@ -28,6 +28,7 @@ import { createAccountBoundPrivateWriter } from "../src/execution/lp-private-wri
 import { evaluateWetExecutionPreflight } from "../src/execution/lp-preflight.mjs";
 import { reconcileLpSession } from "../src/execution/lp-reconciliation.mjs";
 import { attachLease, createFileAccountLeaseStore, createLpExecutionSession, transitionLpSession } from "../src/execution/lp-session.mjs";
+import { createLeaseHeartbeat, LP_LEASE_DURATION_MS, LP_LEASE_HEARTBEAT_INTERVAL_MS } from "../src/execution/lp-lease-heartbeat.mjs";
 import { DEFAULT_PHASE_3B1_CAPS, createLpTransactionPolicy } from "../src/execution/lp-transaction-policy.mjs";
 import { loadPrivateSigner } from "../src/execution/lp-private-runtime.mjs";
 import { assessSessionSettlement, classifySessionPnl } from "../src/settlement/session-lifecycle.mjs";
@@ -37,6 +38,8 @@ const BYTES32_RE = /^0x[0-9a-fA-F]{64}$/;
 const SESSION_RE = /^uat-\d+-[0-9a-f]{8}$/;
 const POLL_MS = 5_000;
 const MIN_HEADROOM_SEC = 120;
+// Manual-UAT safety boundary only. The persistent production orchestrator must
+// roll markets without requiring an owner restart and does not inherit this cap.
 const MAX_SESSION_SEC = 900;
 const OPERATOR_ABI = Object.freeze([{ type: "function", name: "isOperator", stateMutability: "view", inputs: [{ name: "owner", type: "address" }, { name: "spender", type: "address" }], outputs: [{ type: "bool" }] }]);
 const ALLOWANCE_ABI = Object.freeze([{ type: "function", name: "allowance", stateMutability: "view", inputs: [{ name: "owner", type: "address" }, { name: "spender", type: "address" }], outputs: [{ type: "uint256" }] }]);
@@ -188,6 +191,8 @@ async function main() {
   process.once("SIGINT", () => requestStop("SERVICE_STOP"));
   let writer = null;
   let lease = null;
+  let leaseHeartbeat = null;
+  let leaseFailure = null;
   let session = null;
   let txIndex = 0;
   let initialCollateralRaw = null;
@@ -272,11 +277,25 @@ async function main() {
 
     const sessionBase = createLpExecutionSession({ sessionId: config.sessionId, account: config.account, owner: config.owner, operator: config.operator, chainId: 50312, marketSeries: selected.series, currentMarketId: selected.marketId, riskPolicyVersion: projected.projectedDecision.governorVersion, executionMode: "WET", createdAt: Date.now(), maxSessionDurationSec: MAX_SESSION_SEC });
     session = transitionLpSession(sessionBase, "PREFLIGHT");
-    lease = leaseStore.acquire(session, { reconciled: true });
+    lease = leaseStore.acquire(session);
+    session = attachLease(session, lease);
+    leaseHeartbeat = createLeaseHeartbeat({
+      leaseStore,
+      session,
+      lease,
+      leaseDurationMs: LP_LEASE_DURATION_MS,
+      intervalMs: LP_LEASE_HEARTBEAT_INTERVAL_MS,
+      onFailure: (error) => {
+        leaseFailure = error;
+        requestStop("LEASE_HEARTBEAT_FAILED");
+        send({ type: "error", code: "ACCOUNT_LEASE_LOST", message: `Lease heartbeat failed; new risk is disabled and scoped recovery is required. ${error.message}` });
+      },
+    });
+    leaseHeartbeat.start();
     const accountForPreflight = { account: config.account, owner: config.owner, operator: config.operator, capital: accountState.capital, inventory: accountState.inventory, orders: accountState.orders };
     const reconciliation = reconcileLpSession({ session, accountState: accountForPreflight, market: { marketId: selected.marketId, series: selected.series }, orders: accountState.orders, inventory: { ...accountState.inventory, status: "VERIFIED" }, transactions: [], risk: { state: projected.projectedDecision.state } });
     const preflight = evaluateWetExecutionPreflight({
-      nowMs: Date.now(), session, lease: { ...lease, held: true }, chain: { id: 50312 }, executionEnabled: true,
+      nowMs: Date.now(), session, lease: leaseHeartbeat.authority, chain: { id: 50312 }, executionEnabled: true,
       account: { address: config.account, owner: config.owner, operator: config.operator, runtimeVerified: true }, owner: { address: config.owner, verified: true }, operator: { configuredAddress: config.operator, signerAddress: signerInfo.address }, capital: { collateralRaw: initialCollateralRaw },
       market: { marketId: selected.marketId, series: selected.series, status: 1, valid: true, current: true, currentMarketId: selected.marketId }, orders: accountState.orders, inventory: { ...accountState.inventory, status: "VERIFIED" }, reconciliation,
       permissions: {
@@ -290,6 +309,7 @@ async function main() {
     if (!preflight.allowed || !reconciliation.safeToStart) fail("ACCOUNT_PREFLIGHT_BLOCKED", `the fresh account preflight did not pass: ${(preflight.reasons ?? []).join(",") || reconciliation.reasons.join(",")}`);
     const policy = createLpTransactionPolicy({ session, caps: DEFAULT_PHASE_3B1_CAPS });
     const enqueue = async (plan, { openOrderCount = 0, pendingExposureRaw = 0n } = {}) => {
+      leaseHeartbeat.renewNow();
       const prepared = policy.prepare({ ...plan, accountCapitalRaw: initialCollateralRaw, openOrderCount, pendingExposureRaw }, { txIndex, createdAt: Date.now() });
       const validation = policy.validate(prepared, { nowMs: Date.now() });
       if (!validation.allowed) fail(validation.code ?? "POLICY_DENIED", validation.reason ?? "the bounded policy refused the action");
@@ -297,8 +317,8 @@ async function main() {
       return writer.enqueue(prepared);
     };
     const walletClient = (await import("viem")).createWalletClient({ account: signerInfo.signer, chain: somniaShannon, transport: http(env.RPC_URL || VILLA_ACCOUNT_CONFIG.rpcUrl, { timeout: 15_000 }) });
-    writer = createAccountBoundPrivateWriter({ session: transitionLpSession(session, "RUNNING"), lease: { ...lease, held: true }, policy, signer: signerInfo.signer, publicClient, walletClient, executionEnabled: true, readLatestNonce: () => publicClient.getTransactionCount({ address: signerInfo.address, blockTag: "latest" }), readPendingNonce: () => publicClient.getTransactionCount({ address: signerInfo.address, blockTag: "pending" }), readReceipt: (hash) => publicClient.getTransactionReceipt({ hash }), journalPath });
     session = transitionLpSession(session, "RUNNING");
+    writer = createAccountBoundPrivateWriter({ session, lease: leaseHeartbeat.authority, policy, signer: signerInfo.signer, publicClient, walletClient, executionEnabled: true, readLatestNonce: () => publicClient.getTransactionCount({ address: signerInfo.address, blockTag: "latest" }), readPendingNonce: () => publicClient.getTransactionCount({ address: signerInfo.address, blockTag: "pending" }), readReceipt: (hash) => publicClient.getTransactionReceipt({ hash }), journalPath });
     send({ type: "ready", session: { sessionId: session.sessionId, account: session.account, owner: session.owner, operator: session.operator, marketSeries: session.marketSeries, currentMarketId: session.currentMarketId } });
     send({ type: "state", state: "RUNNING", session });
     emitSnapshot("preflight_passed");
@@ -349,6 +369,8 @@ async function main() {
       emitSnapshot(reason, pnl);
       session = transitionLpSession(session, settlement.state === "STOPPED_CLEAN" ? "STOPPED_CLEAN" : settlement.state, { atMs: Date.now() });
       leaseStore.release(session, { reconciled: true });
+      leaseHeartbeat.authority.held = false;
+      leaseHeartbeat.stop();
       send({ type: "result", session, result: { status: session.state, reason, pnl, startingValueRaw, finalValueRaw, pendingValueRaw, ordersPlaced: 1, fills: pending ? "UNRESOLVED_OR_FILLED" : "NONE_CONFIRMED", marketId: selected.marketId, intervalSec: selected.intervalSec, pendingSettlement: pending, settlement } });
       send({ type: "state", state: session.state, session });
     };
@@ -365,11 +387,14 @@ async function main() {
       if (stopSignal.requested) break;
       await sleep(POLL_MS);
     }
+    if (leaseFailure) fail("ACCOUNT_LEASE_LOST", "lease renewal failed; the worker stopped all new writes and requires scoped recovery");
     await cleanup(stopSignal.reason || "OWNER_STOP");
   } catch (error) {
-    send({ type: "error", code: error?.code ?? "UAT_SESSION_FAILED", message: error?.message ?? "The private UAT session failed." });
+    const lostLease = leaseHeartbeat?.getState?.().healthy === false;
+    send({ type: "error", code: lostLease ? "ACCOUNT_LEASE_LOST" : (error?.code ?? "UAT_SESSION_FAILED"), message: lostLease ? "Lease authority was lost; no further writes are allowed and owner/account-scoped recovery is required." : (error?.message ?? "The private UAT session failed.") });
     process.exitCode = 1;
   } finally {
+    leaseHeartbeat?.stop?.();
     writer?.close?.();
     await exchange.close().catch(() => undefined);
   }

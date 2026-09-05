@@ -275,7 +275,7 @@ export async function runPrivateLpCleanup({ env = process.env, args = {}, depend
     const session = transitionLpSession(sessionBase, "PREFLIGHT");
     const existingLease = leaseStore.get(config.account);
     if (existingLease && Number(existingLease.expiresAt) > Date.now()) fail("ACCOUNT_LEASE_HELD", "an active account lease already exists");
-    lease = leaseStore.acquire(session, { reconciled: true });
+    lease = leaseStore.acquire(session);
     activeSession = attachLease(session, lease);
 
     journal = await reconcileDurableJournal({ journalPath, publicClient, config });

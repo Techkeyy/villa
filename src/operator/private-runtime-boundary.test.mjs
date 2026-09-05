@@ -15,11 +15,12 @@ import {
 const ROOT = path.resolve(fileURLToPath(new URL("../..", import.meta.url)));
 const sessionUnit = PRIVATE_DEPLOYMENT_FILES["etc/systemd/system/villa-engine-uat@.service"];
 const settlementUnit = PRIVATE_DEPLOYMENT_FILES["etc/systemd/system/villa-engine-uat-settle@.service"];
+const recoveryUnit = PRIVATE_DEPLOYMENT_FILES["etc/systemd/system/villa-engine-uat-recover@.service"];
 const brokerUnit = PRIVATE_DEPLOYMENT_FILES["etc/systemd/system/villa-uat-broker.service"];
 const wrapper = PRIVATE_DEPLOYMENT_FILES["usr/local/libexec/villa-uat-control"];
 
 test("private services are pinned to the root-controlled runtime and private state", () => {
-  for (const unit of [sessionUnit, settlementUnit]) {
+  for (const unit of [sessionUnit, settlementUnit, recoveryUnit]) {
     assert.match(unit, new RegExp(`WorkingDirectory=${PRIVATE_RUNTIME_ROOT}`));
     assert.match(unit, new RegExp(`ExecStart=/usr/bin/node ${PRIVATE_RUNTIME_ROOT}/`));
     assert.doesNotMatch(unit, /--jitless/);
@@ -83,6 +84,7 @@ test("private bundle entrypoints and specs contain no public-writable runtime pa
     "scripts/lp-account-session-service.mjs",
     "scripts/lp-account-session.mjs",
     "scripts/lp-account-settlement.mjs",
+    "scripts/lp-account-recovery.mjs",
   ]);
   for (const entry of PRIVATE_RUNTIME_ENTRIES) {
     const source = fs.readFileSync(path.join(ROOT, entry), "utf8");

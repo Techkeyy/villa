@@ -235,3 +235,23 @@ test("latest/pending nonce conflict halts before a second wallet invocation", as
   assert.equal(writes, 1);
   assert.equal(writer.getState().halted, true);
 });
+
+test("heartbeat authority loss during simulation prevents a new risk broadcast", async () => {
+  const privateKey = generatePrivateKey();
+  const account = privateKeyToAccount(privateKey);
+  const authority = lease(account.address);
+  let writes = 0;
+  const writer = createAccountBoundPrivateWriter({
+    session: session(account.address),
+    lease: authority,
+    policy: policy(),
+    signer: account,
+    publicClient: { async simulateContract(request) { authority.held = false; return { request }; } },
+    walletClient: { chain: { id: 50312 }, async writeContract() { writes += 1; return "0xnever"; }, async waitForTransactionReceipt() { return { status: 1 }; } },
+    executionEnabled: true,
+    readLatestNonce: async () => 1,
+    readPendingNonce: async () => 1,
+  });
+  await assert.rejects(() => writer.enqueue({ ...plan(), signer: account.address }), { code: "ACCOUNT_LEASE_REQUIRED" });
+  assert.equal(writes, 0);
+});

@@ -261,6 +261,44 @@ test("systemd Start requires scoped reconciliation for an errored session and do
   }
 });
 
+test("12. same-owner/account recovery reconciles the errored session without creating a duplicate trading unit", async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "villa-uat-scoped-recover-"));
+  const sessionId = "uat-1234567895-abcdef12";
+  const statusPath = path.join(directory, `${sessionId}.json`);
+  await fs.writeFile(statusPath, JSON.stringify({
+    updatedAt: Date.now() - 1000,
+    state: "ERROR",
+    session: { sessionId, account: ACCOUNT, owner: OWNER, operator: OPERATOR },
+    error: { code: "ACCOUNT_LEASE_LOST", message: "recovery required" },
+  }));
+  const commands = [];
+  const control = createUatAccountControl({
+    env: env({ VILLA_UAT_LAUNCH_MODE: "systemd", VILLA_ACCOUNT_EXECUTION_ENABLED: "true", VILLA_UAT_STATE_DIRECTORY: directory }),
+    commandRunner: (_command, args, _options, callback) => {
+      commands.push(args);
+      if (args[0] !== "recover") { callback(new Error("unexpected command")); return; }
+      void fs.writeFile(statusPath, JSON.stringify({
+        updatedAt: Date.now() + 1,
+        state: "STOPPED_CLEAN",
+        session: { sessionId, account: ACCOUNT, owner: OWNER, operator: OPERATOR },
+        result: { status: "STOPPED_CLEAN", reason: "EXPIRED_SESSION_RECOVERED" },
+      })).then(() => callback(null));
+    },
+    pollMs: 1,
+    readyTimeoutMs: 500,
+    recoveryTimeoutMs: 500,
+  });
+  try {
+    await assert.rejects(() => control.recover({ caller: "0x1111111111111111111111111111111111111111" }), { code: "OWNER_SCOPE_MISMATCH" });
+    const recovered = await control.recover({ caller: OWNER });
+    assert.equal(recovered.state, "STOPPED_CLEAN");
+    assert.deepEqual(commands, [["recover", sessionId]]);
+    assert.equal(commands.some(([action]) => action === "start"), false);
+  } finally {
+    await fs.rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("systemd start failure clears active session, resets state to STOPPED, and allows fresh start retry", async () => {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), "villa-uat-start-fail-"));
   let failNextStart = true;
