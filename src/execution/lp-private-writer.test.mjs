@@ -140,6 +140,56 @@ test("receipt timeout falls back to an authoritative public receipt once", async
   assert.equal(fallbackReads, 1);
   assert.equal(writer.getState().halted, false);
 });
+
+test("delayed prepare receipt is reconciled before the post-preflight sequence continues", async () => {
+  const privateKey = generatePrivateKey();
+  const account = privateKeyToAccount(privateKey);
+  const { journalPath } = tempFile();
+  const writes = [];
+  let fallbackReads = 0;
+  let waitCalls = 0;
+  const writer = createAccountBoundPrivateWriter({
+    session: session(account.address),
+    lease: lease(account.address),
+    policy: policy(),
+    signer: account,
+    publicClient: { async simulateContract(request) { return { request }; } },
+    walletClient: {
+      chain: { id: 50312 },
+      async writeContract(request) {
+        writes.push(request.functionName);
+        return `0x${String(writes.length).padStart(64, "0")}`;
+      },
+      async waitForTransactionReceipt() {
+        waitCalls += 1;
+        if (waitCalls === 1) throw Object.assign(new Error("receipt not visible yet"), { code: "RECEIPT_TIMEOUT" });
+        return { status: "success", blockNumber: BigInt(10 + waitCalls) };
+      },
+    },
+    executionEnabled: true,
+    readLatestNonce: async () => writes.length,
+    readPendingNonce: async () => writes.length,
+    readReceipt: async () => {
+      fallbackReads += 1;
+      return fallbackReads < 3 ? null : { status: "success", blockNumber: 10n };
+    },
+    receiptRecoveryAttempts: 3,
+    receiptRecoveryDelayMs: 0,
+    receiptReadTimeoutMs: 50,
+    journalPath,
+  });
+
+  const prepare = await writer.enqueue({ ...plan("prepareMarket", "PREPARE_MARKET", 0), args: [MARKET] });
+  const mint = await writer.enqueue(plan("operatorMintSet", "MINT_COMPLETE_SET", 1));
+  const place = await writer.enqueue({ ...plan("operatorPlaceOrder", "PLACE_ORDER", 2), args: [MARKET, 1n, 500000n, 1000n, 9_000_000_000n, 3n, 0n] });
+
+  assert.equal(prepare.state, "CONFIRMED");
+  assert.equal(mint.state, "CONFIRMED");
+  assert.equal(place.state, "CONFIRMED");
+  assert.deepEqual(writes, ["prepareMarket", "operatorMintSet", "operatorPlaceOrder"]);
+  assert.equal(fallbackReads, 3);
+  assert.equal(writer.getState().halted, false);
+});
 test("unsupported function and arbitrary transaction-shaped input are rejected before simulation", async () => {
   const privateKey = generatePrivateKey();
   const account = privateKeyToAccount(privateKey);

@@ -14,6 +14,9 @@ import { LP_ALLOWED_ACCOUNT_OPERATIONS } from "./lp-transaction-policy.mjs";
 
 export const LP_PRIVATE_WRITER_VERSION = "villa-private-account-writer-v1";
 export const LP_PRIVATE_WRITER_STATES = Object.freeze(["PENDING", "CONFIRMED", "REVERTED", "UNKNOWN"]);
+export const LP_RECEIPT_RECOVERY_ATTEMPTS = 5;
+export const LP_RECEIPT_RECOVERY_DELAY_MS = 2_000;
+export const LP_RECEIPT_READ_TIMEOUT_MS = 5_000;
 
 const ALLOWED_FUNCTIONS = new Set(LP_ALLOWED_ACCOUNT_OPERATIONS);
 
@@ -58,6 +61,15 @@ function validPlan(plan) {
   return Boolean(plan && typeof plan === "object" && plan.intent && typeof plan.intent === "object" && ALLOWED_FUNCTIONS.has(plan.functionName));
 }
 
+function positiveInteger(value, fallback) {
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function delay(ms) {
+  return ms > 0 ? new Promise((resolve) => setTimeout(resolve, ms)) : Promise.resolve();
+}
+
 /**
  * Create one account-bound writer. `walletClient` and `signer` are private
  * closure values and are never returned. The factory itself refuses to build
@@ -77,6 +89,9 @@ export function createAccountBoundPrivateWriter({
   readReceipt = null,
   journalPath = null,
   now = () => Date.now(),
+  receiptRecoveryAttempts = LP_RECEIPT_RECOVERY_ATTEMPTS,
+  receiptRecoveryDelayMs = LP_RECEIPT_RECOVERY_DELAY_MS,
+  receiptReadTimeoutMs = LP_RECEIPT_READ_TIMEOUT_MS,
 } = {}) {
   if (executionEnabled !== true) throw new LpPrivateWriterError("EXECUTION_DISABLED", "the private writer cannot be created while execution is disabled");
   if (!session || typeof session.account !== "string" || typeof session.operator !== "string") throw new LpPrivateWriterError("SESSION_REQUIRED", "an immutable account-bound session is required");
@@ -92,6 +107,10 @@ export function createAccountBoundPrivateWriter({
   if (!publicClient || typeof publicClient.simulateContract !== "function") throw new LpPrivateWriterError("SIMULATOR_REQUIRED", "a public simulation client is required");
   if (!walletClient || typeof walletClient.writeContract !== "function") throw new LpPrivateWriterError("WALLET_REQUIRED", "the private wallet client is required");
   if (typeof readLatestNonce !== "function" || typeof readPendingNonce !== "function") throw new LpPrivateWriterError("NONCE_READER_REQUIRED", "latest and pending nonce readers are required");
+
+  const recoveryAttempts = positiveInteger(receiptRecoveryAttempts, LP_RECEIPT_RECOVERY_ATTEMPTS);
+  const recoveryDelayMs = Math.max(0, Number.isFinite(Number(receiptRecoveryDelayMs)) ? Number(receiptRecoveryDelayMs) : LP_RECEIPT_RECOVERY_DELAY_MS);
+  const readTimeoutMs = positiveInteger(receiptReadTimeoutMs, LP_RECEIPT_READ_TIMEOUT_MS);
 
   let closed = false;
   let halted = false;
@@ -148,6 +167,23 @@ export function createAccountBoundPrivateWriter({
     records.set(hash, updated);
     persist();
     return clone(updated);
+  }
+
+  async function readAuthoritativeReceipt(txHash) {
+    if (typeof readReceipt !== "function") return null;
+    for (let attempt = 0; attempt < recoveryAttempts; attempt += 1) {
+      try {
+        const candidate = await Promise.race([
+          Promise.resolve(readReceipt(txHash)),
+          new Promise((resolve) => setTimeout(() => resolve(null), readTimeoutMs)),
+        ]);
+        if (receiptState(candidate) !== "UNKNOWN") return candidate;
+      } catch {
+        // A receipt-not-found or transient RPC error is not chain truth.
+      }
+      if (attempt + 1 < recoveryAttempts) await delay(recoveryDelayMs);
+    }
+    return null;
   }
 
   async function allocateNonce() {
@@ -209,19 +245,9 @@ export function createAccountBoundPrivateWriter({
       receipt = await walletClient.waitForTransactionReceipt({ hash: txHash });
     } catch (error) {
       // Some Shannon RPC paths can time out in the wallet client while the
-      // public client can already see the receipt. Recheck chain truth once
-      // before failing closed; never infer confirmation from the timeout.
-      let fallbackReceipt = null;
-      if (typeof readReceipt === "function") {
-        try {
-          fallbackReceipt = await Promise.race([
-            Promise.resolve(readReceipt(txHash)),
-            new Promise((resolve) => setTimeout(() => resolve(null), 10_000)),
-          ]);
-        } catch {
-          fallbackReceipt = null;
-        }
-      }
+      // public client can already see the receipt. Poll bounded public chain
+      // truth before failing closed; never infer confirmation from a timeout.
+      const fallbackReceipt = await readAuthoritativeReceipt(txHash);
       const fallbackState = receiptState(fallbackReceipt);
       if (fallbackState !== "UNKNOWN") {
         return update(txHash, { state: fallbackState, receiptStatus: fallbackReceipt.status, receiptBlock: blockNumber(fallbackReceipt), revertReason: fallbackState === "REVERTED" ? (fallbackReceipt.revertReason ?? null) : null, reconciledAt: now() });
@@ -251,7 +277,7 @@ export function createAccountBoundPrivateWriter({
     const current = records.get(txHash);
     if (!current) throw new LpPrivateWriterError("TX_UNKNOWN", `transaction ${txHash} is not tracked`);
     if (current.state !== "UNKNOWN") return clone(current);
-    const observed = receipt === undefined && typeof readReceipt === "function" ? await readReceipt(txHash) : receipt;
+    const observed = receipt === undefined ? await readAuthoritativeReceipt(txHash) : receipt;
     const result = receiptState(observed);
     if (result === "UNKNOWN") return clone(current);
     const recovered = update(txHash, { state: result, receiptStatus: observed.status, receiptBlock: blockNumber(observed), revertReason: result === "REVERTED" ? (observed.revertReason ?? null) : null, reconciledAt: now() });
