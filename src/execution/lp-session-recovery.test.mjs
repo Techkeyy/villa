@@ -28,6 +28,14 @@ test("10. authenticated expired-session recovery derives only the proven cancell
   assert.deepEqual(actions.cancelOrderIds, [7n]);
   assert.equal(actions.burnAmountRaw, 0n);
 });
+test("legacy expired-session recovery accepts an absent stored lease id but rejects a conflicting one", () => {
+  const value = fixtures();
+  const legacyStored = { ...value.stored, session: { ...value.stored.session, leaseId: null } };
+  assert.doesNotThrow(() => validateExpiredSessionRecovery({ ...value, stored: legacyStored }));
+  const conflictingStored = { ...value.stored, session: { ...value.stored.session, leaseId: "lease-other" } };
+  assert.throws(() => validateExpiredSessionRecovery({ ...value, stored: conflictingStored }), { code: "RECOVERY_SCOPE_MISMATCH" });
+});
+
 
 test("one-sided fills preserve the residual position and burn only a free pair", () => {
   const value = fixtures();

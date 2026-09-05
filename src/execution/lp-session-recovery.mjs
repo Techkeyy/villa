@@ -47,8 +47,11 @@ export function validateExpiredSessionRecovery({ session, stored, expiredLease, 
     const matches = exact ? String(stored.session[field] ?? "") === String(session[field] ?? "") : same(stored.session[field], session[field]);
     if (!matches) fail("RECOVERY_SCOPE_MISMATCH", `private state ${field} does not match the recovery session`);
   }
+  const storedLeaseId = stored.session.leaseId;
+  const storedLeaseConflicts = storedLeaseId !== null && storedLeaseId !== undefined && String(storedLeaseId) !== ""
+    && String(storedLeaseId) !== String(expiredLease.leaseId ?? "");
   if (!same(expiredLease.owner, session.owner) || !same(expiredLease.account, session.account) || !same(expiredLease.operator, session.operator)
-    || String(expiredLease.sessionId ?? "") !== session.sessionId || String(stored.session.leaseId ?? "") !== String(expiredLease.leaseId ?? "")) {
+    || String(expiredLease.sessionId ?? "") !== session.sessionId || storedLeaseConflicts) {
     fail("RECOVERY_SCOPE_MISMATCH", "expired lease does not match the exact stored owner/account/operator/session authority");
   }
   if ((journal?.pending ?? 0) > 0 || (journal?.unknown ?? 0) > 0) fail("RECOVERY_TRANSACTION_UNKNOWN", "pending or unknown transaction truth blocks recovery");
