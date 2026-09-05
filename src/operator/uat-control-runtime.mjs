@@ -221,7 +221,14 @@ export function createUatAccountControl({
     if (Object.hasOwn(external, "snapshot")) snapshot = safeSnapshot(external.snapshot);
     if (Object.hasOwn(external, "result")) result = external.result;
     if (external.error) lastError = { code: String(external.error.code ?? "UAT_SESSION_FAILED"), message: String(external.error.message ?? "The private UAT session failed.") };
-    if (external.state) state = String(external.state).toUpperCase();
+    const externalState = external.state ? String(external.state).toUpperCase() : null;
+    if (externalState === "STOPPED_CLEAN") {
+      state = "STOPPED";
+      lastError = null;
+      if (session) session = { ...session, state: "STOPPED" };
+    } else if (externalState) {
+      state = externalState;
+    }
     if (["STOPPED", "STOPPED_CLEAN", "SETTLED", "WITHDRAWABLE"].includes(state)) activeSessionId = null;
     return true;
   }
@@ -350,7 +357,7 @@ export function createUatAccountControl({
     const deadline = Date.now() + recoveryTimeoutMs;
     while (Date.now() < deadline) {
       const external = await syncExternal();
-      if (["STOPPED_CLEAN", "STOPPED_SETTLEMENT_PENDING", "SETTLEMENT_READY", "SETTLED"].includes(state)) return publicState();
+      if (["STOPPED", "STOPPED_CLEAN", "STOPPED_SETTLEMENT_PENDING", "SETTLEMENT_READY", "SETTLED"].includes(state)) return publicState();
       if (state === "ERROR" && Number(external?.updatedAt ?? 0) >= requestedAt) throw new AccountControlError(lastError?.code ?? "SESSION_RECOVERY_FAILED", lastError?.message ?? "The private recovery worker failed.", 409);
       await delay(pollMs);
     }
@@ -431,12 +438,13 @@ export function createUatAccountControl({
   async function stop({ caller = null } = {}) {
     assertCaller(caller);
     if (launchMode === "systemd") {
+      if (activeSessionId && state === "STOPPING") return publicState();
       await recoverExternal();
       await syncExternal();
       if (!activeSessionId) return publicState();
+      if (state === "STOPPING") return publicState();
       state = "STOPPING";
       await serviceCommand("stop", activeSessionId);
-      await syncExternal();
       return publicState();
     }
     if (!child) return publicState();

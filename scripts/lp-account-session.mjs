@@ -38,6 +38,7 @@ const BYTES32_RE = /^0x[0-9a-fA-F]{64}$/;
 const SESSION_RE = /^uat-\d+-[0-9a-f]{8}$/;
 const POLL_MS = 5_000;
 const MIN_HEADROOM_SEC = 120;
+const EXCHANGE_CLOSE_TIMEOUT_MS = 2_000;
 // Manual-UAT safety boundary only. The persistent production orchestrator must
 // roll markets without requiring an owner restart and does not inherit this cap.
 const MAX_SESSION_SEC = 900;
@@ -80,6 +81,18 @@ function raw(value, label) {
   try { const result = typeof value === "bigint" ? value : BigInt(String(value)); if (result < 0n) throw new Error(); return result; } catch { fail("RAW_INVALID", `${label} is invalid`); }
 }
 function sleep(ms) { return new Promise((resolve) => setTimeout(resolve, ms)); }
+
+async function closeExchangeBounded(exchange, timeoutMs = EXCHANGE_CLOSE_TIMEOUT_MS) {
+  let timeout;
+  try {
+    await Promise.race([
+      Promise.resolve().then(() => exchange.close()).catch(() => undefined),
+      new Promise((resolve) => { timeout = setTimeout(resolve, timeoutMs); }),
+    ]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
+}
 
 function configFromEnv(env) {
   if (env.VILLA_UAT_SESSION_EXECUTION !== "true") fail("UAT_EXECUTION_DISABLED", "the private UAT session flag is not enabled");
@@ -396,8 +409,9 @@ async function main() {
   } finally {
     leaseHeartbeat?.stop?.();
     writer?.close?.();
-    await exchange.close().catch(() => undefined);
+    await closeExchangeBounded(exchange);
   }
 }
 
 await main();
+process.exit(process.exitCode ?? 0);

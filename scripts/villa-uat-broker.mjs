@@ -72,6 +72,10 @@ async function runSystemd(action, sessionId) {
     await execFileAsync("/usr/bin/systemctl", ["start", "--no-block", unit], { windowsHide: true });
     return;
   }
+  if (action === "stop") {
+    await execFileAsync("/usr/bin/systemctl", ["stop", "--no-block", unit], { windowsHide: true });
+    return;
+  }
   const verb = action === "settle" ? "start" : action;
   await execFileAsync("/usr/bin/systemctl", [verb, unit], { windowsHide: true });
 }

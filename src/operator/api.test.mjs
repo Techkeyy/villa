@@ -317,7 +317,9 @@ test("API restart recovers the bound account for its owner and rejects another w
     assert.equal(wrong.status, 403);
     const stopped = await request(secondBase, "/account/session/stop", { method: "POST", token: ownerToken, body: { account: villaAccount } });
     assert.equal(stopped.status, 202);
-    assert.equal(stopped.body.state, "STOPPED_SETTLEMENT_PENDING");
+    assert.equal(stopped.body.state, "STOPPING");
+    const stoppedState = await request(secondBase, "/account/state?account=" + villaAccount, { token: ownerToken });
+    assert.equal(stoppedState.body.state, "STOPPED_SETTLEMENT_PENDING");
     assert.deepEqual(stopArgs, ["stop", sessionId]);
   } finally {
     await new Promise((resolve) => second.close(resolve));

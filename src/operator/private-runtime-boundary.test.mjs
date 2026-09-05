@@ -100,8 +100,10 @@ test("private bundle entrypoints and specs contain no public-writable runtime pa
 });
 
 test("service stop forwards a typed product stop and waits for cleanup with observable stdio", () => {
+  const broker = fs.readFileSync(path.join(ROOT, "scripts/villa-uat-broker.mjs"), "utf8");
   const service = fs.readFileSync(path.join(ROOT, "scripts/lp-account-session-service.mjs"), "utf8");
   const worker = fs.readFileSync(path.join(ROOT, "scripts/lp-account-session.mjs"), "utf8");
+  assert.match(broker, /action === "stop"[\s\S]*?\["stop", "--no-block", unit\]/);
   assert.match(service, /worker = fork\(workerPath, \[\], \{ env: process\.env, stdio: \["ignore", "inherit", "inherit", "ipc"\] \}\)/);
   assert.match(service, /worker\.send\(\{ type: "stop", reason: "SERVICE_STOP" \}\)/);
   assert.match(service, /worker\.once\("exit"/);
@@ -110,6 +112,9 @@ test("service stop forwards a typed product stop and waits for cleanup with obse
   assert.match(worker, /adapter\.burnCompleteSet/);
   assert.match(worker, /assessSessionSettlement/);
   assert.match(worker, /leaseStore\.release/);
+  assert.match(worker, /Promise\.race\(/);
+  assert.match(worker, /await closeExchangeBounded\(exchange\)/);
+  assert.match(worker, /process\.exit\(process\.exitCode \?\? 0\)/);
 });
 
 test("account session validates dynamic positive collateral without historic magic amounts", () => {

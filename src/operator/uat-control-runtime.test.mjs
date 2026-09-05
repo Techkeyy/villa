@@ -120,7 +120,8 @@ test("systemd bridge recovers only the matching owner/account session after rest
     assert.equal(recovered.session.sessionId, sessionId);
     await assert.rejects(() => control.getState({ caller: "0x1111111111111111111111111111111111111111" }), { code: "OWNER_SCOPE_MISMATCH" });
     const stopped = await control.stop({ caller: OWNER });
-    assert.equal(stopped.state, "STOPPED_SETTLEMENT_PENDING");
+    assert.equal(stopped.state, "STOPPING");
+    assert.equal((await control.getState({ caller: OWNER })).state, "STOPPED_SETTLEMENT_PENDING");
     assert.deepEqual(commands.map((entry) => entry.args), [["stop", sessionId]]);
   } finally {
     await fs.rm(directory, { recursive: true, force: true });
@@ -291,7 +292,7 @@ test("12. same-owner/account recovery reconciles the errored session without cre
   try {
     await assert.rejects(() => control.recover({ caller: "0x1111111111111111111111111111111111111111" }), { code: "OWNER_SCOPE_MISMATCH" });
     const recovered = await control.recover({ caller: OWNER });
-    assert.equal(recovered.state, "STOPPED_CLEAN");
+    assert.equal(recovered.state, "STOPPED");
     assert.deepEqual(commands, [["recover", sessionId]]);
     assert.equal(commands.some(([action]) => action === "start"), false);
   } finally {
@@ -348,4 +349,46 @@ test("systemd start failure clears active session, resets state to STOPPED, and 
   assert.notEqual(started.session?.sessionId, commandAttempts[0][1]);
 
   await fs.rm(directory, { recursive: true, force: true });
+});
+
+test("systemd Stop is asynchronous and idempotent, then exposes clean terminal state as startable", async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "villa-uat-async-stop-"));
+  const sessionId = "uat-1234567896-abcdef12";
+  const statusPath = path.join(directory, `${sessionId}.json`);
+  await fs.writeFile(statusPath, JSON.stringify({
+    updatedAt: Date.now(),
+    state: "RUNNING",
+    session: { sessionId, account: ACCOUNT, owner: OWNER, operator: OPERATOR },
+  }));
+  const commands = [];
+  const control = createUatAccountControl({
+    env: env({ VILLA_UAT_LAUNCH_MODE: "systemd", VILLA_ACCOUNT_EXECUTION_ENABLED: "true", VILLA_UAT_STATE_DIRECTORY: directory }),
+    commandRunner: (_command, args, _options, callback) => { commands.push(args); callback(null); },
+    pollMs: 1,
+    readyTimeoutMs: 500,
+  });
+  try {
+    assert.equal((await control.getState({ caller: OWNER })).state, "RUNNING");
+    const stopping = await control.stop({ caller: OWNER });
+    assert.equal(stopping.state, "STOPPING");
+    assert.equal(stopping.controls.canStop, true);
+    assert.equal((await control.stop({ caller: OWNER })).state, "STOPPING");
+    assert.deepEqual(commands, [["stop", sessionId]]);
+
+    await fs.writeFile(statusPath, JSON.stringify({
+      updatedAt: Date.now() + 1,
+      state: "STOPPED_CLEAN",
+      session: { sessionId, account: ACCOUNT, owner: OWNER, operator: OPERATOR, state: "STOPPED_CLEAN" },
+      result: { status: "STOPPED_CLEAN", reason: "OWNER_STOP" },
+    }));
+    const stopped = await control.getState({ caller: OWNER });
+    assert.equal(stopped.state, "STOPPED");
+    assert.equal(stopped.session.state, "STOPPED");
+    assert.equal(stopped.result.status, "STOPPED_CLEAN");
+    assert.equal(stopped.readiness.allowed, true);
+    assert.equal(stopped.controls.canStart, true);
+    assert.equal(stopped.controls.canStop, false);
+  } finally {
+    await fs.rm(directory, { recursive: true, force: true });
+  }
 });
