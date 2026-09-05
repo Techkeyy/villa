@@ -224,13 +224,6 @@ async function main() {
     ]);
     return { status: Number(status), isResolved: Boolean(isResolved), isVoided: Boolean(isVoided), payoutNumerators: payoutNumerators.map((item, index) => raw(item, "payoutNumerators[" + index + "]")) };
   };
-  const enqueue = async (plan, { openOrderCount = 0, pendingExposureRaw = 0n } = {}) => {
-    const prepared = policy.prepare({ ...plan, accountCapitalRaw: initialCollateralRaw, openOrderCount, pendingExposureRaw }, { txIndex, createdAt: Date.now() });
-    const validation = policy.validate(prepared, { nowMs: Date.now() });
-    if (!validation.allowed) fail(validation.code ?? "POLICY_DENIED", validation.reason ?? "the bounded policy refused the action");
-    txIndex += 1;
-    return writer.enqueue(prepared);
-  };
 
   try {
     const chainTime = await readChainTime(exchange);
@@ -296,6 +289,13 @@ async function main() {
     });
     if (!preflight.allowed || !reconciliation.safeToStart) fail("ACCOUNT_PREFLIGHT_BLOCKED", `the fresh account preflight did not pass: ${(preflight.reasons ?? []).join(",") || reconciliation.reasons.join(",")}`);
     const policy = createLpTransactionPolicy({ session, caps: DEFAULT_PHASE_3B1_CAPS });
+    const enqueue = async (plan, { openOrderCount = 0, pendingExposureRaw = 0n } = {}) => {
+      const prepared = policy.prepare({ ...plan, accountCapitalRaw: initialCollateralRaw, openOrderCount, pendingExposureRaw }, { txIndex, createdAt: Date.now() });
+      const validation = policy.validate(prepared, { nowMs: Date.now() });
+      if (!validation.allowed) fail(validation.code ?? "POLICY_DENIED", validation.reason ?? "the bounded policy refused the action");
+      txIndex += 1;
+      return writer.enqueue(prepared);
+    };
     const walletClient = (await import("viem")).createWalletClient({ account: signerInfo.signer, chain: somniaShannon, transport: http(env.RPC_URL || VILLA_ACCOUNT_CONFIG.rpcUrl, { timeout: 15_000 }) });
     writer = createAccountBoundPrivateWriter({ session: transitionLpSession(session, "RUNNING"), lease: { ...lease, held: true }, policy, signer: signerInfo.signer, publicClient, walletClient, executionEnabled: true, readLatestNonce: () => publicClient.getTransactionCount({ address: signerInfo.address, blockTag: "latest" }), readPendingNonce: () => publicClient.getTransactionCount({ address: signerInfo.address, blockTag: "pending" }), readReceipt: (hash) => publicClient.getTransactionReceipt({ hash }), journalPath });
     session = transitionLpSession(session, "RUNNING");

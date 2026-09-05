@@ -124,3 +124,14 @@ test("a plan cannot skip the deterministic intent envelope", () => {
   const result = validateTransactionPlan({ ...value, policyVersion: LP_TRANSACTION_POLICY_VERSION, chainId: 50312, destination: ACCOUNT }, { session: session(), nowMs: 1000 });
   assert.equal(result.code, "INTENT_REQUIRED");
 });
+
+test("autonomous V2 prepare path accepts the 1,001,000-raw clean baseline", () => {
+  const policy = createLpTransactionPolicy({ session: session(), caps: DEFAULT_PHASE_3B1_CAPS, now: () => 1000 });
+  const plan = adapter().prepareMarket({ marketId: MARKET });
+  const preparedPlan = policy.prepare({ ...plan, accountCapitalRaw: 1_001_000n, openOrderCount: 0, pendingExposureRaw: 0n }, { txIndex: 0, createdAt: 1000 });
+  const validation = policy.validate(preparedPlan, { nowMs: 1000 });
+  assert.equal(validation.allowed, true);
+  assert.equal(preparedPlan.functionName, "prepareMarket");
+  assert.equal(preparedPlan.account, ACCOUNT);
+  assert.equal(preparedPlan.destination, ACCOUNT);
+});
