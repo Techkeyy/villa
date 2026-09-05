@@ -22,6 +22,7 @@ const ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
 const SESSION_RE = /^uat-\d+-[0-9a-f]{8}$/;
 const SERVICE_WRAPPER = "/usr/local/libexec/villa-uat-control";
 const RECOVERABLE_STATES = new Set(["STARTING", "RUNNING", "PAUSED", "STOPPING", "ERROR", "STOPPED_SETTLEMENT_PENDING", "SETTLEMENT_READY", "SETTLING"]);
+const REATTACHABLE_STATES = new Set(["STARTING", "RUNNING", "PAUSED", "STOPPING", "STOPPED_SETTLEMENT_PENDING", "SETTLEMENT_READY", "SETTLING"]);
 
 function normalizeAddress(value, label) {
   const text = String(value ?? "");
@@ -227,7 +228,15 @@ export function createUatAccountControl({
     if (launchMode !== "systemd" || !activeSessionId) return;
     try {
       const content = await fs.readFile(stateFile(activeSessionId), "utf8");
-      applyExternal(JSON.parse(content));
+      const external = JSON.parse(content);
+      if (external?.session?.sessionId !== activeSessionId
+        || !sameAddress(external?.session?.owner, owner)
+        || !sameAddress(external?.session?.account, account)) {
+        state = "ERROR";
+        lastError = { code: "UAT_STATUS_SCOPE_MISMATCH", message: "The private UAT status does not match the authenticated owner/account session." };
+        return;
+      }
+      applyExternal(external);
     } catch {
       // A missing file during service startup is not a successful session.
     }
@@ -337,6 +346,14 @@ export function createUatAccountControl({
   async function start({ caller = null } = {}) {
     assertCaller(caller);
     if (!enabled) throw new AccountControlError("ACCOUNT_EXECUTION_DISABLED", "account execution is not enabled for this deployment", 423);
+    if (launchMode === "systemd") {
+      await recoverExternal();
+      await syncExternal();
+    }
+    if ((child || activeSessionId) && REATTACHABLE_STATES.has(state)) return publicState();
+    if (state === "ERROR") {
+      throw new AccountControlError("UAT_SESSION_RECONCILIATION_REQUIRED", "The existing UAT session is errored and requires owner/account-scoped reconciliation before Start can retry.", 409);
+    }
     if (child || activeSessionId || state !== "STOPPED") throw new AccountControlError("SESSION_ALREADY_ACTIVE", "VILLA already has an active UAT session");
     const sessionId = `uat-${Date.now()}-${randomUUID().slice(0, 8)}`;
     activeSessionId = sessionId;

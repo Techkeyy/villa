@@ -79,3 +79,20 @@ test("control client includes the selected account on read state requests", asyn
   await client.state();
   assert.equal(new URL(calls.at(-1).url).searchParams.get("account"), account);
 });
+
+test("control client accepts a same-account Start reattachment response", async () => {
+  globalThis.window = { location: { hostname: "localhost" } };
+  const account = "0x3333333333333333333333333333333333333333";
+  const session = { sessionId: "uat-1234567891-abcdef12", owner: OWNER, account, state: "RUNNING" };
+  const responses = [
+    response({ engineApiUrl: "http://127.0.0.1:8782" }),
+    response({ message: "VILLA sign-in", nonce: "nonce-4", address: OWNER }),
+    response({ token: "session-token" }),
+    response({ state: "RUNNING", session }, true, 202),
+  ];
+  const provider = { async request() { return "0xsignature"; } };
+  const client = createAccountControlClient({ fetchImpl: async () => responses.shift(), provider, ownerProvider: () => OWNER, accountProvider: () => account });
+  const attached = await client.start();
+  assert.equal(attached.state, "RUNNING");
+  assert.deepEqual(attached.session, session);
+});

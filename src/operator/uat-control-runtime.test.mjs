@@ -127,6 +127,140 @@ test("systemd bridge recovers only the matching owner/account session after rest
   }
 });
 
+test("systemd Start reattaches the matching owner/account session without creating a duplicate unit", async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "villa-uat-reattach-"));
+  const sessionId = "uat-1234567891-abcdef12";
+  await fs.writeFile(path.join(directory, `${sessionId}.json`), JSON.stringify({
+    version: "villa-uat-state-v1",
+    updatedAt: Date.now(),
+    state: "RUNNING",
+    session: { sessionId, account: ACCOUNT, owner: OWNER, operator: OPERATOR, startedAt: 1234567891 },
+  }));
+  const commands = [];
+  const control = createUatAccountControl({
+    env: env({ VILLA_UAT_LAUNCH_MODE: "systemd", VILLA_ACCOUNT_EXECUTION_ENABLED: "true", VILLA_UAT_STATE_DIRECTORY: directory }),
+    commandRunner: (command, args, _options, callback) => { commands.push({ command, args }); callback(null); },
+    pollMs: 1,
+    readyTimeoutMs: 500,
+  });
+  try {
+    const first = await control.start({ caller: OWNER });
+    const second = await control.start({ caller: OWNER });
+    assert.equal(first.state, "RUNNING");
+    assert.equal(first.session.sessionId, sessionId);
+    assert.equal(second.session.sessionId, sessionId);
+    assert.deepEqual(commands, []);
+  } finally {
+    await fs.rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("systemd Start ignores foreign status and never reattaches another account or owner", async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "villa-uat-foreign-"));
+  const foreignAccountId = "uat-1234567892-abcdef12";
+  const foreignOwnerId = "uat-1234567893-abcdef12";
+  await Promise.all([
+    fs.writeFile(path.join(directory, `${foreignAccountId}.json`), JSON.stringify({
+      updatedAt: Date.now() + 2,
+      state: "RUNNING",
+      session: { sessionId: foreignAccountId, account: "0x1111111111111111111111111111111111111111", owner: OWNER, operator: OPERATOR },
+    })),
+    fs.writeFile(path.join(directory, `${foreignOwnerId}.json`), JSON.stringify({
+      updatedAt: Date.now() + 1,
+      state: "RUNNING",
+      session: { sessionId: foreignOwnerId, account: ACCOUNT, owner: "0x2222222222222222222222222222222222222222", operator: OPERATOR },
+    })),
+  ]);
+  const commands = [];
+  const control = createUatAccountControl({
+    env: env({ VILLA_UAT_LAUNCH_MODE: "systemd", VILLA_ACCOUNT_EXECUTION_ENABLED: "true", VILLA_UAT_STATE_DIRECTORY: directory }),
+    commandRunner: (_command, args, _options, callback) => {
+      commands.push(args);
+      const sessionId = args[1];
+      void fs.writeFile(path.join(directory, `${sessionId}.json`), JSON.stringify({
+        updatedAt: Date.now() + 3,
+        state: "RUNNING",
+        session: { sessionId, account: ACCOUNT, owner: OWNER, operator: OPERATOR },
+      })).then(() => callback(null));
+    },
+    pollMs: 1,
+    readyTimeoutMs: 500,
+  });
+  try {
+    await assert.rejects(() => control.start({ caller: "0x3333333333333333333333333333333333333333" }), { code: "OWNER_SCOPE_MISMATCH" });
+    const started = await control.start({ caller: OWNER });
+    assert.notEqual(started.session.sessionId, foreignAccountId);
+    assert.notEqual(started.session.sessionId, foreignOwnerId);
+    assert.equal(commands.length, 1);
+    assert.equal(commands[0][0], "start");
+  } finally {
+    await fs.rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("systemd Start rejects an active status that changes account or owner scope", async () => {
+  for (const mismatch of [
+    { account: "0x1111111111111111111111111111111111111111", owner: OWNER },
+    { account: ACCOUNT, owner: "0x2222222222222222222222222222222222222222" },
+  ]) {
+    const directory = await fs.mkdtemp(path.join(os.tmpdir(), "villa-uat-scope-mismatch-"));
+    const commands = [];
+    let statusPath;
+    const control = createUatAccountControl({
+      env: env({ VILLA_UAT_LAUNCH_MODE: "systemd", VILLA_ACCOUNT_EXECUTION_ENABLED: "true", VILLA_UAT_STATE_DIRECTORY: directory }),
+      commandRunner: (_command, args, _options, callback) => {
+        commands.push(args);
+        const sessionId = args[1];
+        statusPath = path.join(directory, `${sessionId}.json`);
+        void fs.writeFile(statusPath, JSON.stringify({
+          updatedAt: Date.now(),
+          state: "RUNNING",
+          session: { sessionId, account: ACCOUNT, owner: OWNER, operator: OPERATOR },
+        })).then(() => callback(null));
+      },
+      pollMs: 1,
+      readyTimeoutMs: 500,
+    });
+    try {
+      const started = await control.start({ caller: OWNER });
+      await fs.writeFile(statusPath, JSON.stringify({
+        updatedAt: Date.now() + 1,
+        state: "RUNNING",
+        session: { sessionId: started.session.sessionId, account: mismatch.account, owner: mismatch.owner, operator: OPERATOR },
+      }));
+      await assert.rejects(() => control.start({ caller: OWNER }), { code: "UAT_SESSION_RECONCILIATION_REQUIRED" });
+      assert.equal(commands.length, 1);
+      assert.equal((await control.getState({ caller: OWNER })).error.code, "UAT_STATUS_SCOPE_MISMATCH");
+    } finally {
+      await fs.rm(directory, { recursive: true, force: true });
+    }
+  }
+});
+
+test("systemd Start requires scoped reconciliation for an errored session and does not create a unit", async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "villa-uat-error-"));
+  const sessionId = "uat-1234567894-abcdef12";
+  await fs.writeFile(path.join(directory, `${sessionId}.json`), JSON.stringify({
+    version: "villa-uat-state-v1",
+    updatedAt: Date.now(),
+    state: "ERROR",
+    session: { sessionId, account: ACCOUNT, owner: OWNER, operator: OPERATOR },
+    error: { code: "RECEIPT_TIMEOUT", message: "requires reconciliation" },
+  }));
+  const commands = [];
+  const control = createUatAccountControl({
+    env: env({ VILLA_UAT_LAUNCH_MODE: "systemd", VILLA_ACCOUNT_EXECUTION_ENABLED: "true", VILLA_UAT_STATE_DIRECTORY: directory }),
+    commandRunner: (command, args, _options, callback) => { commands.push({ command, args }); callback(null); },
+  });
+  try {
+    await assert.rejects(() => control.start({ caller: OWNER }), { code: "UAT_SESSION_RECONCILIATION_REQUIRED" });
+    assert.deepEqual(commands, []);
+    assert.equal((await control.getState({ caller: OWNER })).state, "ERROR");
+  } finally {
+    await fs.rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("systemd start failure clears active session, resets state to STOPPED, and allows fresh start retry", async () => {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), "villa-uat-start-fail-"));
   let failNextStart = true;
