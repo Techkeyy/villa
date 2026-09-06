@@ -130,7 +130,7 @@ test("autonomous V2 prepare path initializes policy before its first enqueue", (
   const worker = fs.readFileSync(path.join(ROOT, "scripts/lp-account-session.mjs"), "utf8");
   const policyIndex = worker.indexOf("    const policy = createLpTransactionPolicy({ session, caps: DEFAULT_PHASE_3B1_CAPS });");
   const enqueueIndex = worker.indexOf("    const enqueue = async (plan, { openOrderCount = 0, pendingExposureRaw = 0n } = {}) => {");
-  const firstEnqueueCallIndex = worker.indexOf("      await enqueue(");
+  const firstEnqueueCallIndex = worker.indexOf("await enqueue(");
   assert.ok(policyIndex >= 0, "canonical transaction policy must be created");
   assert.ok(enqueueIndex > policyIndex, "enqueue must close over an initialized policy in the same scope");
   assert.ok(firstEnqueueCallIndex > enqueueIndex, "autonomous prepare/mint/order path must enqueue only after policy initialization");

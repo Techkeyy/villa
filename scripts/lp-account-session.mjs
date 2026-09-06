@@ -52,10 +52,47 @@ const SETTLEMENT_ABI = Object.freeze([
   { type: "function", name: "payoutNumerators", stateMutability: "view", inputs: [], outputs: [{ type: "uint256[]" }] },
 ]);
 
+const runtimeTelemetry = {
+  stage: null,
+  activity: [],
+  lastEngineUpdateAt: null,
+  txHashes: [],
+};
+
+function recordActivity(type, message, details = {}) {
+  const atMs = Date.now();
+  const entry = { atMs, type, message, ...details };
+  runtimeTelemetry.activity = [...runtimeTelemetry.activity, entry].slice(-60);
+  runtimeTelemetry.lastEngineUpdateAt = atMs;
+  return entry;
+}
+
+function setRuntimeStage(code, label, state, session = null) {
+  runtimeTelemetry.stage = { code, label, atMs: Date.now() };
+  recordActivity("STAGE", label, { stage: code });
+  send({ type: "state", state, session });
+}
+
+function rememberWrite(action, result) {
+  const hash = result?.hash ?? result?.transactionHash ?? null;
+  if (hash) {
+    runtimeTelemetry.txHashes = [...runtimeTelemetry.txHashes, { action, hash: String(hash) }].slice(-60);
+  }
+  return result;
+}
+
 function send(message) {
-  persistPrivateUatState(process.env.VILLA_UAT_PRIVATE_STATE_FILE, message);
-  persistUatState(process.env.VILLA_UAT_STATUS_FILE ?? process.env.VILLA_UAT_STATE_FILE, message);
-  if (typeof process.send === "function") process.send(normalizeJsonBoundary(message));
+  const now = Date.now();
+  runtimeTelemetry.lastEngineUpdateAt ??= now;
+  const enriched = {
+    ...message,
+    ...(runtimeTelemetry.stage ? { stage: runtimeTelemetry.stage } : {}),
+    activity: runtimeTelemetry.activity,
+    lastEngineUpdateAt: runtimeTelemetry.lastEngineUpdateAt,
+  };
+  persistPrivateUatState(process.env.VILLA_UAT_PRIVATE_STATE_FILE, enriched);
+  persistUatState(process.env.VILLA_UAT_STATUS_FILE ?? process.env.VILLA_UAT_STATE_FILE, enriched);
+  if (typeof process.send === "function") process.send(normalizeJsonBoundary(enriched));
 }
 
 function fail(code, message) {
@@ -157,7 +194,7 @@ function projectedPlannerInput({ snapshot, decision, market, accountState, param
   return { projected, projectedSnapshot, projectedDecision, input: plannerInput({ snapshot: projectedSnapshot, decision: projectedDecision, market, accountState: projected, params, decimals }) };
 }
 
-function publicAccountSnapshot(accountState, marketId, intervalSec, lastAction, pnl = null, trackedInventory = null, startingValueRaw = null, settlement = null) {
+function publicAccountSnapshot(accountState, marketId, intervalSec, lastAction, pnl = null, trackedInventory = null, startingValueRaw = null, settlement = null, telemetry = {}) {
   const yesRaw = accountState.inventory.yesRaw;
   const noRaw = accountState.inventory.noRaw;
   return {
@@ -176,6 +213,23 @@ function publicAccountSnapshot(accountState, marketId, intervalSec, lastAction, 
     settlement,
     lastAction,
     pnl,
+    pnlStatus: pnl ? (settlement?.state === "STOPPED_SETTLEMENT_PENDING" ? "PENDING" : "REALIZED") : "UNAVAILABLE",
+    pnlReason: pnl ? null : "Realized P&L is only computable after the session reconciles.",
+    market: telemetry.market ?? null,
+    strategy: telemetry.strategy ?? null,
+    riskGovernor: telemetry.riskGovernor ?? null,
+    inventoryState: telemetry.inventoryState ?? null,
+    capitalState: telemetry.capitalState ?? null,
+    health: telemetry.health ?? null,
+    stage: runtimeTelemetry.stage,
+    activity: runtimeTelemetry.activity,
+    lastEngineUpdateAt: runtimeTelemetry.lastEngineUpdateAt,
+    advanced: {
+      sessionId: telemetry.sessionId ?? null,
+      currentMarketId: marketId,
+      chainBlockNumber: telemetry.chainBlockNumber ?? null,
+      transactionHashes: runtimeTelemetry.txHashes,
+    },
   };
 }
 
@@ -183,7 +237,8 @@ async function main() {
   const env = process.env;
   const config = configFromEnv(env);
   if (!config.sessionId) fail("SESSION_REQUIRED", "a private UAT session id is required");
-  send({ type: "state", state: "STARTING", session: { sessionId: config.sessionId, account: config.account, owner: config.owner, operator: config.operator } });
+  const bootSession = { sessionId: config.sessionId, account: config.account, owner: config.owner, operator: config.operator };
+  setRuntimeStage("VERIFYING_ACCOUNT", "Verifying account", "STARTING", bootSession);
   const signerInfo = loadPrivateSigner({ credentialsDirectory: env.CREDENTIALS_DIRECTORY, expectedOperator: config.operator });
   const publicClient = createPublicClient({ chain: somniaShannon, transport: http(env.RPC_URL || VILLA_ACCOUNT_CONFIG.rpcUrl, { timeout: 15_000 }) });
   const exchange = new SomniaMarkets({ account: config.account, indexerUrl: env.INDEXER_URL || "https://dev.smk.somnia.host/v1/graphql", chain: somniaShannon, wsRpcUrl: env.WS_RPC_URL || "wss://api.infra.testnet.somnia.network/ws", addresses: SOMNIA_TESTNET_ADDRESSES, priceFeed: SOMNIA_TESTNET_PRICE_FEED });
@@ -214,9 +269,68 @@ async function main() {
   let trackedInventory = null;
   let startingValueRaw = null;
   let settlement = null;
+  let latestChainTime = null;
+  let latestDecision = null;
+  let latestFairValue = null;
+  let strategyTelemetry = null;
 
-  const emitSnapshot = (lastAction, pnl = null) => {
-    if (accountState && selected) send({ type: "snapshot", snapshot: publicAccountSnapshot(accountState, selected.marketId, selected.intervalSec, lastAction, pnl, trackedInventory, startingValueRaw, settlement) });
+  const buildTelemetry = (processState = "RUNNING") => {
+    const orders = accountState?.orders?.orders ?? [];
+    const identity = accountState?.identity ?? {};
+    const yesEscrowedRaw = orders.filter((order) => order.isBid === false).reduce((total, order) => total + raw(order.quantityRemainingRaw, "order quantity"), 0n);
+    const chainNowSec = Number(latestChainTime?.chainNowSec ?? 0);
+    const risk = latestDecision ? {
+      state: latestDecision.state,
+      triggeredRules: latestDecision.triggeredRules ?? [],
+      warnings: latestDecision.warnings ?? [],
+      reason: latestDecision.explanations?.[0]?.message ?? "No risk rule triggered.",
+      currentAggregateExposureRaw: identity.aggregateExposure ?? null,
+      maxAggregateExposureRaw: identity.maxAggregateExposure ?? null,
+      currentMintExposureRaw: identity.mintExposure ?? null,
+      maxMintExposureRaw: identity.maxMintExposure ?? identity.maxMintAmount ?? null,
+    } : null;
+    const leaseState = leaseHeartbeat?.getState?.() ?? null;
+    return {
+      market: selected ? {
+        asset: selected.asset ?? "BTC",
+        title: selected.title ?? null,
+        intervalSec: selected.intervalSec,
+        marketId: selected.marketId,
+        timeRemainingSec: selected.expirySec - chainNowSec,
+        status: selected.marketStatus ?? "Trading",
+        expirySec: selected.expirySec,
+      } : null,
+      strategy: strategyTelemetry,
+      riskGovernor: risk,
+      inventoryState: accountState ? {
+        freeYesRaw: accountState.inventory.yesRaw,
+        escrowedYesRaw: yesEscrowedRaw,
+        freeNoRaw: accountState.inventory.noRaw,
+        escrowedNoRaw: 0n,
+      } : null,
+      capitalState: accountState ? {
+        freeRaw: accountState.capital.directCollateralRaw,
+        deployedRaw: accountState.inventory.yesRaw < accountState.inventory.noRaw ? accountState.inventory.yesRaw : accountState.inventory.noRaw,
+        claimableRaw: accountState.capital.vaultRaw ?? 0n,
+        pendingRaw: settlement?.state === "STOPPED_SETTLEMENT_PENDING" ? null : 0n,
+      } : null,
+      health: {
+        processState,
+        heartbeat: leaseState ? (leaseState.healthy ? "HEALTHY" : "LOST") : "NOT_STARTED",
+        lease: leaseState ? (leaseState.healthy ? "HELD" : "LOST") : "NOT_STARTED",
+        heartbeatAt: leaseState?.heartbeatAt ?? null,
+        leaseExpiresAt: leaseState?.expiresAt ?? null,
+        lastUpdateAt: runtimeTelemetry.lastEngineUpdateAt,
+      },
+      sessionId: session?.sessionId ?? config.sessionId,
+      chainBlockNumber: latestChainTime?.blockNumber ?? null,
+    };
+  };
+
+  const emitSnapshot = (lastAction, pnl = null, processState = "RUNNING") => {
+    if (accountState && selected) {
+      send({ type: "snapshot", snapshot: publicAccountSnapshot(accountState, selected.marketId, selected.intervalSec, lastAction, pnl, trackedInventory, startingValueRaw, settlement, buildTelemetry(processState)) });
+    }
   };
   const readAccount = (marketId) => adapter.readAccountState({ marketId });
   const readProtocol = async (marketId, pool, identity) => {
@@ -244,13 +358,26 @@ async function main() {
   };
 
   try {
+    setRuntimeStage("DISCOVERING_MARKET", "Discovering market", "STARTING", bootSession);
     const chainTime = await readChainTime(exchange);
+    latestChainTime = chainTime;
     const live = await collectRiskSnapshot(exchange, { owner: config.account, gasAddress: config.operator, chainTime, minHeadroomSec: MIN_HEADROOM_SEC });
+    latestFairValue = live.snapshot.fairValue ?? null;
     const marketInfo = live.context.market;
     const marketId = bytes32(live.context.marketId, "selected marketId");
     const intervalSec = Number(marketInfo.info?.intervalSec ?? marketInfo.intervalSec);
     if (!Number.isSafeInteger(intervalSec) || intervalSec < 1) fail("MARKET_INVALID", "selected BTC market interval is invalid");
-    selected = { marketId, intervalSec, expirySec: Number(live.context.onchain.expiry), series: `BINARY:BTC:${intervalSec}`, pool: live.context.onchain.pool, book: null };
+    selected = {
+      marketId,
+      intervalSec,
+      expirySec: Number(live.context.onchain.expiry),
+      series: "BINARY:BTC:" + intervalSec,
+      pool: live.context.onchain.pool,
+      book: null,
+      asset: marketInfo.info?.asset ?? "BTC",
+      title: marketInfo.info?.title ?? marketInfo.info?.question ?? null,
+      marketStatus: live.context.onchain.isResolved ? "Resolved" : live.context.onchain.isVoided ? "Voided" : Number(live.context.onchain.status) === 1 ? "Trading" : "Locked",
+    };
     if (live.context.onchain.isResolved || live.context.onchain.isVoided || Number(live.context.onchain.status) !== 1) fail("MARKET_NOT_TRADING", "the selected BTC market is not Trading");
     const yesSymbol = marketInfo.outcomes?.find((outcome) => outcome.label === "YES")?.symbol;
     if (!yesSymbol) fail("BOOK_UNAVAILABLE", "the selected BTC market has no YES outcome");
@@ -277,14 +404,27 @@ async function main() {
     }
     if (protocol.collateralAllowance !== 0n) fail("COLLATERAL_ALLOWANCE_PRESENT", "the selected pool has a nonzero collateral allowance");
 
+    setRuntimeStage("CHECKING_RISK", "Checking risk", "STARTING", bootSession);
     const initialDecision = evaluateRisk(live.snapshot, DEFAULT_RISK_CONFIG);
+    latestDecision = initialDecision;
     const basePlanner = plannerInput({ snapshot: live.snapshot, decision: initialDecision, market: selected, accountState, params, decimals });
     const mintAmountRaw = raw(params.minQuantity, "minimum mint amount");
     if (mintAmountRaw > DEFAULT_PHASE_3B1_CAPS.MAX_MINT_AMOUNT || mintAmountRaw > identity.maxOrderCollateral || mintAmountRaw >= initialCollateralRaw) fail("MINT_CAP", "the live minimum mint is outside the bounded account policy");
     if (initialCollateralRaw < MIN_STRATEGY_CAPITAL_RAW) fail("CAPITAL_BELOW_STRATEGY_FLOOR", "the VillaAccount needs at least 1.001 tUSDC for the reserve plus venue-minimum complete-set mint");
     const projected = projectedPlannerInput({ snapshot: live.snapshot, decision: initialDecision, market: selected, accountState, params, decimals, mintAmountRaw });
+    setRuntimeStage("BUILDING_QUOTE", "Building quote", "STARTING", bootSession);
     const quotePlan = planQuotes(projected.input);
     const ask = quotePlan.ask;
+    strategyTelemetry = {
+      fairValue: latestFairValue,
+      bestBidRaw: projected.input.book.bestBidRaw,
+      bestAskRaw: projected.input.book.bestAskRaw,
+      side: "SELL_YES",
+      priceRaw: ask?.targetPriceRaw ?? null,
+      sizeRaw: ask?.targetQuantityRaw ?? null,
+      postOnly: true,
+      status: quotePlan.plan === "NO_QUOTE" ? "NO_QUOTE" : "PLANNED",
+    };
     if (projected.projectedDecision.state !== "ALLOW" || quotePlan.plan === "NO_QUOTE" || !ask?.enabled || ask.action !== "SELL_YES") fail("NO_VALID_QUOTE", "the live projected SELL_YES plan is not valid");
     if (raw(ask.targetQuantityRaw, "quote quantity") > DEFAULT_PHASE_3B1_CAPS.MAX_ORDER_NOTIONAL || raw(ask.targetQuantityRaw, "quote quantity") > identity.maxOrderQuantity) fail("ORDER_CAP", "the live quote exceeds the account or policy cap");
 
@@ -321,6 +461,7 @@ async function main() {
     });
     if (!preflight.allowed || !reconciliation.safeToStart) fail("ACCOUNT_PREFLIGHT_BLOCKED", `the fresh account preflight did not pass: ${(preflight.reasons ?? []).join(",") || reconciliation.reasons.join(",")}`);
     const policy = createLpTransactionPolicy({ session, caps: DEFAULT_PHASE_3B1_CAPS });
+    setRuntimeStage("STARTING_STRATEGY", "Starting strategy", "STARTING", session);
     const enqueue = async (plan, { openOrderCount = 0, pendingExposureRaw = 0n } = {}) => {
       leaseHeartbeat.renewNow();
       const prepared = policy.prepare({ ...plan, accountCapitalRaw: initialCollateralRaw, openOrderCount, pendingExposureRaw }, { txIndex, createdAt: Date.now() });
@@ -333,17 +474,25 @@ async function main() {
     session = transitionLpSession(session, "RUNNING");
     writer = createAccountBoundPrivateWriter({ session, lease: leaseHeartbeat.authority, policy, signer: signerInfo.signer, publicClient, walletClient, executionEnabled: true, readLatestNonce: () => publicClient.getTransactionCount({ address: signerInfo.address, blockTag: "latest" }), readPendingNonce: () => publicClient.getTransactionCount({ address: signerInfo.address, blockTag: "pending" }), readReceipt: (hash) => publicClient.getTransactionReceipt({ hash }), journalPath });
     send({ type: "ready", session: { sessionId: session.sessionId, account: session.account, owner: session.owner, operator: session.operator, marketSeries: session.marketSeries, currentMarketId: session.currentMarketId } });
+    setRuntimeStage("RUNNING", "Strategy running", "RUNNING", session);
+    recordActivity("SESSION", "Session started", { sessionId: session.sessionId });
     send({ type: "state", state: "RUNNING", session });
     emitSnapshot("preflight_passed");
 
     if (identity.autonomousTradingEnabled && (!protocol.marketPrepared || !protocol.moduleOperator || !protocol.poolOperator)) {
       const prepPlan = adapter.prepareMarket({ marketId: selected.marketId });
-      await enqueue(prepPlan);
+      const prepResult = await enqueue(prepPlan);
+      rememberWrite("prepareMarket", prepResult);
+      recordActivity("CHAIN_WRITE", "Market prepared", { txHash: prepResult?.hash ?? prepResult?.transactionHash ?? null, marketId: selected.marketId });
       emitSnapshot("market_prepared");
+    } else {
+      recordActivity("MARKET", "Market already prepared", { marketId: selected.marketId });
     }
 
     const mintPlan = adapter.mintCompleteSet({ marketId: selected.marketId, amountRaw: mintAmountRaw });
-    await enqueue(mintPlan);
+    const mintResult = await enqueue(mintPlan);
+    rememberWrite("mintCompleteSet", mintResult);
+    recordActivity("CHAIN_WRITE", "Minted complete set", { txHash: mintResult?.hash ?? mintResult?.transactionHash ?? null, amountRaw: mintAmountRaw });
     send({ type: "state", state: "RUNNING", session });
     accountState = await readAccount(selected.marketId);
     if (accountState.inventory.yesRaw < mintAmountRaw || accountState.inventory.noRaw < mintAmountRaw) fail("MINT_RECONCILIATION_FAILED", "mint did not reconcile to the account");
@@ -354,24 +503,38 @@ async function main() {
     const priceRaw = raw(ask.targetPriceRaw, "quote price");
     const expiryNs = raw(Math.max(1, Math.floor(selected.expirySec - 2)), "order expiry") * 1_000_000_000n;
     const placePlan = adapter.placeOrder({ marketId: selected.marketId, action: "SELL_YES", priceRaw, quantityRaw, expireTimestampNs: expiryNs, orderType: 3, userData: 0n });
-    await enqueue(placePlan, { openOrderCount: 0, pendingExposureRaw: quantityRaw });
+    const placeResult = await enqueue(placePlan, { openOrderCount: 0, pendingExposureRaw: quantityRaw });
+    rememberWrite("placeOrder", placeResult);
+    recordActivity("CHAIN_WRITE", "Order placed", { txHash: placeResult?.hash ?? placeResult?.transactionHash ?? null, orderId: null, side: "SELL_YES" });
+    strategyTelemetry = { ...strategyTelemetry, status: "POSTED" };
     accountState = await readAccount(selected.marketId);
     if (accountState.orders.status !== "VERIFIED" || accountState.orders.orders.length !== 1) fail("PLACE_RECONCILIATION_FAILED", "the bounded SELL_YES order did not reconcile");
     emitSnapshot("sell_yes_posted");
 
     const cleanup = async (reason) => {
       session = transitionLpSession(session, "STOPPING");
-      send({ type: "state", state: "STOPPING", session });
+      setRuntimeStage("BLOCKING_NEW_RISK", "Blocking new risk", "STOPPING", session);
       accountState = await readAccount(selected.marketId);
+      recordActivity("CLEANUP", "Cancelling open orders", { count: accountState.orders.orders.length });
       for (const order of accountState.orders.orders) {
         if (!same(order.owner, config.account) || !same(order.marketId, selected.marketId)) fail("ORDER_SCOPE_MISMATCH", "cleanup encountered an order outside the session scope");
-        await enqueue(adapter.cancelOrder({ marketId: selected.marketId, orderId: order.orderId }), { openOrderCount: 1, pendingExposureRaw: order.quantityRemainingRaw });
+        const cancelResult = await enqueue(adapter.cancelOrder({ marketId: selected.marketId, orderId: order.orderId }), { openOrderCount: 1, pendingExposureRaw: order.quantityRemainingRaw });
+        rememberWrite("cancelOrder", cancelResult);
+        recordActivity("CHAIN_WRITE", "Order cancelled", { txHash: cancelResult?.hash ?? cancelResult?.transactionHash ?? null, orderId: order.orderId });
       }
       accountState = await readAccount(selected.marketId);
       if (accountState.orders.orders.length !== 0) fail("CANCEL_RECONCILIATION_FAILED", "account orders did not reconcile empty");
+      recordActivity("RECONCILIATION", "Orders reconciled empty", { liveOrders: 0 });
       const burnAmountRaw = accountState.inventory.yesRaw < accountState.inventory.noRaw ? accountState.inventory.yesRaw : accountState.inventory.noRaw;
-      if (burnAmountRaw > 0n) await enqueue(adapter.burnCompleteSet({ marketId: selected.marketId, amountRaw: burnAmountRaw }));
+      if (burnAmountRaw > 0n) {
+        setRuntimeStage("BURNING_INVENTORY", "Burning paired inventory", "STOPPING", session);
+        const burnResult = await enqueue(adapter.burnCompleteSet({ marketId: selected.marketId, amountRaw: burnAmountRaw }));
+        rememberWrite("burnCompleteSet", burnResult);
+        recordActivity("CHAIN_WRITE", "Paired inventory burned", { txHash: burnResult?.hash ?? burnResult?.transactionHash ?? null, amountRaw: burnAmountRaw });
+      }
       accountState = await readAccount(selected.marketId);
+      recordActivity("RECONCILIATION", "Inventory reconciled", { yesRaw: accountState.inventory.yesRaw, noRaw: accountState.inventory.noRaw });
+      setRuntimeStage("CHECKING_SETTLEMENT", "Checking settlement", "STOPPING", session);
       const onchainSettlement = await readSettlement(accountMarket.market);
       settlement = assessSessionSettlement({ session, account: config.account, owner: config.owner, marketId: selected.marketId, onchain: onchainSettlement, held: trackedInventory, owned: accountState.inventory, orders: accountState.orders, payoutNumerators: onchainSettlement.payoutNumerators, outcomeIds: { yes: accountMarket.yesId, no: accountMarket.noId } });
       if (settlement.state === "SETTLEMENT_BLOCKED") fail(settlement.reason, "settlement is blocked until account orders and transactions are authoritative");
@@ -379,19 +542,24 @@ async function main() {
       const finalValueRaw = accountState.capital.directCollateralRaw + (accountState.capital.vaultRaw ?? 0n);
       const pnl = classifySessionPnl({ startingValueRaw, endingValueRaw: finalValueRaw, pendingValueRaw });
       const pending = pendingValueRaw === null;
-      emitSnapshot(reason, pnl);
+      emitSnapshot(reason, pnl, "STOPPING");
+      setRuntimeStage("RELEASING_SESSION", "Releasing session lease", "STOPPING", session);
       session = transitionLpSession(session, settlement.state === "STOPPED_CLEAN" ? "STOPPED_CLEAN" : settlement.state, { atMs: Date.now() });
       leaseStore.release(session, { reconciled: true });
       leaseHeartbeat.authority.held = false;
       leaseHeartbeat.stop();
+      runtimeTelemetry.stage = { code: "STOPPED", label: "Session stopped", atMs: Date.now() };
+      recordActivity("SESSION", "Session stopped", { state: session.state, reason });
       send({ type: "result", session, result: { status: session.state, reason, pnl, startingValueRaw, finalValueRaw, pendingValueRaw, ordersPlaced: 1, fills: pending ? "UNRESOLVED_OR_FILLED" : "NONE_CONFIRMED", marketId: selected.marketId, intervalSec: selected.intervalSec, pendingSettlement: pending, settlement } });
       send({ type: "state", state: session.state, session });
     };
 
     while (!stopSignal.requested) {
       const chain = await readChainTime(exchange);
+      latestChainTime = chain;
       accountState = await readAccount(selected.marketId);
       const timeRemainingSec = selected.expirySec - chain.chainNowSec;
+      if (!runtimeTelemetry.activity.some((item) => item.type === "MONITORING")) recordActivity("MONITORING", "Monitoring live order book and account state", { timeRemainingSec });
       emitSnapshot(stopSignal.paused ? "paused" : "monitoring");
       if (timeRemainingSec <= MIN_HEADROOM_SEC || Date.now() - Number(session.createdAt) >= MAX_SESSION_SEC * 1000) {
         stopSignal.requested = true;

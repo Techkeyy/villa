@@ -28,7 +28,7 @@ test("LP workspace is a simple owner-scoped onboarding flow", () => {
   assert.match(html, /data-page="app"[^>]*hidden/);
   assert.match(html, /MY LIQUIDITY/);
   assert.match(html, /Connect wallet/);
-  assert.match(html, /Create V2 VILLA account/);
+  assert.match(html, /Create VILLA account/);
   assert.match(html, /Add liquidity<\/button>/);
   assert.match(html, /Authorize VILLA/);
   assert.match(html, /Revoke VILLA/);
@@ -41,6 +41,8 @@ test("LP workspace is a simple owner-scoped onboarding flow", () => {
   assert.match(html, /01 Connect/);
   assert.match(html, /06 Start/);
   assert.match(html, /SAFE CONTROL PLANE/);
+  assert.match(html, /Legacy accounts \/ Account history/);
+  assert.match(html, /strategy-requirement-copy/);
   assert.doesNotMatch(html, /authorized operator wallet/i);
   assert.match(html, /Selected automatically at Start/);
   assert.match(html, /Risk controls/);

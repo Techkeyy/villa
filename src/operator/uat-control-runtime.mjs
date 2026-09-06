@@ -16,6 +16,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { AccountControlError } from "./account-control.mjs";
 import { createOperatorAuth } from "./auth.mjs";
+import { normalizeJsonBoundary } from "./uat-state.mjs";
 
 const DEFAULT_WORKER = fileURLToPath(new URL("../../scripts/lp-account-session.mjs", import.meta.url));
 const ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
@@ -51,7 +52,7 @@ function publicSession(session) {
 
 function safeSnapshot(snapshot) {
   if (!snapshot || typeof snapshot !== "object") return null;
-  return {
+  return normalizeJsonBoundary({
     marketId: snapshot.marketId ?? null,
     intervalSec: snapshot.intervalSec ?? null,
     timeRemainingSec: snapshot.timeRemainingSec ?? null,
@@ -66,7 +67,19 @@ function safeSnapshot(snapshot) {
     pendingSettlement: snapshot.pendingSettlement ?? null,
     lastAction: snapshot.lastAction ?? null,
     pnl: snapshot.pnl ?? null,
-  };
+    pnlStatus: snapshot.pnlStatus ?? null,
+    pnlReason: snapshot.pnlReason ?? null,
+    market: snapshot.market ?? null,
+    strategy: snapshot.strategy ?? null,
+    riskGovernor: snapshot.riskGovernor ?? null,
+    inventoryState: snapshot.inventoryState ?? null,
+    capitalState: snapshot.capitalState ?? null,
+    health: snapshot.health ?? null,
+    stage: snapshot.stage ?? null,
+    activity: Array.isArray(snapshot.activity) ? snapshot.activity : [],
+    lastEngineUpdateAt: snapshot.lastEngineUpdateAt ?? null,
+    advanced: snapshot.advanced ?? null,
+  });
 }
 
 function stripSignerEnvironment(env) {
@@ -167,6 +180,9 @@ export function createUatAccountControl({
   let result = null;
   let lastError = null;
   let readyPromise = null;
+  let stage = null;
+  let activity = [];
+  let lastEngineUpdateAt = null;
 
   function assertCaller(caller) {
     if (!sameAddress(caller, owner)) throw new AccountControlError("OWNER_SCOPE_MISMATCH", "the authenticated wallet is not the approved UAT owner", 403);
@@ -194,6 +210,9 @@ export function createUatAccountControl({
       snapshot: safeSnapshot(snapshot),
       result,
       error: lastError,
+      stage,
+      activity,
+      lastEngineUpdateAt,
       readiness: Object.freeze({ allowed: enabled && state === "STOPPED", reasons: enabled ? (state === "ERROR" ? ["UAT_SESSION_ERROR"] : []) : ["UAT_EXECUTION_DISABLED"] }),
       safety: Object.freeze({
         publicEnabled: enabled,
@@ -220,6 +239,9 @@ export function createUatAccountControl({
     if (external.session) session = { ...session, ...external.session };
     if (Object.hasOwn(external, "snapshot")) snapshot = safeSnapshot(external.snapshot);
     if (Object.hasOwn(external, "result")) result = external.result;
+    if (Object.hasOwn(external, "stage")) stage = external.stage;
+    if (Array.isArray(external.activity)) activity = external.activity;
+    if (Object.hasOwn(external, "lastEngineUpdateAt")) lastEngineUpdateAt = external.lastEngineUpdateAt;
     if (external.error) lastError = { code: String(external.error.code ?? "UAT_SESSION_FAILED"), message: String(external.error.message ?? "The private UAT session failed.") };
     const externalState = external.state ? String(external.state).toUpperCase() : null;
     if (externalState === "STOPPED_CLEAN") {
@@ -296,10 +318,16 @@ export function createUatAccountControl({
     if (message.type === "state") {
       state = String(message.state ?? state).toUpperCase();
       if (message.session) session = { ...session, ...message.session, state };
+      if (Object.hasOwn(message, "stage")) stage = message.stage;
+      if (Array.isArray(message.activity)) activity = message.activity;
+      if (Object.hasOwn(message, "lastEngineUpdateAt")) lastEngineUpdateAt = message.lastEngineUpdateAt;
       return;
     }
     if (message.type === "snapshot") {
       snapshot = safeSnapshot(message.snapshot);
+      if (Object.hasOwn(message, "stage")) stage = message.stage;
+      if (Array.isArray(message.activity)) activity = message.activity;
+      if (Object.hasOwn(message, "lastEngineUpdateAt")) lastEngineUpdateAt = message.lastEngineUpdateAt;
       return;
     }
     if (message.type === "result") {
@@ -383,11 +411,15 @@ export function createUatAccountControl({
     snapshot = null;
     result = null;
     lastError = null;
+    stage = null;
+    activity = [];
+    lastEngineUpdateAt = null;
 
     if (launchMode === "systemd") {
       try {
         await serviceCommand("start", sessionId);
-        return await waitForSystemdReady(sessionId);
+        await syncExternal();
+        return publicState();
       } catch (error) {
         activeSessionId = null;
         state = "STOPPED";

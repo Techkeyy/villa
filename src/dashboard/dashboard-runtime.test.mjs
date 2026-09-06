@@ -21,17 +21,20 @@ function countExact(text, value) {
 }
 
 async function startDashboardServer() {
-  const port = 43000 + Math.floor(Math.random() * 1000);
+  const port = 0;
   const child = spawn(process.execPath, ["scripts/dashboard-server.mjs", "--replay", `--port=${port}`], {
     cwd: root,
     stdio: ["ignore", "pipe", "pipe"],
   });
   const output = [];
+  let baseUrl = null;
   const ready = new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error(`dashboard server did not start: ${output.join("")}`)), 15000);
     child.stdout.on("data", (chunk) => {
       output.push(String(chunk));
-      if (String(chunk).includes("VILLA dashboard listening")) {
+      const match = String(chunk).match(/VILLA dashboard listening at (http:\/\/[^\s]+)/);
+      if (match) {
+        baseUrl = match[1];
         clearTimeout(timer);
         resolve();
       }
@@ -49,7 +52,7 @@ async function startDashboardServer() {
     });
   });
   await ready;
-  return { child, baseUrl: `http://127.0.0.1:${port}` };
+  return { child, baseUrl };
 }
 
 async function startFixtureServer(body) {
@@ -65,8 +68,8 @@ async function startFixtureServer(body) {
   return { server, url: `http://127.0.0.1:${address.port}/` };
 }
 
-async function runDashboardBuild() {
-  const child = spawn(process.execPath, ["scripts/dashboard-build.mjs"], { cwd: root, stdio: ["ignore", "pipe", "pipe"] });
+async function runDashboardBuild(outputDirectory) {
+  const child = spawn(process.execPath, ["scripts/dashboard-build.mjs"], { cwd: root, env: { ...process.env, VILLA_DASHBOARD_OUTPUT: outputDirectory }, stdio: ["ignore", "pipe", "pipe"] });
   let output = "";
   await new Promise((resolve, reject) => {
     child.stdout.on("data", (chunk) => { output += String(chunk); });
@@ -76,8 +79,7 @@ async function runDashboardBuild() {
   });
 }
 
-async function startBuiltDashboardServer() {
-  const builtRoot = path.join(root, "dist", "dashboard");
+async function startBuiltDashboardServer(builtRoot) {
   const contentTypes = {
     ".css": "text/css; charset=utf-8",
     ".html": "text/html; charset=utf-8",
@@ -220,11 +222,25 @@ class CdpClient {
   }
 }
 
+async function waitForBrowserPort(userDataDir, timeoutMs = 10000) {
+  const deadline = Date.now() + timeoutMs;
+  const activePortFile = path.join(userDataDir, "DevToolsActivePort");
+  while (Date.now() < deadline) {
+    try {
+      const port = Number((await fs.readFile(activePortFile, "utf8")).trim().split(/\s+/)[0]);
+      if (Number.isInteger(port) && port > 0) return port;
+    } catch {
+      // Chrome writes DevToolsActivePort after the process has started.
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  throw new Error("Chrome did not publish an ephemeral DevTools port");
+}
+
 async function startHeadlessBrowser(url) {
   assert.equal(typeof WebSocket, "function", "Node WebSocket support is required for the browser runtime gate");
   const browser = await findBrowserExecutable();
   assert.ok(browser, "A Chrome-compatible browser is required for the computed-style runtime gate");
-  const debugPort = 44000 + Math.floor(Math.random() * 1000);
   const userDataDir = await fs.mkdtemp(path.join(os.tmpdir(), "villa-dashboard-chrome-"));
   let child;
   try {
@@ -237,10 +253,11 @@ async function startHeadlessBrowser(url) {
       "--remote-allow-origins=*",
       "--no-first-run",
       "--no-default-browser-check",
-      `--remote-debugging-port=${debugPort}`,
+      "--remote-debugging-port=0",
       `--user-data-dir=${userDataDir}`,
       url,
     ], { stdio: "ignore" });
+    const debugPort = await waitForBrowserPort(userDataDir);
     const version = await waitForJson(
       `http://127.0.0.1:${debugPort}/json/version`,
       (value) => Boolean(value.Browser && value.webSocketDebuggerUrl),
@@ -439,17 +456,21 @@ test("dashboard server serves current source assets and the v2 build marker", as
 });
 
 test("built landing, app, and proof routes initialize the intended runtime page", async () => {
-  await runDashboardBuild();
-  const { server, baseUrl } = await startBuiltDashboardServer();
-  const expected = [
-    ["/", "landing"],
-    ["/app", "app"],
-    ["/proof", "proof"],
-    ];
+  const builtRoot = await fs.mkdtemp(path.join(os.tmpdir(), "villa-dashboard-built-"));
+  let server = null;
   try {
-    for (const [route, page] of expected) {
-      const browser = await startHeadlessBrowser(baseUrl + route);
-      try {
+    await runDashboardBuild(builtRoot);
+    const built = await startBuiltDashboardServer(builtRoot);
+    server = built.server;
+    const expected = [
+      ["/", "landing"],
+      ["/app", "app"],
+      ["/proof", "proof"],
+    ];
+    try {
+      for (const [route, page] of expected) {
+        const browser = await startHeadlessBrowser(built.baseUrl + route);
+        try {
         await browser.cdp.send("Page.enable");
         await browser.cdp.send("Page.reload", { ignoreCache: true });
         const expression = [
@@ -481,12 +502,15 @@ test("built landing, app, and proof routes initialize the intended runtime page"
         assert.equal(state.appHidden, page !== "app", route);
         assert.equal(state.proofHidden, page !== "proof", route);
         if (page === "app") assert.equal(state.appCopy, true);
-      } finally {
-        await browser.close();
+        } finally {
+          await browser.close();
+        }
       }
+    } finally {
+      await new Promise((resolve) => server.close(resolve));
     }
   } finally {
-    await new Promise((resolve) => server.close(resolve));
+    await fs.rm(builtRoot, { recursive: true, force: true });
   }
 });
 

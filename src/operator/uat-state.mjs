@@ -22,6 +22,9 @@ export function serializeJsonBoundary(value) {
 function safeMessage(message) {
   if (!message || typeof message !== "object") return {};
   const allowed = {};
+  for (const key of ["stage", "activity", "lastEngineUpdateAt"]) {
+    if (Object.hasOwn(message, key)) allowed[key] = publicValue(message[key]);
+  }
   if (message.snapshot && typeof message.snapshot === "object") allowed.snapshot = publicValue(message.snapshot);
   if (message.type === "state" || message.type === "ready") {
     allowed.state = message.type === "ready" ? "RUNNING" : String(message.state ?? "STARTING").toUpperCase();

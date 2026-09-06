@@ -71,6 +71,6 @@ const server = http.createServer(async (request, response) => {
 });
 
 server.listen(port, host, () => {
-  console.log(`VILLA dashboard listening at http://${host}:${port}`);
+  console.log(`VILLA dashboard listening at http://${host}:${server.address().port}`);
   console.log(`Default mode: ${defaultMode.toUpperCase()}; live mode is read-only`);
 });

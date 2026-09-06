@@ -207,6 +207,12 @@ h3 { margin-bottom: 9px; font-size: 19px; line-height: 1.2; letter-spacing: -.02
 .metric span, .strategy-summary span { display: block; margin-bottom: 8px; color: var(--muted); font-size: 13px; }
 .metric strong, .strategy-summary strong { display: block; font-size: 17px; }
 .metric small { display: block; margin-top: 6px; color: var(--subtle); font-size: 12px; }
+.telemetry-section { margin-top: 22px; }
+.telemetry-section .panel-label { margin-bottom: 10px; }
+.monitor-stage { margin: -8px 0 6px; color: var(--muted); font-size: 13px; font-weight: 700; }
+.activity-feed { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.activity-feed li { display: flex; gap: 12px; padding: 9px 0; border-bottom: 1px solid var(--line); color: var(--ink); font-size: 13px; }
+.activity-feed time { min-width: 72px; color: var(--subtle); font-variant-numeric: tabular-nums; }
 .allocation-row { display: flex; align-items: end; gap: 12px; padding-top: 24px; }
 .allocation-row label { display: block; flex: 1; color: var(--muted); font-size: 13px; }
 .amount-input { display: flex; height: 46px; min-width: 200px; align-items: center; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--white); }

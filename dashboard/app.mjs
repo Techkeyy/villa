@@ -151,6 +151,7 @@ const formatMarket = (market = {}) => {
 };
 
 const formatStrategyAmount = (raw) => formatAmount(raw, 6, 3);
+const formatUserAmount = (raw) => formatRawExact(raw);
 
 function sessionMarket(session) {
   const series = String(session?.marketSeries ?? "");
@@ -350,7 +351,7 @@ function accountReadyForControl() {
 }
 
 function controlStateLabel(state) {
-  return ({ STARTING: "Preparing", RUNNING: "Running", PAUSED: "Paused", STOPPING: "Stopping", ERROR: "Needs attention", STOPPED: "Ready to start", STOPPED_CLEAN: "Stopped", STOPPED_SETTLEMENT_PENDING: "Settlement pending", SETTLEMENT_READY: "Settlement ready", SETTLING: "Settling", SETTLED: "Settled", WITHDRAWABLE: "Withdrawable" })[state] || "Ready to start";
+  return ({ STARTING: "Starting", RUNNING: "Running", PAUSED: "Paused", STOPPING: "Stopping", ERROR: "Needs attention", STOPPED: "Ready to start", STOPPED_CLEAN: "Stopped", STOPPED_SETTLEMENT_PENDING: "Settlement pending", SETTLEMENT_READY: "Settlement ready", SETTLING: "Settling", SETTLED: "Settled", WITHDRAWABLE: "Withdrawable" })[state] || "Ready to start";
 }
 
 function renderControlControls() {
@@ -441,6 +442,7 @@ function setControlView(state, copy = "", result = null) {
   scheduleControlPoll();
   renderLiveCapital(appState.controlSnapshot);
   if (copy) setMessage("control-message", copy, state === "ERROR" ? "warning" : "safe");
+  else if (CONTROL_STOP_TERMINAL_STATES.includes(String(state || "").toUpperCase())) setMessage("control-message", "");
 }
 
 async function handleStartStrategy() {
@@ -458,8 +460,8 @@ async function handleStartStrategy() {
   try {
     const result = await controlClientForWallet().start();
     const nextState = String(result.state || "RUNNING").toUpperCase();
-    setControlView(nextState, "Strategy control accepted.", result);
-    showTransaction("SUCCESS", "Strategy control accepted", "The account-bound control plane returned a safe session state.");
+    setControlView(nextState, nextState === "STARTING" ? "Strategy is starting. The live engine stages will appear below." : "Strategy control accepted.", result);
+    showTransaction(nextState === "STARTING" ? "CONFIRMING" : "SUCCESS", nextState === "STARTING" ? "Starting strategy" : "Strategy control accepted", nextState === "STARTING" ? "The account-bound engine is progressing through live preflight stages." : "The account-bound control plane returned a safe session state.");
   } catch (error) {
     setControlView("STOPPED");
     showActionError("control-message", error instanceof ControlClientError ? error : new ControlClientError("CONTROL_REQUEST_FAILED", error?.message || "The strategy control request failed."));
@@ -603,10 +605,13 @@ function renderAccountSelector(accounts, account) {
 function renderMigrationPanel(accounts, account) {
   const v1 = accounts.find((candidate) => accountVersionOf(candidate) === 1);
   const v2 = accounts.find((candidate) => accountVersionOf(candidate) === 2);
-  toggle("account-migration", Boolean(v1));
+  toggle("account-migration", Boolean(v1 && !v2));
+  toggle("legacy-accounts", Boolean(v1 && v2));
   if (!v1) return;
   text("migration-v1-address", shorten(v1.address));
   text("migration-v1-balance", formatStrategyAmount(v1.balance));
+  text("legacy-v1-address", shorten(v1.address));
+  text("legacy-v1-balance", formatStrategyAmount(v1.balance));
   text("migration-v2-status", v2 ? "V2 VERIFIED" : "V2 AVAILABLE");
   text("migration-copy", v2
     ? "V2 is verified as the preferred autonomous target. V1 remains visible, owner-controlled, and available for recovery."
@@ -630,7 +635,7 @@ function updateWorkspace(account, walletBalance) {
   text("account-address", shorten(account.address));
   text("account-owner", shorten(account.owner));
   text("account-version", `VillaAccount V${accountVersion || "?"}`);
-  text("account-verification", isV2 ? "Owner verified · V2" : "Owner verified · V1 legacy");
+  text("account-verification", isV2 ? "Owner verified" : "Owner verified · V1 legacy");
   text("wallet-balance", `${formatAmount(walletBalance)} tUSDC`);
   text("allocated-balance", `${formatStrategyAmount(allocated)} tUSDC`);
   text("available-balance", `${formatStrategyAmount(allocated)} tUSDC`);
@@ -674,10 +679,11 @@ function updateWorkspace(account, walletBalance) {
     readinessStatus.textContent = ready ? "READY" : "SETUP REQUIRED";
   }
   text("readiness-title", !isV2 ? "V1 remains recoverable." : ready ? "Liquidity setup complete." : !strategyCapitalReady ? "Add strategy capital first." : "Complete account setup first.");
+  text("strategy-requirement-copy", "VILLA needs " + formatRawExact(MIN_STRATEGY_CAPITAL_RAW) + " tUSDC for this test configuration: 1.000 reserve + 0.001 minimum market inventory.");
   text("readiness-copy", !isV2
     ? "V1 remains funded and recoverable. Create and verify an empty V2 before deciding whether to migrate funds."
     : ready ? "Your account is ready. Start asks the constrained control plane to run a fresh account-bound preflight."
-      : !strategyCapitalReady ? "Add at least " + formatRawExact(MIN_STRATEGY_CAPITAL_RAW) + " tUSDC so the reserve remains intact after the venue-minimum complete-set mint."
+      : !strategyCapitalReady ? "VILLA needs " + formatRawExact(MIN_STRATEGY_CAPITAL_RAW) + " tUSDC for this test configuration: 1.000 reserve + 0.001 minimum market inventory."
         : "Add liquidity and authorize VILLA before the workspace can be marked ready.");
   const capitalStatus = element("capital-status");
   if (capitalStatus) {
@@ -1040,7 +1046,7 @@ async function handleWithdraw() {
     const verified = await readAccount(provider, appState.account.address, accountArtifacts ?? accountArtifact, appState.owner);
     if (amount > verified.balance) throw new AccountClientError("INSUFFICIENT_FUNDS", "That amount is larger than the available capital in your VILLA account.");
     const walletBefore = await readTokenBalance(provider, appState.owner);
-    showTransaction("READY", "Withdraw to your wallet", `Your account will return ${formatAmount(amount)} tUSDC to this connected owner wallet.`);
+    showTransaction("READY", "Withdraw to your wallet", `Your account will return ${formatUserAmount(amount)} tUSDC to this connected owner wallet.`);
     const result = await sendTransaction(provider, actionTransaction(appState.owner, appState.account.address, accountCall.withdraw(amount)), actionUpdate);
     showTransaction("CONFIRMING", "Verifying your withdrawal", "Checking the account decrease, wallet increase, and owner on-chain.", result.hash);
     const walletAfter = await readTokenBalance(provider, appState.owner);
@@ -1048,8 +1054,8 @@ async function handleWithdraw() {
     if (walletAfter - walletBefore !== amount || verified.balance - after.balance !== amount) throw new AccountClientError("BALANCE_MISMATCH", "The withdrawal did not reconcile to the exact amount. No success was recorded.", result.hash);
     setAppState({ account: after, accounts: mergeAccount(after), walletBalance: walletAfter, currentAccountAddress: after.address, discoveryStatus: "DISCOVERED", error: null });
     updateWorkspace(after, walletAfter);
-    showTransaction("SUCCESS", "Capital withdrawn", `${formatAmount(amount)} tUSDC returned to your connected wallet.`, result.hash);
-    setMessage("withdraw-message", `Withdrawn: ${formatAmount(amount)} tUSDC.`, "safe");
+    showTransaction("SUCCESS", "Capital withdrawn", `${formatUserAmount(amount)} tUSDC returned to your connected wallet.`, result.hash);
+    setMessage("withdraw-message", `Withdrawn: ${formatUserAmount(amount)} tUSDC.`, "safe");
     element("withdraw-amount").value = "";
   } catch (error) {
     showActionError("withdraw-message", error);

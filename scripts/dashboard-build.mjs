@@ -4,7 +4,9 @@ import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const source = path.join(root, "dashboard");
-const output = path.join(root, "dist", "dashboard");
+const output = process.env.VILLA_DASHBOARD_OUTPUT
+  ? path.resolve(process.env.VILLA_DASHBOARD_OUTPUT)
+  : path.join(root, "dist", "dashboard");
 
 function routeShell(html, route) {
   const routed = html.replace("<body>", `<body data-route="${route}">`);

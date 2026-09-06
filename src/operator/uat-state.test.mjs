@@ -8,11 +8,13 @@ import { normalizeJsonBoundary, persistPrivateUatState, persistUatState, seriali
 test("UAT state persistence writes only public lifecycle facts", async () => {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), "villa-uat-state-"));
   const file = path.join(directory, "session.json");
-  persistUatState(file, { type: "state", state: "RUNNING", session: { account: "0x1111111111111111111111111111111111111111" }, secret: "never-persist" });
+  persistUatState(file, { type: "state", state: "RUNNING", session: { account: "0x1111111111111111111111111111111111111111" }, stage: { code: "RUNNING", label: "Strategy running" }, activity: [{ type: "STAGE", message: "Strategy running", signer: "never-persist" }], secret: "never-persist" });
   persistUatState(file, { type: "snapshot", snapshot: { marketId: "0x" + "a".repeat(64), collateralRaw: 1002000n, openOrders: [], signer: "never-persist", privateKey: "never-persist" } });
   const state = JSON.parse(await fs.readFile(file, "utf8"));
   assert.equal(state.state, "RUNNING");
   assert.equal(state.snapshot.collateralRaw, "1002000");
+  assert.equal(state.stage.code, "RUNNING");
+  assert.equal(state.activity[0].message, "Strategy running");
   assert.equal(JSON.stringify(state).includes("never-persist"), false);
   assert.equal("secret" in state, false);
   await fs.rm(directory, { recursive: true, force: true });
