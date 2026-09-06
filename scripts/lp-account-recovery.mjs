@@ -70,8 +70,13 @@ async function main() {
   const env = process.env;
   const config = configFromEnv(env);
   const stored = readJson(env.VILLA_UAT_PRIVATE_STATE_FILE, "private session state");
-  const marketId = String(stored?.session?.currentMarketId ?? "").toLowerCase();
-  if (!BYTES32_RE.test(marketId) || stored?.session?.sessionId !== config.sessionId || !same(stored?.session?.owner, config.owner) || !same(stored?.session?.account, config.account) || !same(stored?.session?.operator, config.operator)) fail("RECOVERY_SCOPE_MISMATCH", "private state is not bound to this exact owner/account/session");
+  const storedMarketId = stored?.session?.currentMarketId;
+  const marketId = storedMarketId === null ? null : String(storedMarketId ?? "").toLowerCase();
+  const preMarketFailure = marketId === null && stored?.error?.code === "ACCOUNT_CAPITAL_CAP";
+  if ((marketId !== null && !BYTES32_RE.test(marketId)) || (!preMarketFailure && marketId === null)
+    || stored?.session?.sessionId !== config.sessionId || !same(stored?.session?.owner, config.owner) || !same(stored?.session?.account, config.account) || !same(stored?.session?.operator, config.operator)) {
+    fail("RECOVERY_SCOPE_MISMATCH", "private state is not bound to this exact owner/account/session");
+  }
   const publicClient = createPublicClient({ chain: somniaShannon, transport: http(env.RPC_URL || VILLA_ACCOUNT_CONFIG.rpcUrl, { timeout: 15_000 }) });
   const exchange = new SomniaMarkets({ account: config.account, indexerUrl: env.INDEXER_URL || "https://dev.smk.somnia.host/v1/graphql", chain: somniaShannon, wsRpcUrl: env.WS_RPC_URL || "wss://api.infra.testnet.somnia.network/ws", addresses: SOMNIA_TESTNET_ADDRESSES, priceFeed: SOMNIA_TESTNET_PRICE_FEED });
   const leaseStore = createFileAccountLeaseStore({ directory: env.VILLA_LEASE_DIR || env.VILLA_STATE_DIR, leaseDurationMs: LP_LEASE_DURATION_MS });
@@ -87,11 +92,39 @@ async function main() {
     if (identity.accountVersion !== 2 || !same(identity.owner, config.owner) || !same(identity.operator, config.operator)
       || !same(identity.collateralToken, VILLA_ACCOUNT_CONFIG.collateralToken) || !same(identity.outcomeToken, VILLA_ACCOUNT_CONFIG.outcomeToken)
       || !same(identity.binaryModule, VILLA_ACCOUNT_CONFIG.binaryModule) || !same(identity.binarySettlement, VILLA_ACCOUNT_CONFIG.binarySettlement)) fail("RECOVERY_ACCOUNT_INVALID", "VillaAccount identity or canonical wiring is not trusted");
+    const expiredLease = leaseStore.get(config.account);
+    if (preMarketFailure) {
+      const accountState = await adapter.readAccountState({ marketId: null });
+      const journal = await reconcileDurableJournal({ journalPath, publicClient, config: { ...config, marketId: null } });
+      const sessionScope = {
+        sessionId: config.sessionId,
+        account: config.account,
+        owner: config.owner,
+        operator: config.operator,
+        currentMarketId: null,
+      };
+      const preflight = validatePreflightFailureRecovery({ session: sessionScope, stored, expiredLease, journal, accountState, activeUnit: false });
+      const session = { ...stored.session, state: "STOPPED_CLEAN", leaseId: null, currentMarketId: null };
+      const snapshot = {
+        ...stored.snapshot,
+        marketId: null,
+        collateralRaw: accountState.capital.directCollateralRaw,
+        vaultRaw: accountState.capital.vaultRaw ?? 0n,
+        yesRaw: 0n,
+        noRaw: 0n,
+        openOrders: [],
+        pendingSettlement: null,
+        lastAction: "preflight_failure_reconciled",
+      };
+      send(env, { type: "snapshot", snapshot });
+      send(env, { type: "result", session, result: { status: "STOPPED_CLEAN", reason: "PREFLIGHT_FAILURE_RECONCILED", classification: preflight.classification, writes: [], finalValueRaw: preflight.capitalRaw, pendingSettlement: false } });
+      send(env, { type: "state", state: "STOPPED_CLEAN", session });
+      return;
+    }
     const accountMarket = await adapter.readMarket({ marketId, identity });
     let accountState = await adapter.readAccountState({ marketId });
     let journal = await reconcileDurableJournal({ journalPath, publicClient, config: { ...config, marketId } });
     const base = createLpExecutionSession({ sessionId: config.sessionId, account: config.account, owner: config.owner, operator: config.operator, chainId: config.chainId, marketSeries: String(stored.session.marketSeries || "BINARY:BTC:UAT"), currentMarketId: marketId, riskPolicyVersion: "villa-expired-session-recovery-v1", executionMode: "WET", createdAt: Date.now(), maxSessionDurationSec: DEFAULT_PHASE_3B1_CAPS.MAX_SESSION_DURATION_SEC });
-    const expiredLease = leaseStore.get(config.account);
     if (stored.error?.code === "ACCOUNT_CAPITAL_CAP") {
       const preflight = validatePreflightFailureRecovery({ session: base, stored, expiredLease, journal, accountState });
       const session = { ...stored.session, state: "STOPPED_CLEAN", leaseId: null };

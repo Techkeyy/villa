@@ -8,6 +8,7 @@ import { createOnChainAccountVerifier } from "../src/operator/account-binding.mj
 const execFileAsync = promisify(execFile);
 const SOCKET_PATH = process.env.VILLA_UAT_BROKER_SOCKET || "/run/villa-uat-broker/control.sock";
 const BINDING_DIR = "/run/villa-uat-bindings";
+const STATUS_DIR = "/run/villa-uat-status";
 const SESSION_RE = /^uat-[0-9]+-[0-9a-f]{8}$/;
 const ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
 const ACTIONS = new Set(["start", "stop", "settle", "recover"]);
@@ -27,6 +28,10 @@ function fail(socket, code, error) {
 
 function bindingPath(sessionId) {
   return path.join(BINDING_DIR, `${sessionId}.env`);
+}
+
+function statusPath(sessionId) {
+  return path.join(STATUS_DIR, `${sessionId}.json`);
 }
 
 async function assertExistingBinding(sessionId, owner, account) {
@@ -69,7 +74,7 @@ async function runSystemd(action, sessionId) {
       if (error?.message === "the original session worker is still active") throw error;
       if (Number(error?.code) !== 3) throw error;
     }
-    await execFileAsync("/usr/bin/systemctl", ["start", "--no-block", unit], { windowsHide: true });
+    await execFileAsync("/usr/bin/systemctl", ["start", "--wait", unit], { windowsHide: true });
     return;
   }
   if (action === "stop") {
@@ -78,6 +83,29 @@ async function runSystemd(action, sessionId) {
   }
   const verb = action === "settle" ? "start" : action;
   await execFileAsync("/usr/bin/systemctl", [verb, unit], { windowsHide: true });
+}
+
+async function readPreflightReconciledStatus(sessionId, owner, account) {
+  try {
+    const document = JSON.parse(await fs.readFile(statusPath(sessionId), "utf8"));
+    const session = document?.session;
+    return document?.state === "STOPPED_CLEAN"
+      && document?.result?.reason === "PREFLIGHT_FAILURE_RECONCILED"
+      && session?.sessionId === sessionId
+      && validAddress(session?.owner)
+      && validAddress(session?.account)
+      && session.owner.toLowerCase() === owner.toLowerCase()
+      && session.account.toLowerCase() === account.toLowerCase();
+  } catch {
+    return false;
+  }
+}
+
+async function clearPreflightBinding(sessionId, owner, account) {
+  if (!await readPreflightReconciledStatus(sessionId, owner, account)) {
+    throw new Error("pre-market recovery did not produce the exact reconciled terminal state");
+  }
+  await fs.rm(bindingPath(sessionId), { force: false });
 }
 
 async function handle(socket, raw) {
@@ -92,9 +120,20 @@ async function handle(socket, raw) {
   }
   try {
     if (action === "start" || action === "settle" || action === "recover") await verifyAccount({ caller: owner, account, requireOperator: true });
+    let alreadyReconciled = false;
     if (action === "start") await writeBinding(sessionId, owner.toLowerCase(), account.toLowerCase());
-    else await assertExistingBinding(sessionId, owner, account);
-    await runSystemd(action, sessionId);
+    else {
+      try {
+        await assertExistingBinding(sessionId, owner, account);
+      } catch (error) {
+        if (action !== "recover" || !await readPreflightReconciledStatus(sessionId, owner, account)) throw error;
+        alreadyReconciled = true;
+      }
+    }
+    if (!alreadyReconciled) {
+      await runSystemd(action, sessionId);
+      if (action === "recover") await clearPreflightBinding(sessionId, owner, account);
+    }
     response(socket, { ok: true });
   } catch (error) {
     console.error(`[villa-uat-broker] action=${action} sessionId=${sessionId} code=${error?.code || "ERROR"} message=${error?.message || String(error)}`);

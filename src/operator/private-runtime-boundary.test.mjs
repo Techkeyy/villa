@@ -78,6 +78,15 @@ test("root broker is the only dynamic identity boundary", () => {
   assert.doesNotMatch(brokerUnit, /LoadCredential=|(?:^|\n)Environment=.*CREDENTIALS_DIRECTORY/);
 });
 
+test("pre-market recovery waits for the exact unit and clears only its reconciled binding", () => {
+  const broker = fs.readFileSync(path.join(ROOT, "scripts/villa-uat-broker.mjs"), "utf8");
+  assert.match(broker, /\["start", "--wait", unit\]/);
+  assert.match(broker, /PREFLIGHT_FAILURE_RECONCILED/);
+  assert.match(broker, /fs\.rm\(bindingPath\(sessionId\), \{ force: false \}\)/);
+  assert.match(broker, /alreadyReconciled/);
+  assert.doesNotMatch(broker, /villa-uat-bindings\/\*|rmSync\([^)]*\*|readdir\(BINDING_DIR/);
+});
+
 test("private bundle entrypoints and specs contain no public-writable runtime path", () => {
   assert.deepEqual(PRIVATE_RUNTIME_ENTRIES, [
     "scripts/villa-uat-broker.mjs",

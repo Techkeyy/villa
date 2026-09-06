@@ -21,6 +21,19 @@ function fixtures() {
   return { session, stored, expiredLease, journal, accountState };
 }
 
+function preMarketFixtures() {
+  const session = { sessionId: "uat-1788674963992-5d565c2d", account: ACCOUNT, owner: OWNER, operator: OPERATOR, currentMarketId: null };
+  const stored = { session: { ...session, leaseId: null }, error: { code: "ACCOUNT_CAPITAL_CAP", message: "account capital exceeds the bounded cap" }, snapshot: null };
+  const accountState = {
+    capital: { directCollateralRaw: 2_001_000n, vaultRaw: null },
+    identity: { aggregateExposure: 0n, mintExposure: 0n },
+    inventory: null,
+    positions: null,
+    orders: { status: "NOT_SELECTED", orders: [] },
+  };
+  return { session, stored, expiredLease: null, journal: { pending: 0, unknown: 0, reverted: 0, records: [] }, accountState, activeUnit: false };
+}
+
 test("10. authenticated expired-session recovery derives only the proven cancellation", () => {
   const value = fixtures();
   const provenance = validateExpiredSessionRecovery(value);
@@ -74,6 +87,62 @@ test("preflight-only capital failure reconciles with no lease, no journal writes
   });
   assert.equal(result.capitalRaw, 2_001_000n);
   assert.equal(result.nextTxIndex, 0);
+});
+
+test("narrow pre-market capital failure reconciles without a market", () => {
+  const result = validatePreflightFailureRecovery(preMarketFixtures());
+  assert.equal(result.classification, "NARROW_PREMARKET_RECOVERY");
+  assert.equal(result.capitalRaw, 2_001_000n);
+});
+
+test("pre-market recovery rejects an active lease or original worker", () => {
+  const value = preMarketFixtures();
+  assert.throws(() => validatePreflightFailureRecovery({ ...value, expiredLease: { leaseId: "unexpected" } }), { code: "RECOVERY_LEASE_UNEXPECTED" });
+  assert.throws(() => validatePreflightFailureRecovery({ ...value, activeUnit: true }), { code: "RECOVERY_ACTIVE_UNIT" });
+});
+
+test("pre-market recovery rejects any durable chain activity", () => {
+  const value = preMarketFixtures();
+  assert.throws(() => validatePreflightFailureRecovery({ ...value, journal: { ...value.journal, records: [{ action: "PLACE_ORDER" }] } }), { code: "RECOVERY_CHAIN_ACTIVITY_PRESENT" });
+  assert.throws(() => validatePreflightFailureRecovery({ ...value, journal: { ...value.journal, pending: 1 } }), { code: "RECOVERY_CHAIN_ACTIVITY_PRESENT" });
+});
+
+test("pre-market recovery rejects live order, inventory, position, settlement, or exposure state", () => {
+  const value = preMarketFixtures();
+  assert.throws(() => validatePreflightFailureRecovery({ ...value, accountState: { ...value.accountState, orders: { status: "VERIFIED", orders: [{ orderId: 1n }] } } }), { code: "RECOVERY_ORDER_STATE_UNKNOWN" });
+  assert.throws(() => validatePreflightFailureRecovery({ ...value, accountState: { ...value.accountState, inventory: { yesRaw: 1n, noRaw: 0n } } }), { code: "RECOVERY_MARKET_STATE_PRESENT" });
+  assert.throws(() => validatePreflightFailureRecovery({ ...value, accountState: { ...value.accountState, positions: { marketId: MARKET } } }), { code: "RECOVERY_MARKET_STATE_PRESENT" });
+  assert.throws(() => validatePreflightFailureRecovery({ ...value, accountState: { ...value.accountState, capital: { directCollateralRaw: 2_001_000n, vaultRaw: 1n } } }), { code: "RECOVERY_SETTLEMENT_PRESENT" });
+  assert.throws(() => validatePreflightFailureRecovery({ ...value, accountState: { ...value.accountState, identity: { aggregateExposure: 1n, mintExposure: 0n } } }), { code: "RECOVERY_EXPOSURE_PRESENT" });
+  assert.throws(() => validatePreflightFailureRecovery({ ...value, accountState: { ...value.accountState, identity: { aggregateExposure: 0n, mintExposure: 1n } } }), { code: "RECOVERY_MINT_EXPOSURE_PRESENT" });
+});
+
+test("market-bound preflight recovery still requires exact market identity", () => {
+  const value = fixtures();
+  assert.doesNotThrow(() => validatePreflightFailureRecovery({ ...value, expiredLease: null, journal: { pending: 0, unknown: 0, reverted: 0, records: [] }, stored: { ...value.stored, error: { code: "ACCOUNT_CAPITAL_CAP" } }, accountState: { ...value.accountState, orders: { status: "VERIFIED", orders: [] }, inventory: { yesRaw: 0n, noRaw: 0n }, capital: { directCollateralRaw: 1_000_000n, vaultRaw: 0n } } }));
+  assert.throws(() => validatePreflightFailureRecovery({ ...value, stored: { ...value.stored, session: { ...value.stored.session, currentMarketId: "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" }, error: { code: "ACCOUNT_CAPITAL_CAP" } } }), { code: "RECOVERY_SCOPE_MISMATCH" });
+});
+
+test("pre-market recovery rejects wrong owner, account, or session", () => {
+  const value = preMarketFixtures();
+  assert.throws(() => validatePreflightFailureRecovery({ ...value, stored: { ...value.stored, session: { ...value.stored.session, owner: "0x4444444444444444444444444444444444444444" } } }), { code: "RECOVERY_SCOPE_MISMATCH" });
+  assert.throws(() => validatePreflightFailureRecovery({ ...value, stored: { ...value.stored, session: { ...value.stored.session, account: "0x5555555555555555555555555555555555555555" } } }), { code: "RECOVERY_SCOPE_MISMATCH" });
+  assert.throws(() => validatePreflightFailureRecovery({ ...value, stored: { ...value.stored, session: { ...value.stored.session, sessionId: "uat-2000-bbbbbbbb" } } }), { code: "RECOVERY_SCOPE_MISMATCH" });
+});
+
+test("pre-market recovery leaves an unrelated session unchanged", () => {
+  const value = preMarketFixtures();
+  const unrelated = preMarketFixtures();
+  const before = structuredClone(unrelated);
+  validatePreflightFailureRecovery(value);
+  assert.deepEqual(unrelated, before);
+});
+
+test("pre-market reconciliation is idempotent", () => {
+  const value = preMarketFixtures();
+  const first = validatePreflightFailureRecovery(value);
+  const second = validatePreflightFailureRecovery(value);
+  assert.deepEqual(second, first);
 });
 
 test("preflight-only recovery fails closed on a lease, chain activity, inventory, or vault credit", () => {

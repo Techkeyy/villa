@@ -42,13 +42,45 @@ function orderId(value) {
 }
 
 /** Validate a failed START that stopped before lease acquisition or any write. */
-export function validatePreflightFailureRecovery({ session, stored, expiredLease = null, journal, accountState } = {}) {
+export function validatePreflightFailureRecovery({ session, stored, expiredLease = null, journal, accountState, activeUnit = false } = {}) {
   if (!session || !stored?.session) fail("RECOVERY_STATE_REQUIRED", "session and private state are required");
-  for (const [field, exact = false] of [["owner"], ["account"], ["operator"], ["currentMarketId"], ["sessionId", true]]) {
+  const preMarketFailure = stored.session.currentMarketId === null && session.currentMarketId === null;
+  for (const [field, exact = false] of [["owner"], ["account"], ["operator"], ...(preMarketFailure ? [] : [["currentMarketId"]]), ["sessionId", true]]) {
     const matches = exact ? String(stored.session[field] ?? "") === String(session[field] ?? "") : same(stored.session[field], session[field]);
     if (!matches) fail("RECOVERY_SCOPE_MISMATCH", `private state ${field} does not match the recovery session`);
   }
   if (String(stored.error?.code ?? "") !== "ACCOUNT_CAPITAL_CAP") fail("RECOVERY_NOT_PREFLIGHT_ONLY", "the failed session is not a recognized preflight-only capital rejection");
+
+  if (preMarketFailure) {
+    if (activeUnit !== false) fail("RECOVERY_ACTIVE_UNIT", "pre-market recovery requires the original session unit to be inactive");
+    if (expiredLease) fail("RECOVERY_LEASE_UNEXPECTED", "a pre-market failure must not have acquired an account lease");
+    if (stored.session.leaseId !== null && stored.session.leaseId !== undefined && String(stored.session.leaseId) !== "") {
+      fail("RECOVERY_LEASE_UNEXPECTED", "a pre-market failure must not contain a stored lease");
+    }
+    if (!journal || !Array.isArray(journal.records) || (journal.pending ?? 0) > 0 || (journal.unknown ?? 0) > 0 || (journal.reverted ?? 0) > 0 || journal.records.length > 0) {
+      fail("RECOVERY_CHAIN_ACTIVITY_PRESENT", "pre-market recovery is blocked by durable transaction activity");
+    }
+    if (accountState?.orders?.status !== "NOT_SELECTED" || !Array.isArray(accountState.orders.orders) || accountState.orders.orders.length !== 0) {
+      fail("RECOVERY_ORDER_STATE_UNKNOWN", "pre-market recovery requires authoritative absence of market-bound orders");
+    }
+    if (accountState.inventory !== null || accountState.positions !== null) {
+      fail("RECOVERY_MARKET_STATE_PRESENT", "pre-market recovery cannot accept market-bound inventory or positions");
+    }
+    if (!accountState?.capital || !Object.hasOwn(accountState.capital, "directCollateralRaw") || !Object.hasOwn(accountState.capital, "vaultRaw")) {
+      fail("RECOVERY_CAPITAL_STATE_UNKNOWN", "pre-market recovery requires authoritative account capital state");
+    }
+    if (accountState.capital.vaultRaw !== null && raw(accountState.capital.vaultRaw, "vault credit") !== 0n) {
+      fail("RECOVERY_SETTLEMENT_PRESENT", "pre-market recovery requires no settlement credit");
+    }
+    if (accountState?.identity?.aggregateExposure == null || accountState?.identity?.mintExposure == null) {
+      fail("RECOVERY_RISK_STATE_UNKNOWN", "pre-market recovery requires authoritative account exposure state");
+    }
+    if (raw(accountState.identity.aggregateExposure, "aggregate exposure") !== 0n) fail("RECOVERY_EXPOSURE_PRESENT", "pre-market recovery requires zero aggregate exposure");
+    if (raw(accountState.identity.mintExposure, "mint exposure") !== 0n) fail("RECOVERY_MINT_EXPOSURE_PRESENT", "pre-market recovery requires zero mint exposure");
+    return Object.freeze({ classification: "NARROW_PREMARKET_RECOVERY", capitalRaw: raw(accountState?.capital?.directCollateralRaw, "account capital"), nextTxIndex: 0 });
+  }
+
+  if (!same(stored.session.currentMarketId, session.currentMarketId)) fail("RECOVERY_SCOPE_MISMATCH", "private state currentMarketId does not match the recovery session");
   if (expiredLease) fail("RECOVERY_LEASE_UNEXPECTED", "a preflight-only failure must not have acquired an account lease");
   if ((journal?.pending ?? 0) > 0 || (journal?.unknown ?? 0) > 0 || (journal?.reverted ?? 0) > 0 || (journal?.records ?? []).length > 0) {
     fail("RECOVERY_CHAIN_ACTIVITY_PRESENT", "preflight-only recovery is blocked by durable transaction activity");
@@ -56,7 +88,7 @@ export function validatePreflightFailureRecovery({ session, stored, expiredLease
   if (accountState?.orders?.status !== "VERIFIED" || (accountState.orders.orders ?? []).length !== 0) fail("RECOVERY_ORDER_STATE_UNKNOWN", "preflight-only recovery requires authoritative empty orders");
   if (raw(accountState?.inventory?.yesRaw, "YES inventory") !== 0n || raw(accountState?.inventory?.noRaw, "NO inventory") !== 0n) fail("RECOVERY_INVENTORY_PRESENT", "preflight-only recovery requires empty outcome inventory");
   if (raw(accountState?.capital?.vaultRaw, "vault credit") !== 0n) fail("RECOVERY_SETTLEMENT_PRESENT", "preflight-only recovery requires zero vault credit");
-  return Object.freeze({ capitalRaw: raw(accountState?.capital?.directCollateralRaw, "account capital"), nextTxIndex: 0 });
+  return Object.freeze({ classification: "MARKET_BOUND_PREFLIGHT_RECOVERY", capitalRaw: raw(accountState?.capital?.directCollateralRaw, "account capital"), nextTxIndex: 0 });
 }
 
 export function validateExpiredSessionRecovery({ session, stored, expiredLease, journal, accountState } = {}) {
