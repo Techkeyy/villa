@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { ControlClientError, createAccountControlClient } from "../../dashboard/control-client.mjs";
+import { CONTROL_STOP_TERMINAL_STATES, ControlClientError, createAccountControlClient, waitForControlStop } from "../../dashboard/control-client.mjs";
 
 const OWNER = "0xEFe0412781d3c1e7888b2DB9dEEcA3037542494d";
 
@@ -95,4 +95,27 @@ test("control client accepts a same-account Start reattachment response", async 
   const attached = await client.start();
   assert.equal(attached.state, "RUNNING");
   assert.deepEqual(attached.session, session);
+});
+
+test("control stop polling waits for the terminal state", async () => {
+  const states = ["STOPPING", "STOPPING", "STOPPED"];
+  const observed = [];
+  const result = await waitForControlStop(
+    async () => ({ state: states.shift() }),
+    { delayMs: 0, onState: (_payload, state) => observed.push(state) },
+  );
+  assert.equal(result.complete, true);
+  assert.equal(result.state, "STOPPED");
+  assert.deepEqual(observed, ["STOPPING", "STOPPING", "STOPPED"]);
+});
+
+test("control stop polling reports an unfinished reconciliation without claiming success", async () => {
+  const result = await waitForControlStop(async () => ({ state: "STOPPING" }), { delayMs: 0, maxAttempts: 2 });
+  assert.equal(result.complete, false);
+  assert.equal(result.state, "STOPPING");
+});
+
+test("stop terminal states include clean completion and cleanup error", () => {
+  assert.ok(CONTROL_STOP_TERMINAL_STATES.includes("STOPPED_CLEAN"));
+  assert.ok(CONTROL_STOP_TERMINAL_STATES.includes("ERROR"));
 });

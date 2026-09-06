@@ -9,6 +9,34 @@ export class ControlClientError extends Error {
   }
 }
 
+export const CONTROL_STOP_TERMINAL_STATES = Object.freeze([
+  "STOPPED",
+  "STOPPED_CLEAN",
+  "STOPPED_SETTLEMENT_PENDING",
+  "SETTLEMENT_READY",
+  "SETTLED",
+  "WITHDRAWABLE",
+  "ERROR",
+]);
+
+export function controlStateOf(payload) {
+  return String(payload?.state || payload?.session?.state || "STOPPED").toUpperCase();
+}
+
+export async function waitForControlStop(readState, { delayMs = 1_000, maxAttempts = 30, sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)), onState = () => undefined } = {}) {
+  if (typeof readState !== "function") throw new TypeError("readState must be a function");
+  let payload = null;
+  let state = "STOPPING";
+  for (let attempt = 0; attempt <= maxAttempts; attempt += 1) {
+    if (attempt > 0) await sleep(delayMs);
+    payload = await readState();
+    state = controlStateOf(payload);
+    onState(payload, state);
+    if (CONTROL_STOP_TERMINAL_STATES.includes(state)) return { complete: true, payload, state };
+  }
+  return { complete: false, payload, state };
+}
+
 function address(value) {
   const text = String(value ?? "");
   return /^0x[0-9a-fA-F]{40}$/.test(text) ? text : null;

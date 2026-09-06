@@ -27,7 +27,7 @@ import { deriveWalletStatus, renderAccountJourney } from "./account-journey.mjs"
 import { createAddLiquidityHandler, runAddLiquidity } from "./liquidity-flow.mjs";
 import { evaluateVerifiedOwnerAccountReadiness, isStrategyCapitalReady, isVerifiedOwnerAccountReady } from "./account-readiness.mjs";
 import { createAuthorizationHandler, runAuthorization } from "./authorization-flow.mjs";
-import { ControlClientError, createAccountControlClient } from "./control-client.mjs";
+import { CONTROL_STOP_TERMINAL_STATES, ControlClientError, controlStateOf, createAccountControlClient, waitForControlStop } from "./control-client.mjs";
 import { ensureUatMonitor, renderUatMonitor } from "./uat-monitor.mjs";
 
 const page = document.body.dataset.route || window.location.pathname.replace(/\/+$/, "") || "/";
@@ -409,7 +409,7 @@ async function refreshControlState() {
   if (!provider || !appState.owner || !appState.currentAccountAddress || !controlClient) return;
   try {
     const payload = await controlClient.state();
-    const state = String(payload?.state || payload?.session?.state || "STOPPED").toUpperCase();
+    const state = controlStateOf(payload);
     const session = payload?.session || appState.controlSession;
     appState = { ...appState, controlState: state, controlSession: session, controlSnapshot: payload?.snapshot ?? appState.controlSnapshot, controlResult: payload?.result ?? appState.controlResult, controlBusy: false };
     renderControlControls();
@@ -478,8 +478,24 @@ async function handleStopStrategy() {
   showTransaction("READY", "Stopping strategy", "New expansion will stop before the account-bound cleanup path runs.");
   try {
     const result = await controlClientForWallet().stop();
-    setControlView(String(result.state || "STOPPED").toUpperCase(), "Strategy stopped. Capital remains in your VILLA account.", result);
-    showTransaction("SUCCESS", "Strategy stopped", "The control plane stopped the session. Withdrawal remains a separate owner action.");
+    let state = controlStateOf(result);
+    setControlView(state, state === "STOPPING" ? "Stop accepted. The account-bound cleanup is still reconciling." : "Strategy stopped. Capital remains in your VILLA account.", result);
+    let settled = CONTROL_STOP_TERMINAL_STATES.includes(state);
+    if (!settled) {
+      const observed = await waitForControlStop(
+        () => controlClientForWallet().state(),
+        { onState: (payload, nextState) => { state = nextState; setControlView(nextState, "", payload); } },
+      );
+      state = observed.state;
+      settled = observed.complete;
+    }
+    if (settled && state !== "ERROR") {
+      showTransaction("SUCCESS", "Strategy stopped", "The control plane stopped and reconciled the session. Withdrawal remains a separate owner action.");
+    } else if (!settled) {
+      showTransaction("CONFIRMING", "Stop accepted", "The account-bound session is still reconciling. This page will keep checking for the terminal state.");
+    } else {
+      showTransaction("FAILED", "Stop needs attention", "The control plane reported a cleanup error. No withdrawal was attempted.");
+    }
   } catch (error) {
     setControlView(appState.controlState === "STOPPING" ? "STOPPING" : "ERROR");
     showActionError("control-message", error instanceof ControlClientError ? error : new ControlClientError("CONTROL_REQUEST_FAILED", error?.message || "The strategy stop request failed."));
