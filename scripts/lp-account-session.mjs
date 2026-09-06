@@ -12,7 +12,7 @@ import { normalizeJsonBoundary, persistPrivateUatState, persistUatState } from "
 import { createPublicClient, http } from "viem";
 import { SomniaMarkets, SOMNIA_TESTNET_ADDRESSES, SOMNIA_TESTNET_PRICE_FEED } from "@somnia-chain/markets-sdk";
 import { somniaShannon } from "@somnia-chain/markets-sdk/chains";
-import { MIN_STRATEGY_CAPITAL_RAW, VILLA_ACCOUNT_CONFIG } from "../dashboard/account-config.mjs";
+import { VILLA_ACCOUNT_CONFIG } from "../dashboard/account-config.mjs";
 import { estimateFairValue } from "../src/fair-value/model.mjs";
 import { fetchReference, fetchSpot, fetchVolFromPriceHistory } from "../src/fair-value/live.mjs";
 import { evaluateRisk, DEFAULT_RISK_CONFIG } from "../src/risk-governor/index.mjs";
@@ -29,7 +29,7 @@ import { evaluateWetExecutionPreflight } from "../src/execution/lp-preflight.mjs
 import { reconcileLpSession } from "../src/execution/lp-reconciliation.mjs";
 import { attachLease, createFileAccountLeaseStore, createLpExecutionSession, transitionLpSession } from "../src/execution/lp-session.mjs";
 import { createLeaseHeartbeat, LP_LEASE_DURATION_MS, LP_LEASE_HEARTBEAT_INTERVAL_MS } from "../src/execution/lp-lease-heartbeat.mjs";
-import { DEFAULT_PHASE_3B1_CAPS, createLpTransactionPolicy } from "../src/execution/lp-transaction-policy.mjs";
+import { DEFAULT_PHASE_3B1_CAPS, createLpTransactionPolicy, evaluateSustainedUatCapital } from "../src/execution/lp-transaction-policy.mjs";
 import { loadPrivateSigner } from "../src/execution/lp-private-runtime.mjs";
 import { assessSessionSettlement, classifySessionPnl } from "../src/settlement/session-lifecycle.mjs";
 
@@ -394,7 +394,8 @@ async function main() {
     initialCollateralRaw = accountState.capital.directCollateralRaw;
     startingValueRaw = initialCollateralRaw + (accountState.capital.vaultRaw ?? 0n);
     if (initialCollateralRaw <= 0n) fail("CAPITAL_INVALID", "the VillaAccount has zero collateral available");
-    if (initialCollateralRaw > DEFAULT_PHASE_3B1_CAPS.MAX_ACCOUNT_CAPITAL) fail("ACCOUNT_CAPITAL_CAP", "account capital exceeds the bounded cap");
+    const capitalPolicy = evaluateSustainedUatCapital(initialCollateralRaw);
+    if (!capitalPolicy.allowed) fail(capitalPolicy.code, capitalPolicy.message);
     const accountMarket = await adapter.readMarket({ marketId: selected.marketId, identity });
     if (!same(accountMarket.pool, selected.pool)) fail("MARKET_POOL_MISMATCH", "the account market pool does not match the live market");
     const protocol = await readProtocol(selected.marketId, selected.pool, identity);
@@ -410,7 +411,6 @@ async function main() {
     const basePlanner = plannerInput({ snapshot: live.snapshot, decision: initialDecision, market: selected, accountState, params, decimals });
     const mintAmountRaw = raw(params.minQuantity, "minimum mint amount");
     if (mintAmountRaw > DEFAULT_PHASE_3B1_CAPS.MAX_MINT_AMOUNT || mintAmountRaw > identity.maxOrderCollateral || mintAmountRaw >= initialCollateralRaw) fail("MINT_CAP", "the live minimum mint is outside the bounded account policy");
-    if (initialCollateralRaw < MIN_STRATEGY_CAPITAL_RAW) fail("CAPITAL_BELOW_STRATEGY_FLOOR", "the VillaAccount needs at least 1.001 tUSDC for the reserve plus venue-minimum complete-set mint");
     const projected = projectedPlannerInput({ snapshot: live.snapshot, decision: initialDecision, market: selected, accountState, params, decimals, mintAmountRaw });
     setRuntimeStage("BUILDING_QUOTE", "Building quote", "STARTING", bootSession);
     const quotePlan = planQuotes(projected.input);

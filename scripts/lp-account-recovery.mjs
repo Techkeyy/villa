@@ -10,7 +10,7 @@ import { createLpExecutionAdapter, createViemLpAccountReader, VILLA_ACCOUNT_READ
 import { createAccountBoundPrivateWriter } from "../src/execution/lp-private-writer.mjs";
 import { createFileAccountLeaseStore, createLpExecutionSession, transitionLpSession, attachLease } from "../src/execution/lp-session.mjs";
 import { createLeaseHeartbeat, LP_LEASE_DURATION_MS, LP_LEASE_HEARTBEAT_INTERVAL_MS } from "../src/execution/lp-lease-heartbeat.mjs";
-import { validateExpiredSessionRecovery, recoveryActions } from "../src/execution/lp-session-recovery.mjs";
+import { validateExpiredSessionRecovery, validatePreflightFailureRecovery, recoveryActions } from "../src/execution/lp-session-recovery.mjs";
 import { reconcileDurableJournal } from "../src/execution/lp-recovery.mjs";
 import { DEFAULT_PHASE_3B1_CAPS, createLpTransactionPolicy } from "../src/execution/lp-transaction-policy.mjs";
 import { loadPrivateSigner } from "../src/execution/lp-private-runtime.mjs";
@@ -91,8 +91,27 @@ async function main() {
     let accountState = await adapter.readAccountState({ marketId });
     let journal = await reconcileDurableJournal({ journalPath, publicClient, config: { ...config, marketId } });
     const base = createLpExecutionSession({ sessionId: config.sessionId, account: config.account, owner: config.owner, operator: config.operator, chainId: config.chainId, marketSeries: String(stored.session.marketSeries || "BINARY:BTC:UAT"), currentMarketId: marketId, riskPolicyVersion: "villa-expired-session-recovery-v1", executionMode: "WET", createdAt: Date.now(), maxSessionDurationSec: DEFAULT_PHASE_3B1_CAPS.MAX_SESSION_DURATION_SEC });
-    session = transitionLpSession(base, "PREFLIGHT");
     const expiredLease = leaseStore.get(config.account);
+    if (stored.error?.code === "ACCOUNT_CAPITAL_CAP") {
+      const preflight = validatePreflightFailureRecovery({ session: base, stored, expiredLease, journal, accountState });
+      const session = { ...stored.session, state: "STOPPED_CLEAN", leaseId: null };
+      const snapshot = {
+        ...stored.snapshot,
+        marketId,
+        collateralRaw: accountState.capital.directCollateralRaw,
+        vaultRaw: accountState.capital.vaultRaw ?? 0n,
+        yesRaw: accountState.inventory.yesRaw,
+        noRaw: accountState.inventory.noRaw,
+        openOrders: [],
+        pendingSettlement: null,
+        lastAction: "preflight_failure_reconciled",
+      };
+      send(env, { type: "snapshot", snapshot });
+      send(env, { type: "result", session, result: { status: "STOPPED_CLEAN", reason: "PREFLIGHT_FAILURE_RECONCILED", writes: [], finalValueRaw: preflight.capitalRaw, pendingSettlement: false } });
+      send(env, { type: "state", state: "STOPPED_CLEAN", session });
+      return;
+    }
+    session = transitionLpSession(base, "PREFLIGHT");
     const provenance = validateExpiredSessionRecovery({ session, stored, expiredLease, journal, accountState });
     const lease = leaseStore.recoverExpired(session, { expectedLeaseId: expiredLease.leaseId });
     session = attachLease(session, lease);

@@ -95,3 +95,10 @@ test("pending or unknown transactions, unknown orders, risk HALT, and active dur
   const raisedCap = evaluateWetExecutionPreflight({ ...base(), caps: { MAX_ACCOUNT_CAPITAL: DEFAULT_PHASE_3B1_CAPS.MAX_ACCOUNT_CAPITAL + 1n } });
   assert.ok(raisedCap.reasons.includes("CAPS_INVALID"));
 });
+
+test("preflight accepts the sustained 2.001 cap but rejects one raw unit above it", () => {
+  const exact = evaluateWetExecutionPreflight({ ...base(), capital: { collateralRaw: 2_001_000n } });
+  const above = evaluateWetExecutionPreflight({ ...base(), capital: { collateralRaw: 2_001_001n } });
+  assert.equal(exact.allowed, true);
+  assert.ok(above.reasons.includes("ACCOUNT_CAPITAL_CAP"));
+});

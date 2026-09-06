@@ -63,6 +63,18 @@ test("proof is separate and reads replay data without control-plane calls", () =
   assert.match(controlClient, /account\/session\/\$\{action\}/);
 });
 
+test("terminal control errors clear confirmation and keep technical details behind Advanced", () => {
+  assert.match(app, /Strategy could not start/);
+  assert.match(app, /Session monitoring paused/);
+  assert.match(app, /controlAuthNeedsAttention/);
+  assert.match(app, /state === "ERROR"/);
+  assert.match(app, /ACCOUNT_CAPITAL_CAP/);
+  assert.match(controlClient, /tokenExpiresAt/);
+  assert.match(controlClient, /attempt < 2/);
+  assert.doesNotMatch(controlClient, /retry.*start/i);
+  assert.match(html, /Technical detail/);
+});
+
 test("visual system is light, blue, responsive, and accessible", () => {
   assert.match(css, /color-scheme: light/);
   assert.match(css, /--blue:/);

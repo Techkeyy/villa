@@ -97,6 +97,44 @@ test("control client accepts a same-account Start reattachment response", async 
   assert.deepEqual(attached.session, session);
 });
 
+test("state polling renews an expired session once without retrying the command", async () => {
+  globalThis.window = { location: { hostname: "localhost" } };
+  const account = "0x3333333333333333333333333333333333333333";
+  const responses = [
+    response({ engineApiUrl: "http://127.0.0.1:8782" }),
+    response({ message: "VILLA sign-in", nonce: "nonce-expired-1", address: OWNER }),
+    response({ token: "expired-token", expiresAt: Date.now() - 1 }),
+    response({ code: "SESSION_REQUIRED", error: "expired" }, false, 401),
+    response({ message: "VILLA sign-in", nonce: "nonce-expired-2", address: OWNER }),
+    response({ token: "fresh-token", expiresAt: Date.now() + 60_000 }),
+    response({ state: "ERROR", error: { code: "ACCOUNT_CAPITAL_CAP", message: "account capital exceeds the bounded sustained-UAT cap" } }),
+  ];
+  let signatures = 0;
+  const provider = { async request() { signatures += 1; return "0xsignature"; } };
+  const client = createAccountControlClient({ fetchImpl: async () => responses.shift(), provider, ownerProvider: () => OWNER, accountProvider: () => account });
+  const state = await client.state();
+  assert.equal(state.state, "ERROR");
+  assert.equal(signatures, 2);
+});
+
+test("expired command authentication does not automatically retry Start", async () => {
+  globalThis.window = { location: { hostname: "localhost" } };
+  const account = "0x4444444444444444444444444444444444444444";
+  const responses = [
+    response({ engineApiUrl: "http://127.0.0.1:8782" }),
+    response({ message: "VILLA sign-in", nonce: "nonce-command", address: OWNER }),
+    response({ token: "command-token", expiresAt: Date.now() + 60_000 }),
+    response({ code: "SESSION_REQUIRED", error: "expired" }, false, 401),
+  ];
+  let signatures = 0;
+  const provider = { async request() { signatures += 1; return "0xsignature"; } };
+  const calls = [];
+  const client = createAccountControlClient({ fetchImpl: async (url) => { calls.push(url); return responses.shift(); }, provider, ownerProvider: () => OWNER, accountProvider: () => account });
+  await assert.rejects(client.start(), { code: "SESSION_REQUIRED" });
+  assert.equal(signatures, 1);
+  assert.equal(calls.filter((url) => url.endsWith("/account/session/start")).length, 1);
+});
+
 test("control stop polling waits for the terminal state", async () => {
   const states = ["STOPPING", "STOPPING", "STOPPED"];
   const observed = [];

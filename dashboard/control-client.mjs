@@ -78,6 +78,8 @@ export function createAccountControlClient({ fetchImpl = (...args) => fetch(...a
   let engineOrigin = null;
   let token = "";
   let tokenOwner = "";
+  let tokenExpiresAt = 0;
+  const tokenRefreshSkewMs = 5_000;
 
   async function loadConfig() {
     const config = await jsonRequest(fetchImpl, "/api/operator-config");
@@ -89,7 +91,7 @@ export function createAccountControlClient({ fetchImpl = (...args) => fetch(...a
     const normalizedOwner = address(owner);
     if (!normalizedOwner || !provider?.request) throw new ControlClientError("OWNER_REQUIRED", "Connect the wallet before using strategy controls.");
     if (!engineOrigin) await loadConfig();
-    if (token && tokenOwner.toLowerCase() === normalizedOwner.toLowerCase()) return token;
+    if (token && tokenOwner.toLowerCase() === normalizedOwner.toLowerCase() && (!tokenExpiresAt || tokenExpiresAt > Date.now() + tokenRefreshSkewMs)) return token;
     const nonce = await jsonRequest(fetchImpl, `${engineOrigin}/account/auth/nonce`, postOptions({ address: normalizedOwner }));
     let signature;
     try {
@@ -100,6 +102,7 @@ export function createAccountControlClient({ fetchImpl = (...args) => fetch(...a
     const verified = await jsonRequest(fetchImpl, `${engineOrigin}/account/auth/verify`, postOptions({ ...nonce, signature }));
     token = String(verified.token || "");
     tokenOwner = normalizedOwner;
+    tokenExpiresAt = Number(verified.expiresAt) || 0;
     if (!token) throw new ControlClientError("AUTH_FAILED", "The account control service did not return a session.");
     return token;
   }
@@ -111,9 +114,19 @@ export function createAccountControlClient({ fetchImpl = (...args) => fetch(...a
   }
 
   async function state(accountAddress = accountProvider()) {
-    await authenticate();
     const account = selectedAccount(accountAddress);
-    return jsonRequest(fetchImpl, `${engineOrigin}/account/state?account=${encodeURIComponent(account)}`, { headers: { Authorization: `Bearer ${token}` } });
+    const url = () => `${engineOrigin}/account/state?account=${encodeURIComponent(account)}`;
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      await authenticate();
+      try {
+        return await jsonRequest(fetchImpl, url(), { headers: { Authorization: `Bearer ${token}` } });
+      } catch (error) {
+        const expired = error instanceof ControlClientError && (error.status === 401 || error.code === "SESSION_REQUIRED" || error.code === "NONCE_INVALID");
+        if (!expired || attempt > 0) throw error;
+        clear();
+      }
+    }
+    throw new ControlClientError("SESSION_REQUIRED", "Connect your owner wallet to continue.");
   }
 
   async function command(action, accountAddress = accountProvider()) {
@@ -126,6 +139,7 @@ export function createAccountControlClient({ fetchImpl = (...args) => fetch(...a
   function clear() {
     token = "";
     tokenOwner = "";
+    tokenExpiresAt = 0;
   }
 
   return Object.freeze({ loadConfig, authenticate, state, start: (accountAddress) => command("start", accountAddress), stop: (accountAddress) => command("stop", accountAddress), settle: (accountAddress) => command("settle", accountAddress), clear });

@@ -22,7 +22,7 @@ import {
   sendTransaction,
   tokenCall,
 } from "./account-client.mjs";
-import { MIN_INITIAL_DEPOSIT_RAW, MIN_STRATEGY_CAPITAL_RAW, MIN_TOP_UP_RAW, PHASE_3B1_MAX_ACCOUNT_CAPITAL_RAW, VILLA_ACCOUNT_CONFIG, VILLA_CHAIN, ZERO_ADDRESS } from "./account-config.mjs";
+import { MIN_INITIAL_DEPOSIT_RAW, MIN_STRATEGY_CAPITAL_RAW, MIN_TOP_UP_RAW, SUSTAINED_UAT_MAX_ACCOUNT_CAPITAL_RAW, VILLA_ACCOUNT_CONFIG, VILLA_CHAIN, ZERO_ADDRESS } from "./account-config.mjs";
 import { deriveWalletStatus, renderAccountJourney } from "./account-journey.mjs";
 import { createAddLiquidityHandler, runAddLiquidity } from "./liquidity-flow.mjs";
 import { evaluateVerifiedOwnerAccountReadiness, isStrategyCapitalReady, isVerifiedOwnerAccountReady } from "./account-readiness.mjs";
@@ -228,6 +228,8 @@ function humanError(error) {
   if (error?.code === "EXECUTION_DISABLED") return "Safe mode is active. No strategy session or writer was started.";
   if (error?.code === "SESSION_REQUIRED") return "Connect your owner wallet to continue.";
   if (error?.code === "ACCOUNT_PREFLIGHT_BLOCKED") return "The account preflight did not pass. No strategy session was started.";
+  if (error?.code === "ACCOUNT_CAPITAL_CAP") return "The account balance is above VILLA's bounded sustained-UAT limit. No strategy session was started.";
+  if (error?.code === "UAT_SESSION_RECONCILIATION_REQUIRED") return "The previous strategy attempt needs account-scoped reconciliation before Start can retry.";
   if (error?.code === "SIGNATURE_FAILED") return "The wallet signature could not be completed. Nothing changed.";
   if (error?.code === "OPERATOR_UNAVAILABLE") return "VILLA operator configuration is unavailable. Retry.";
   if (error?.code === "INVALID_OWNER") return "Connect your wallet before adding liquidity.";
@@ -406,6 +408,26 @@ function scheduleControlPoll() {
   controlPollTimer = setTimeout(() => { void refreshControlState(); }, 5_000);
 }
 
+function controlErrorDetail(error) {
+  if (!error) return "";
+  if (error.code === "ACCOUNT_CAPITAL_CAP") return "The account balance is above the bounded sustained-UAT limit.";
+  if (error.code === "ACCOUNT_PREFLIGHT_BLOCKED") return "The account-bound preflight did not pass.";
+  if (error.code === "UAT_SESSION_RECONCILIATION_REQUIRED") return "An earlier account-bound session must be reconciled before retrying.";
+  return error.message || "";
+}
+
+function controlAuthNeedsAttention(error) {
+  return error instanceof ControlClientError
+    && ["OWNER_REQUIRED", "WALLET_REJECTED", "SIGNATURE_FAILED", "AUTH_FAILED", "SESSION_REQUIRED"].includes(error.code);
+}
+
+function showControlTerminalError(payload) {
+  const error = payload?.error || null;
+  const controlError = new ControlClientError(error?.code || "UAT_SESSION_FAILED", error?.message || "The private UAT session failed.");
+  showTransaction("FAILED", "Strategy could not start.", humanError(controlError), controlErrorDetail(controlError));
+  setMessage("control-message", humanError(controlError));
+}
+
 async function refreshControlState() {
   if (!provider || !appState.owner || !appState.currentAccountAddress || !controlClient) return;
   try {
@@ -417,9 +439,16 @@ async function refreshControlState() {
     renderUatMonitor({ state, session, snapshot: appState.controlSnapshot, result: appState.controlResult });
     renderLiveCapital(appState.controlSnapshot);
     if (["STARTING", "RUNNING", "PAUSED", "STOPPING", "SETTLEMENT_READY", "SETTLING"].includes(state)) scheduleControlPoll(); else clearControlPoll();
+    if (state === "ERROR") showControlTerminalError(payload);
   } catch (error) {
     if (["STARTING", "RUNNING", "PAUSED", "STOPPING", "SETTLEMENT_READY", "SETTLING"].includes(String(appState.controlState || "").toUpperCase())) {
-      setMessage("control-message", error?.message || "Live session status is temporarily unavailable.");
+      if (controlAuthNeedsAttention(error)) {
+        const controlError = error instanceof ControlClientError ? error : new ControlClientError("SESSION_REQUIRED", "Connect your owner wallet to continue.");
+        setControlView("ERROR", "Reconnect your owner wallet to resume session monitoring.");
+        showTransaction("FAILED", "Session monitoring paused.", "Reconnect your owner wallet to resume monitoring.", controlErrorDetail(controlError));
+        return;
+      }
+      setMessage("control-message", "Live session status is temporarily unavailable. Retrying.");
       scheduleControlPoll();
     }
   }
@@ -461,7 +490,8 @@ async function handleStartStrategy() {
     const result = await controlClientForWallet().start();
     const nextState = String(result.state || "RUNNING").toUpperCase();
     setControlView(nextState, nextState === "STARTING" ? "Strategy is starting. The live engine stages will appear below." : "Strategy control accepted.", result);
-    showTransaction(nextState === "STARTING" ? "CONFIRMING" : "SUCCESS", nextState === "STARTING" ? "Starting strategy" : "Strategy control accepted", nextState === "STARTING" ? "The account-bound engine is progressing through live preflight stages." : "The account-bound control plane returned a safe session state.");
+    if (nextState === "ERROR") showControlTerminalError(result);
+    else showTransaction(nextState === "STARTING" ? "CONFIRMING" : "SUCCESS", nextState === "STARTING" ? "Starting strategy" : "Strategy control accepted", nextState === "STARTING" ? "The account-bound engine is progressing through live preflight stages." : "The account-bound control plane returned a safe session state.");
   } catch (error) {
     setControlView("STOPPED");
     showActionError("control-message", error instanceof ControlClientError ? error : new ControlClientError("CONTROL_REQUEST_FAILED", error?.message || "The strategy control request failed."));
@@ -646,8 +676,8 @@ function updateWorkspace(account, walletBalance) {
   text("minimum-deposit", formatRawExact(funded ? MIN_TOP_UP_RAW : MIN_INITIAL_DEPOSIT_RAW));
   toggle("phase3b1-diagnostics", DEBUG_ENABLED && funded);
   if (DEBUG_ENABLED && funded) {
-    text("phase3b1-target", `${formatRawExact(PHASE_3B1_MAX_ACCOUNT_CAPITAL_RAW)} tUSDC`);
-    const additional = PHASE_3B1_MAX_ACCOUNT_CAPITAL_RAW > allocated ? PHASE_3B1_MAX_ACCOUNT_CAPITAL_RAW - allocated : 0n;
+    text("phase3b1-target", `${formatRawExact(SUSTAINED_UAT_MAX_ACCOUNT_CAPITAL_RAW)} tUSDC`);
+    const additional = SUSTAINED_UAT_MAX_ACCOUNT_CAPITAL_RAW > allocated ? SUSTAINED_UAT_MAX_ACCOUNT_CAPITAL_RAW - allocated : 0n;
     text("phase3b1-additional", `${formatRawExact(additional)} tUSDC`);
     text("phase3b1-strategy-floor", `${formatRawExact(MIN_STRATEGY_CAPITAL_RAW)} tUSDC`);
   }

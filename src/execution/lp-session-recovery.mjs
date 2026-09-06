@@ -41,6 +41,24 @@ function orderId(value) {
   return raw(value, "order id").toString();
 }
 
+/** Validate a failed START that stopped before lease acquisition or any write. */
+export function validatePreflightFailureRecovery({ session, stored, expiredLease = null, journal, accountState } = {}) {
+  if (!session || !stored?.session) fail("RECOVERY_STATE_REQUIRED", "session and private state are required");
+  for (const [field, exact = false] of [["owner"], ["account"], ["operator"], ["currentMarketId"], ["sessionId", true]]) {
+    const matches = exact ? String(stored.session[field] ?? "") === String(session[field] ?? "") : same(stored.session[field], session[field]);
+    if (!matches) fail("RECOVERY_SCOPE_MISMATCH", `private state ${field} does not match the recovery session`);
+  }
+  if (String(stored.error?.code ?? "") !== "ACCOUNT_CAPITAL_CAP") fail("RECOVERY_NOT_PREFLIGHT_ONLY", "the failed session is not a recognized preflight-only capital rejection");
+  if (expiredLease) fail("RECOVERY_LEASE_UNEXPECTED", "a preflight-only failure must not have acquired an account lease");
+  if ((journal?.pending ?? 0) > 0 || (journal?.unknown ?? 0) > 0 || (journal?.reverted ?? 0) > 0 || (journal?.records ?? []).length > 0) {
+    fail("RECOVERY_CHAIN_ACTIVITY_PRESENT", "preflight-only recovery is blocked by durable transaction activity");
+  }
+  if (accountState?.orders?.status !== "VERIFIED" || (accountState.orders.orders ?? []).length !== 0) fail("RECOVERY_ORDER_STATE_UNKNOWN", "preflight-only recovery requires authoritative empty orders");
+  if (raw(accountState?.inventory?.yesRaw, "YES inventory") !== 0n || raw(accountState?.inventory?.noRaw, "NO inventory") !== 0n) fail("RECOVERY_INVENTORY_PRESENT", "preflight-only recovery requires empty outcome inventory");
+  if (raw(accountState?.capital?.vaultRaw, "vault credit") !== 0n) fail("RECOVERY_SETTLEMENT_PRESENT", "preflight-only recovery requires zero vault credit");
+  return Object.freeze({ capitalRaw: raw(accountState?.capital?.directCollateralRaw, "account capital"), nextTxIndex: 0 });
+}
+
 export function validateExpiredSessionRecovery({ session, stored, expiredLease, journal, accountState } = {}) {
   if (!session || !stored?.session || !expiredLease) fail("RECOVERY_STATE_REQUIRED", "session, private state, and expired lease are required");
   for (const [field, exact = false] of [["owner"], ["account"], ["operator"], ["currentMarketId"], ["sessionId", true]]) {

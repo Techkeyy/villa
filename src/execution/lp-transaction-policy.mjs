@@ -7,7 +7,7 @@
  */
 
 import { encodeFunctionData, isAddress } from "viem";
-import { PHASE_3B1_MAX_ACCOUNT_CAPITAL_RAW } from "../../dashboard/account-config.mjs";
+import { MIN_STRATEGY_CAPITAL_RAW, MIN_TOP_UP_RAW, SUSTAINED_UAT_MAX_ACCOUNT_CAPITAL_RAW } from "../../dashboard/account-config.mjs";
 import { VILLA_ACCOUNT_OPERATOR_ABI } from "./lp-adapter.mjs";
 import { LP_SESSION_VERSION, assertLpSessionScope } from "./lp-session.mjs";
 
@@ -37,9 +37,11 @@ export const LP_DENIED_OPERATIONS = Object.freeze([
 ]);
 
 // Shannon tUSDC uses six decimal raw units. These are hard upper bounds for
-// the first wet cycle, not targets. A later phase may only lower them.
+// sustained UAT, not targets. A later phase may only lower them. Account
+// capital is deliberately wider than deployable risk capacity; the reserve,
+// exposure, mint, order, duration, and transaction caps remain independent.
 export const DEFAULT_PHASE_3B1_CAPS = Object.freeze({
-  MAX_ACCOUNT_CAPITAL: PHASE_3B1_MAX_ACCOUNT_CAPITAL_RAW,
+  MAX_ACCOUNT_CAPITAL: SUSTAINED_UAT_MAX_ACCOUNT_CAPITAL_RAW,
   MAX_ORDER_NOTIONAL: 250_000n,
   MAX_OPEN_ORDERS: 2,
   MAX_PENDING_EXPOSURE: 250_000n,
@@ -47,6 +49,15 @@ export const DEFAULT_PHASE_3B1_CAPS = Object.freeze({
   MAX_SESSION_DURATION_SEC: 900,
   MAX_TX_COUNT: 12,
 });
+
+export function evaluateSustainedUatCapital(capitalRaw, { caps = DEFAULT_PHASE_3B1_CAPS } = {}) {
+  let capital;
+  try { capital = typeof capitalRaw === "bigint" ? capitalRaw : BigInt(String(capitalRaw)); } catch { return { allowed: false, code: "CAPITAL_INVALID", message: "the VillaAccount capital is not an integer raw value" }; }
+  if (capital <= 0n) return { allowed: false, code: "CAPITAL_INVALID", message: "the VillaAccount has no positive collateral" };
+  if (capital < MIN_STRATEGY_CAPITAL_RAW) return { allowed: false, code: "CAPITAL_BELOW_STRATEGY_FLOOR", message: "the VillaAccount needs at least 1.001 tUSDC for the bounded strategy" };
+  if (capital > caps.MAX_ACCOUNT_CAPITAL) return { allowed: false, code: "ACCOUNT_CAPITAL_CAP", message: "account capital exceeds the bounded sustained-UAT cap" };
+  return Object.freeze({ allowed: true, capitalRaw: capital, reserveRaw: MIN_STRATEGY_CAPITAL_RAW - MIN_TOP_UP_RAW, deployableCapitalRaw: capital - (MIN_STRATEGY_CAPITAL_RAW - MIN_TOP_UP_RAW), maxAccountCapitalRaw: caps.MAX_ACCOUNT_CAPITAL });
+}
 
 const OPERATION_ACTIONS = Object.freeze({
   prepareMarket: "PREPARE_MARKET",
@@ -107,10 +118,10 @@ function normalizedCaps(caps = {}) {
   for (const key of Object.keys(DEFAULT_PHASE_3B1_CAPS)) {
     if (typeof DEFAULT_PHASE_3B1_CAPS[key] === "bigint") {
       value[key] = raw(value[key], key, { positive: true });
-      if (value[key] > DEFAULT_PHASE_3B1_CAPS[key]) throw new LpTransactionPolicyError("CAP_EXCEEDED", `${key} cannot exceed the Phase 3B1 hard cap`);
+      if (value[key] > DEFAULT_PHASE_3B1_CAPS[key]) throw new LpTransactionPolicyError("CAP_EXCEEDED", `${key} cannot exceed the sustained-UAT hard cap`);
     } else {
       value[key] = integer(value[key], key);
-      if (value[key] > DEFAULT_PHASE_3B1_CAPS[key]) throw new LpTransactionPolicyError("CAP_EXCEEDED", `${key} cannot exceed the Phase 3B1 hard cap`);
+      if (value[key] > DEFAULT_PHASE_3B1_CAPS[key]) throw new LpTransactionPolicyError("CAP_EXCEEDED", `${key} cannot exceed the sustained-UAT hard cap`);
     }
   }
   if (value.MAX_OPEN_ORDERS < 1 || value.MAX_TX_COUNT < 1 || value.MAX_SESSION_DURATION_SEC < 1) throw new LpTransactionPolicyError("CAP_INVALID", "cycle caps must be positive");
@@ -263,7 +274,7 @@ export function validateTransactionPlan(plan, { session, caps = DEFAULT_PHASE_3B
   if (intent.expirationNs !== null && raw(intent.expirationNs, "intent expiration") !== (facts.expirationNs ?? 0n)) return reject("INTENT_EXPIRATION_MISMATCH", "intent expiration differs from calldata");
   if (intent.side !== null && intent.side !== facts.side) return reject("INTENT_SIDE_MISMATCH", "intent side differs from calldata");
 
-  if (plan.accountCapitalRaw !== undefined && raw(plan.accountCapitalRaw, "account capital") > effectiveCaps.MAX_ACCOUNT_CAPITAL) return reject("ACCOUNT_CAPITAL_CAP", "account capital exceeds the first-cycle hard cap");
+  if (plan.accountCapitalRaw !== undefined && raw(plan.accountCapitalRaw, "account capital") > effectiveCaps.MAX_ACCOUNT_CAPITAL) return reject("ACCOUNT_CAPITAL_CAP", "account capital exceeds the bounded sustained-UAT cap");
   if (facts.action === "PLACE_ORDER") {
     if (facts.kind > 3 || facts.priceRaw <= 0n || facts.priceRaw >= 1_000_000n) return reject("ORDER_INVALID", "order is outside the Shannon binary order range");
     if (facts.amountRaw > effectiveCaps.MAX_ORDER_NOTIONAL) return reject("ORDER_NOTIONAL_CAP", "order quantity exceeds the first-cycle notional cap");

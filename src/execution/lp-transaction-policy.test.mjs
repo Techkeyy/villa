@@ -2,12 +2,14 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   DEFAULT_PHASE_3B1_CAPS,
+  evaluateSustainedUatCapital,
   LP_ALLOWED_ACCOUNT_OPERATIONS,
   LP_TRANSACTION_POLICY_VERSION,
   createLpTransactionPolicy,
   createTransactionIntent,
   validateTransactionPlan,
 } from "./lp-transaction-policy.mjs";
+import { ACCOUNT_CAPITAL_RESERVE_RAW, MIN_STRATEGY_CAPITAL_RAW, SUSTAINED_UAT_MAX_ACCOUNT_CAPITAL_RAW, VILLA_ACCOUNT_CONFIG } from "../../dashboard/account-config.mjs";
 import { createLpExecutionAdapter } from "./lp-adapter.mjs";
 import { createLpExecutionSession } from "./lp-session.mjs";
 
@@ -113,6 +115,43 @@ test("the Phase 3B1 account-cap boundary is inclusive and integer exact", () => 
   const above = prepared("operatorCancelOrder", { marketId: MARKET, orderId: 7n }, { accountCapitalRaw: DEFAULT_PHASE_3B1_CAPS.MAX_ACCOUNT_CAPITAL + 1n });
   assert.equal(policy.validate(exact).allowed, true);
   assert.equal(policy.validate(above).code, "ACCOUNT_CAPITAL_CAP");
+});
+
+test("sustained-UAT capital boundaries are exact, bounded, and reserve-aware", () => {
+  assert.equal(ACCOUNT_CAPITAL_RESERVE_RAW, 1_000_000n);
+  assert.equal(MIN_STRATEGY_CAPITAL_RAW, ACCOUNT_CAPITAL_RESERVE_RAW + 1_000n);
+  assert.equal(SUSTAINED_UAT_MAX_ACCOUNT_CAPITAL_RAW, 2_001_000n);
+  assert.equal(evaluateSustainedUatCapital(1_000_999n).code, "CAPITAL_BELOW_STRATEGY_FLOOR");
+  for (const capitalRaw of [1_001_000n, 1_002_000n, 2_001_000n]) {
+    const result = evaluateSustainedUatCapital(capitalRaw);
+    assert.equal(result.allowed, true);
+    assert.equal(result.reserveRaw, 1_000_000n);
+  }
+  assert.equal(evaluateSustainedUatCapital(2_001_001n).code, "ACCOUNT_CAPITAL_CAP");
+  assert.equal(evaluateSustainedUatCapital(2_001_000n).deployableCapitalRaw, 1_001_000n);
+});
+
+test("larger account capital cannot widen exposure, mint, order, or cycle caps", () => {
+  assert.equal(VILLA_ACCOUNT_CONFIG.initialMaxAggregateExposure, 1_000_000n);
+  assert.equal(VILLA_ACCOUNT_CONFIG.initialMaxMintExposure, 1_000_000n);
+  assert.equal(VILLA_ACCOUNT_CONFIG.initialMaxOrderQuantity, 1_000n);
+  assert.equal(VILLA_ACCOUNT_CONFIG.initialMaxOrderCollateral, 1_000n);
+  assert.deepEqual(DEFAULT_PHASE_3B1_CAPS, {
+    MAX_ACCOUNT_CAPITAL: 2_001_000n,
+    MAX_ORDER_NOTIONAL: 250_000n,
+    MAX_OPEN_ORDERS: 2,
+    MAX_PENDING_EXPOSURE: 250_000n,
+    MAX_MINT_AMOUNT: 250_000n,
+    MAX_SESSION_DURATION_SEC: 900,
+    MAX_TX_COUNT: 12,
+  });
+  const policy = createLpTransactionPolicy({ session: session(), now: () => 1000 });
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const oversizedOrder = prepared("operatorPlaceOrder", { marketId: MARKET, action: "BUY_YES", priceRaw: 500_000n, quantityRaw: DEFAULT_PHASE_3B1_CAPS.MAX_ORDER_NOTIONAL + 1n, expireTimestampNs: 2_000n }, { accountCapitalRaw: 2_001_000n });
+    const oversizedMint = prepared("operatorMintSet", { marketId: MARKET, amountRaw: DEFAULT_PHASE_3B1_CAPS.MAX_MINT_AMOUNT + 1n }, { accountCapitalRaw: 2_001_000n });
+    assert.equal(policy.validate(oversizedOrder).code, "ORDER_NOTIONAL_CAP");
+    assert.equal(policy.validate(oversizedMint).code, "MINT_CAP");
+  }
 });
 
 test("intent construction rejects a destination outside the VillaAccount", () => {
