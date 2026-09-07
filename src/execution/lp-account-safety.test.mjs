@@ -32,9 +32,8 @@ test("account, owner, operator, chain, and operator address are all bounded", ()
 });
 
 test("capital validation accepts product-correct valid balances and rejects invalid amounts without magic number dependency", () => {
-  function validateCapital(capitalRaw, { minQuantityRaw = 100_000n, maxCapitalRaw = 1_002_000n } = {}) {
+  function validateCapital(capitalRaw, { minQuantityRaw = 100_000n } = {}) {
     if (capitalRaw <= 0n) throw new Error("CAPITAL_INVALID: zero or negative collateral");
-    if (capitalRaw > maxCapitalRaw) throw new Error("ACCOUNT_CAPITAL_CAP: exceeds cap");
     if (minQuantityRaw >= capitalRaw) throw new Error("MINT_CAP: collateral below minimum mint");
     return true;
   }
@@ -55,11 +54,13 @@ test("capital validation accepts product-correct valid balances and rejects inva
   assert.throws(() => validateCapital(50_000n, { minQuantityRaw: 100_000n }), /MINT_CAP/);
   assert.throws(() => validateCapital(100_000n, { minQuantityRaw: 100_000n }), /MINT_CAP/);
 
-  // E. no exact 1_002_000 dependency (amounts other than 1_002_000 pass freely)
+  // E. no exact 1_002_000 dependency; normal balances remain valid
   assert.equal(validateCapital(1_000_000n), true);
   assert.equal(validateCapital(800_000n), true);
   assert.equal(validateCapital(1_002_000n), true);
-  assert.throws(() => validateCapital(1_003_000n), /ACCOUNT_CAPITAL_CAP/);
+  assert.equal(validateCapital(10_000_000n), true);
+  assert.equal(validateCapital(100_000_000n), true);
+  assert.equal(validateCapital(1_000_000_000n), true);
 });
 
 test("session preflight adapter contract has readMarket defined and enforces read-only safety", async () => {

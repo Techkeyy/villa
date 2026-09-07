@@ -200,7 +200,7 @@ function pathResult(evaluation, sideName) {
 }
 
 /** Simulate one candidate balance against both bounded proof paths. */
-export function evaluateCapitalAtSnapshot({ evaluator, collateralRaw, yesRaw, noRaw, minimumMintRaw, currentCapitalCapRaw = DEFAULT_PHASE_3B1_CAPS.MAX_ACCOUNT_CAPITAL, recommendedCapitalRaw = null } = {}) {
+export function evaluateCapitalAtSnapshot({ evaluator, collateralRaw, yesRaw, noRaw, minimumMintRaw, currentCapitalCapRaw = null, recommendedCapitalRaw = null } = {}) {
   const capital = raw(collateralRaw, "candidate capital");
   const yes = raw(yesRaw, "YES inventory");
   const no = raw(noRaw, "NO inventory");
@@ -230,7 +230,7 @@ export function evaluateCapitalAtSnapshot({ evaluator, collateralRaw, yesRaw, no
     currentInventoryRaw: yes,
   });
   const reasons = unique([...buy.reasons, ...sell.reasons]);
-  const currentCapitalPass = capital <= raw(currentCapitalCapRaw, "current capital cap");
+  const currentCapitalPass = currentCapitalCapRaw === null || currentCapitalCapRaw === undefined || capital <= raw(currentCapitalCapRaw, "current capital cap");
   const nonCapitalCapsPass = buy.feasible || sell.feasible;
   return Object.freeze({
     capitalRaw: capital,

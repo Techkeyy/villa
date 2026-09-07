@@ -158,7 +158,7 @@ export function evaluateCapitalCandidate({
   capitalRaw,
   mathematicalMinimumRaw,
   recommendedCapitalRaw,
-  currentCapitalCapRaw = DEFAULT_PHASE_3B1_CAPS.MAX_ACCOUNT_CAPITAL,
+  currentCapitalCapRaw = null,
   strategyFeasible = false,
   currentCapsNonCapitalPass = false,
   path = null,
@@ -167,8 +167,8 @@ export function evaluateCapitalCandidate({
   const capital = raw(capitalRaw, "capitalRaw");
   const mathematical = mathematicalMinimumRaw === null || mathematicalMinimumRaw === undefined ? null : raw(mathematicalMinimumRaw, "mathematicalMinimumRaw");
   const recommended = recommendedCapitalRaw === null || recommendedCapitalRaw === undefined ? null : raw(recommendedCapitalRaw, "recommendedCapitalRaw");
-  const currentCap = raw(currentCapitalCapRaw, "currentCapitalCapRaw");
-  const currentCapitalPass = capital <= currentCap;
+  const currentCap = currentCapitalCapRaw === null || currentCapitalCapRaw === undefined ? null : raw(currentCapitalCapRaw, "currentCapitalCapRaw");
+  const currentCapitalPass = currentCap === null || capital <= currentCap;
   const mathematicalPass = mathematical !== null && capital >= mathematical;
   const recommendedPass = recommended !== null && capital >= recommended;
   const reasons = [...reasonCodes];

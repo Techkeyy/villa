@@ -38,12 +38,15 @@ export function controlStateOf(payload) {
 }
 
 export function reconcileControlPayload(payload, previous = {}) {
-  const rawState = controlStateOf(payload);
+  const terminalCandidate = (value) => {
+    const candidate = String(value || "").toUpperCase();
+    return CONTROL_STOP_TERMINAL_STATES.includes(candidate) ? candidate : null;
+  };
+  const terminalState = terminalCandidate(payload?.state) ?? terminalCandidate(payload?.session?.state) ?? terminalCandidate(payload?.result?.status);
+  const rawState = terminalState ?? controlStateOf(payload);
   const state = normalizeControlState(rawState);
-  const active = CONTROL_ACTIVE_STATES.includes(rawState);
-  const terminal = CONTROL_STOP_TERMINAL_STATES.includes(rawState)
-    || CONTROL_STOP_TERMINAL_STATES.includes(String(payload?.session?.state || "").toUpperCase())
-    || CONTROL_STOP_TERMINAL_STATES.includes(String(payload?.result?.status || "").toUpperCase());
+  const active = terminalState ? false : CONTROL_ACTIVE_STATES.includes(rawState);
+  const terminal = Boolean(terminalState);
   const result = payload?.result ?? (terminal && state !== "ERROR" ? previous.result ?? null : null);
 
   if (terminal && !active) {

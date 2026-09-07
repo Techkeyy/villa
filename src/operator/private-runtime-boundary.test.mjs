@@ -142,7 +142,7 @@ test("account session validates dynamic positive collateral without historic mag
   assert.doesNotMatch(worker, /1_002_000n/);
   assert.doesNotMatch(worker, /1002000n/);
   assert.match(worker, /if \(initialCollateralRaw <= 0n\) fail\("CAPITAL_INVALID"/);
-  assert.match(worker, /const capitalPolicy = evaluateSustainedUatCapital\(initialCollateralRaw\);/);
+  assert.match(worker, /const capitalPolicy = evaluateStrategyCapital\(initialCollateralRaw\);/);
   assert.match(worker, /if \(!capitalPolicy\.allowed\) fail\(capitalPolicy\.code, capitalPolicy\.message\);/);
   assert.match(worker, /if \(mintAmountRaw > DEFAULT_PHASE_3B1_CAPS\.MAX_MINT_AMOUNT \|\| mintAmountRaw > identity\.maxOrderCollateral \|\| mintAmountRaw >= initialCollateralRaw\) fail\("MINT_CAP"/);
 });

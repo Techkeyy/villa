@@ -153,7 +153,6 @@ export function resolveMintRecovery({ config, journal, accountState, caps = DEFA
   if (mintRecords.length === 0) {
     if (records.length > 0) fail("PRIOR_SESSION_WRITE", "a prior bounded write has no confirmed mint provenance");
     if (yesRaw !== 0n || noRaw !== 0n) fail("UNEXPECTED_INVENTORY", "account inventory exists without a matching confirmed mint");
-    if (capitalRaw !== 1_002_000n) fail("CAPITAL_MISMATCH", "fresh account capital is not the 1.002 tUSDC fixture");
     return Object.freeze({ mint: "REQUIRED", skipMint: false, skipPlace: false, skipCancel: false, skipBurn: false, complete: false, amountRaw: null, capitalRaw, yesRaw, noRaw, recoveredPlace: null, recoveredOrderId: null });
   }
   const mint = mintRecords[0];
@@ -169,10 +168,9 @@ export function resolveMintRecovery({ config, journal, accountState, caps = DEFA
   if (cancel && !place) fail("RECOVERY_SEQUENCE_INVALID", "a cancellation cannot be adopted without its confirmed place action");
   if (burn && !cancel) fail("RECOVERY_SEQUENCE_INVALID", "a burn cannot be adopted before its confirmed cancellation");
   const recoveredOrderId = cancel ? raw(cancel.amountRaw, "confirmed order id") : null;
-  if (place && cancel && burn && yesRaw === 0n && noRaw === 0n && capitalRaw === 1_002_000n) {
+  if (place && cancel && burn && yesRaw === 0n && noRaw === 0n) {
     return Object.freeze({ mint: "ALREADY_CONFIRMED", skipMint: true, skipPlace: true, skipCancel: true, skipBurn: true, complete: true, amountRaw, capitalRaw, yesRaw, noRaw, cleanupBurnAmountRaw: amountRaw, recoveredPlace: place, recoveredOrderId });
   }
   if (yesRaw !== amountRaw || noRaw !== amountRaw) fail("INVENTORY_MINT_MISMATCH", "current inventory does not exactly match the confirmed mint");
-  if (capitalRaw !== 1_002_000n - amountRaw) fail("CAPITAL_MINT_MISMATCH", "current collateral does not match the confirmed mint state");
   return Object.freeze({ mint: "ALREADY_CONFIRMED", skipMint: true, skipPlace: Boolean(place), skipCancel: Boolean(cancel), skipBurn: Boolean(burn), complete: false, amountRaw, capitalRaw, yesRaw, noRaw, cleanupBurnAmountRaw: amountRaw, recoveredPlace: place, recoveredOrderId });
 }

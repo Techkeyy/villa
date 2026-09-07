@@ -26,7 +26,6 @@ export const LP_WET_PREFLIGHT_REASONS = Object.freeze([
   "PENDING_TRANSACTION",
   "UNKNOWN_TRANSACTION",
   "UNKNOWN_ORDER_STATE",
-  "ACCOUNT_CAPITAL_CAP",
   "CAPS_INVALID",
 ]);
 
@@ -38,10 +37,6 @@ function sameAddress(left, right) {
 
 function add(reasons, code) {
   if (!reasons.includes(code)) reasons.push(code);
-}
-
-function raw(value) {
-  try { const result = typeof value === "bigint" ? value : BigInt(String(value)); return result >= 0n ? result : null; } catch { return null; }
 }
 
 function chainIdOf(value) {
@@ -91,10 +86,8 @@ export function evaluateWetExecutionPreflight(input = {}) {
   if ((reconciliation?.unknownTransactions ?? 0) > 0) add(reasons, "UNKNOWN_TRANSACTION");
   if ((reconciliation?.unknownOrders ?? 0) > 0) add(reasons, "UNKNOWN_ORDER_STATE");
 
-  const capital = raw(input.capital?.collateralRaw ?? input.capital?.directCollateralRaw ?? input.capital?.collateralAvailableRaw);
   let caps;
   try { caps = normalizePhase3B1Caps(input.caps ?? {}); } catch { caps = DEFAULT_PHASE_3B1_CAPS; add(reasons, "CAPS_INVALID"); }
-  if (capital === null || capital > caps.MAX_ACCOUNT_CAPITAL) add(reasons, "ACCOUNT_CAPITAL_CAP");
 
   const readiness = evaluateLpExecutionReadiness({
     ...input,

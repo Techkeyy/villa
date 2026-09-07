@@ -16,7 +16,7 @@ const MODULE = "0x6666666666666666666666666666666666666666";
 function fixtureAdapter(sessionId, operator) {
   const reader = {
     async readAccountIdentity({ account }) { return { account, owner: OWNER, operator, collateralToken: TOKEN, outcomeToken: TOKEN, binaryModule: MODULE, binarySettlement: TOKEN, maxOrderQuantity: 1000n, maxOrderCollateral: 1000n }; },
-    async readCapital({ account, marketId }) { return { account, directCollateralRaw: 1_002_000n, vaultRaw: 0n, marketId, pool: POOL }; },
+    async readCapital({ account, marketId }) { return { account, directCollateralRaw: 10_000_000n, vaultRaw: 0n, marketId, pool: POOL }; },
     async readOutcomeInventory({ account, marketId }) { return { account, marketId, yesRaw: 0n, noRaw: 0n }; },
     async readOrders({ account, marketId }) { return { account, marketId, status: "VERIFIED", orders: [] }; },
     async readMarket({ account, marketId }) { return { account, marketId, collateral: TOKEN, market: TOKEN, pool: POOL, yesId: 1n, noId: 2n, tradingStart: 1n, expiry: 9_000_000_000n }; },
@@ -47,7 +47,7 @@ test("private runtime dry one-shot reaches the writer boundary with zero broadca
   const sessionId = "dry-runtime-test";
   const adapter = fixtureAdapter(sessionId, operator);
   const identity = { account: ACCOUNT, owner: OWNER, operator, collateralToken: TOKEN, outcomeToken: TOKEN, binaryModule: MODULE, binarySettlement: TOKEN, maxOrderQuantity: 1000n, maxOrderCollateral: 1000n };
-  const accountState = { account: ACCOUNT, owner: OWNER, operator, identity, capital: { account: ACCOUNT, directCollateralRaw: 1_002_000n, vaultRaw: 0n, marketId: MARKET, pool: POOL }, inventory: { account: ACCOUNT, marketId: MARKET, yesRaw: 0n, noRaw: 0n }, orders: { account: ACCOUNT, marketId: MARKET, status: "VERIFIED", orders: [] } };
+  const accountState = { account: ACCOUNT, owner: OWNER, operator, identity, capital: { account: ACCOUNT, directCollateralRaw: 10_000_000n, vaultRaw: 0n, marketId: MARKET, pool: POOL }, inventory: { account: ACCOUNT, marketId: MARKET, yesRaw: 0n, noRaw: 0n }, orders: { account: ACCOUNT, marketId: MARKET, status: "VERIFIED", orders: [] } };
   const publicClient = {
     async readContract(request) { if (request.functionName === "approvedMarkets") return true; if (request.functionName === "isOperator") return true; if (request.functionName === "allowance") return 0n; throw new Error(`unexpected ${request.functionName}`); },
     async getBytecode() { return "0x6000"; },
@@ -70,6 +70,8 @@ test("private runtime dry one-shot reaches the writer boundary with zero broadca
   assert.deepEqual(result.preflight.blockers, ["EXECUTION_DISABLED"]);
   assert.equal(result.broadcastAttempts, 0);
   assert.equal(result.writes, 0);
+  assert.equal(result.capital.raw, 10_000_000n);
+  assert.equal(result.capital.pass, true);
   assert.deepEqual(result.planActions.map((item) => item.functionName), ["operatorMintSet", "operatorPlaceOrder", "operatorCancelOrder", "operatorBurnSet"]);
   assert.equal(released, true);
 });

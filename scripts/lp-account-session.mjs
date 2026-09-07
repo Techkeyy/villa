@@ -29,7 +29,7 @@ import { evaluateWetExecutionPreflight } from "../src/execution/lp-preflight.mjs
 import { reconcileLpSession } from "../src/execution/lp-reconciliation.mjs";
 import { attachLease, createFileAccountLeaseStore, createLpExecutionSession, transitionLpSession } from "../src/execution/lp-session.mjs";
 import { createLeaseHeartbeat, LP_LEASE_DURATION_MS, LP_LEASE_HEARTBEAT_INTERVAL_MS } from "../src/execution/lp-lease-heartbeat.mjs";
-import { DEFAULT_PHASE_3B1_CAPS, createLpTransactionPolicy, evaluateSustainedUatCapital } from "../src/execution/lp-transaction-policy.mjs";
+import { DEFAULT_PHASE_3B1_CAPS, createLpTransactionPolicy, evaluateStrategyCapital } from "../src/execution/lp-transaction-policy.mjs";
 import { loadPrivateSigner } from "../src/execution/lp-private-runtime.mjs";
 import { assessSessionSettlement, classifySessionPnl } from "../src/settlement/session-lifecycle.mjs";
 
@@ -394,7 +394,7 @@ async function main() {
     initialCollateralRaw = accountState.capital.directCollateralRaw;
     startingValueRaw = initialCollateralRaw + (accountState.capital.vaultRaw ?? 0n);
     if (initialCollateralRaw <= 0n) fail("CAPITAL_INVALID", "the VillaAccount has zero collateral available");
-    const capitalPolicy = evaluateSustainedUatCapital(initialCollateralRaw);
+    const capitalPolicy = evaluateStrategyCapital(initialCollateralRaw);
     if (!capitalPolicy.allowed) fail(capitalPolicy.code, capitalPolicy.message);
     const accountMarket = await adapter.readMarket({ marketId: selected.marketId, identity });
     if (!same(accountMarket.pool, selected.pool)) fail("MARKET_POOL_MISMATCH", "the account market pool does not match the live market");

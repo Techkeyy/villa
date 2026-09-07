@@ -7,8 +7,8 @@ export const VILLA_CHAIN = Object.freeze({
 });
 
 // Capital policy concepts are deliberately separate. The initial-deposit floor
-// is public onboarding policy; the strategy floor and sustained-UAT account
-// ceiling are bounded product policy and are not a public-user deposit ceiling.
+// is public onboarding policy; the strategy floor is the minimum required for
+// one bounded cycle. Total deposited balance is not a deployment limit.
 export const MIN_INITIAL_DEPOSIT_TUSDC = "1.00";
 export const MIN_INITIAL_DEPOSIT_RAW = 1_000_000n;
 export const MIN_DEPOSIT_TUSDC = MIN_INITIAL_DEPOSIT_TUSDC;
@@ -40,14 +40,10 @@ export const VILLA_ACCOUNT_CONFIG = Object.freeze({
   discoveryEventTopic: "0x8be0079c531659141344cd1fd0a4f28419497f9722a3daafe3b4186f6b6457e0",
 });
 
-// Sustained UAT may hold the configured reserve plus the account's bounded
-// aggregate-risk capacity and one minimum market-inventory unit. The balance
-// ceiling is therefore explicit and derived from the active product config;
-// it is not an execution budget and cannot raise any on-chain risk limit.
+// The reserve is a minimum accounting requirement, not a total-account cap.
+// Deployable capital is constrained independently by the account's configured
+// exposure, mint, order, reserve, and Risk Governor limits.
 export const ACCOUNT_CAPITAL_RESERVE_RAW = MIN_INITIAL_DEPOSIT_RAW;
-export const SUSTAINED_UAT_DEPLOYABLE_CAPACITY_RAW = VILLA_ACCOUNT_CONFIG.initialMaxAggregateExposure + MIN_TOP_UP_RAW;
-export const SUSTAINED_UAT_MAX_ACCOUNT_CAPITAL_TUSDC = "2.001";
-export const SUSTAINED_UAT_MAX_ACCOUNT_CAPITAL_RAW = ACCOUNT_CAPITAL_RESERVE_RAW + SUSTAINED_UAT_DEPLOYABLE_CAPACITY_RAW;
 
 // Historical owner-preparation tooling retains its original disposable
 // Phase 3B1 target. It is not imported by the live sustained-UAT worker.

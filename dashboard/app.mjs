@@ -22,7 +22,7 @@ import {
   sendTransaction,
   tokenCall,
 } from "./account-client.mjs";
-import { MIN_INITIAL_DEPOSIT_RAW, MIN_STRATEGY_CAPITAL_RAW, MIN_TOP_UP_RAW, SUSTAINED_UAT_MAX_ACCOUNT_CAPITAL_RAW, VILLA_ACCOUNT_CONFIG, VILLA_CHAIN, ZERO_ADDRESS } from "./account-config.mjs";
+import { MIN_INITIAL_DEPOSIT_RAW, MIN_STRATEGY_CAPITAL_RAW, MIN_TOP_UP_RAW, VILLA_ACCOUNT_CONFIG, VILLA_CHAIN, ZERO_ADDRESS } from "./account-config.mjs";
 import { deriveWalletStatus, renderAccountJourney } from "./account-journey.mjs";
 import { createAddLiquidityHandler, runAddLiquidity } from "./liquidity-flow.mjs";
 import { evaluateVerifiedOwnerAccountReadiness, isStrategyCapitalReady, isVerifiedOwnerAccountReady } from "./account-readiness.mjs";
@@ -679,12 +679,7 @@ function updateWorkspace(account, walletBalance) {
   text("minimum-deposit-label", funded ? "Minimum top-up" : "Minimum initial deposit");
   text("minimum-deposit", formatRawExact(funded ? MIN_TOP_UP_RAW : MIN_INITIAL_DEPOSIT_RAW));
   toggle("phase3b1-diagnostics", DEBUG_ENABLED && funded);
-  if (DEBUG_ENABLED && funded) {
-    text("phase3b1-target", `${formatRawExact(SUSTAINED_UAT_MAX_ACCOUNT_CAPITAL_RAW)} tUSDC`);
-    const additional = SUSTAINED_UAT_MAX_ACCOUNT_CAPITAL_RAW > allocated ? SUSTAINED_UAT_MAX_ACCOUNT_CAPITAL_RAW - allocated : 0n;
-    text("phase3b1-additional", `${formatRawExact(additional)} tUSDC`);
-    text("phase3b1-strategy-floor", `${formatRawExact(MIN_STRATEGY_CAPITAL_RAW)} tUSDC`);
-  }
+  if (DEBUG_ENABLED && funded) text("phase3b1-strategy-floor", `${formatRawExact(MIN_STRATEGY_CAPITAL_RAW)} tUSDC`);
   text("advanced-account", account.address);
   text("advanced-operator", VILLA_ACCOUNT_CONFIG.operator);
   const accounts = currentAccounts();

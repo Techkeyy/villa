@@ -62,7 +62,7 @@ test("six-decimal candidates are exact and the candidate below the floor fails",
   assert.equal(exact.recommendedPass, false);
 });
 
-test("recommended buffered value passes the strategy floor but current cap remains a separate fail", () => {
+test("an explicitly supplied historical cap remains separate from the live strategy floor", () => {
   const result = evaluateCapitalCandidate({ capitalRaw: 1_002_000n, mathematicalMinimumRaw: 1_001_000n, recommendedCapitalRaw: 1_002_000n, currentCapitalCapRaw: PHASE_3B1A4_BASELINE_CAPITAL_RAW, strategyFeasible: true, currentCapsNonCapitalPass: true, path: "B" });
   assert.equal(result.mathematicalPass, true);
   assert.equal(result.recommendedPass, true);
@@ -72,12 +72,13 @@ test("recommended buffered value passes the strategy floor but current cap remai
   assert.ok(result.reasons.includes("ACCOUNT_CAPITAL_CAP"));
 });
 
-test("the activated bounded cap is inclusive and rejects one raw unit above it", () => {
-  const exact = evaluateCapitalCandidate({ capitalRaw: DEFAULT_PHASE_3B1_CAPS.MAX_ACCOUNT_CAPITAL, mathematicalMinimumRaw: 1_001_000n, recommendedCapitalRaw: 1_002_000n, strategyFeasible: true, currentCapsNonCapitalPass: true });
-  const above = evaluateCapitalCandidate({ capitalRaw: DEFAULT_PHASE_3B1_CAPS.MAX_ACCOUNT_CAPITAL + 1n, mathematicalMinimumRaw: 1_001_000n, recommendedCapitalRaw: 1_002_000n, strategyFeasible: true, currentCapsNonCapitalPass: true });
-  assert.equal(exact.currentCapitalPass, true);
-  assert.equal(above.currentCapitalPass, false);
-  assert.ok(above.reasons.includes("ACCOUNT_CAPITAL_CAP"));
+test("large balances pass the live capital candidate without a total-balance cap", () => {
+  for (const capitalRaw of [2_001_000n, 10_000_000n, 100_000_000n, 1_000_000_000n]) {
+    const result = evaluateCapitalCandidate({ capitalRaw, mathematicalMinimumRaw: 1_001_000n, recommendedCapitalRaw: 1_002_000n, strategyFeasible: true, currentCapsNonCapitalPass: true });
+    assert.equal(result.currentCapitalPass, true);
+    assert.equal(result.currentCapsPass, true);
+    assert.equal(result.reasons.includes("ACCOUNT_CAPITAL_CAP"), false);
+  }
 });
 
 test("locked non-capital caps cannot drift during calibration", () => {

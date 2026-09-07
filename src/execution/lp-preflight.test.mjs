@@ -53,7 +53,7 @@ test("execution cannot arm while disabled, lease is absent, or session is not in
   assert.ok(invalidState.reasons.includes("SESSION_STATE_INVALID"));
 });
 
-test("wrong signer/operator/owner and insufficient or over-capitalized accounts are denied", () => {
+test("wrong signer/operator/owner and insufficient accounts are denied while large balances pass", () => {
   const signer = evaluateWetExecutionPreflight({ ...base(), operator: { configuredAddress: OPERATOR, signerAddress: OWNER } });
   assert.ok(signer.reasons.includes("SIGNER_MISMATCH"));
   const operator = evaluateWetExecutionPreflight({ ...base(), account: { ...base().account, operator: OWNER } });
@@ -62,8 +62,11 @@ test("wrong signer/operator/owner and insufficient or over-capitalized accounts 
   assert.ok(owner.reasons.includes("OWNER_NOT_VERIFIED"));
   const low = evaluateWetExecutionPreflight({ ...base(), capital: { collateralRaw: 0n } });
   assert.ok(low.reasons.includes("INSUFFICIENT_CAPITAL"));
-  const high = evaluateWetExecutionPreflight({ ...base(), capital: { collateralRaw: DEFAULT_PHASE_3B1_CAPS.MAX_ACCOUNT_CAPITAL + 1n } });
-  assert.ok(high.reasons.includes("ACCOUNT_CAPITAL_CAP"));
+  for (const collateralRaw of [2_001_000n, 10_000_000n, 100_000_000n, 1_000_000_000n]) {
+    const high = evaluateWetExecutionPreflight({ ...base(), capital: { collateralRaw } });
+    assert.equal(high.allowed, true);
+    assert.equal(high.reasons.includes("ACCOUNT_CAPITAL_CAP"), false);
+  }
 });
 
 test("stale or resolved market and unverified orders/inventory block START", () => {
@@ -92,13 +95,14 @@ test("pending or unknown transactions, unknown orders, risk HALT, and active dur
   assert.ok(halt.reasons.includes("RISK_HALTED"));
   const duration = evaluateWetExecutionPreflight({ ...base(), nowMs: 901_001 });
   assert.ok(duration.reasons.includes("SESSION_DURATION_EXCEEDED"));
-  const raisedCap = evaluateWetExecutionPreflight({ ...base(), caps: { MAX_ACCOUNT_CAPITAL: DEFAULT_PHASE_3B1_CAPS.MAX_ACCOUNT_CAPITAL + 1n } });
+  const raisedCap = evaluateWetExecutionPreflight({ ...base(), caps: { MAX_ACCOUNT_CAPITAL: 2_001_000n } });
   assert.ok(raisedCap.reasons.includes("CAPS_INVALID"));
 });
 
-test("preflight accepts the sustained 2.001 cap but rejects one raw unit above it", () => {
-  const exact = evaluateWetExecutionPreflight({ ...base(), capital: { collateralRaw: 2_001_000n } });
-  const above = evaluateWetExecutionPreflight({ ...base(), capital: { collateralRaw: 2_001_001n } });
-  assert.equal(exact.allowed, true);
-  assert.ok(above.reasons.includes("ACCOUNT_CAPITAL_CAP"));
+test("large balances do not change preflight risk or readiness gates", () => {
+  for (const collateralRaw of [10_000_000n, 100_000_000n, 1_000_000_000n]) {
+    const result = evaluateWetExecutionPreflight({ ...base(), capital: { collateralRaw } });
+    assert.equal(result.allowed, true);
+    assert.equal(result.reasons.length, 0);
+  }
 });

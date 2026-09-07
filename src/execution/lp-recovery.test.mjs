@@ -82,8 +82,10 @@ test("confirmed mint recovery blocks mismatched inventory", () => {
   assert.throws(() => resolveMintRecovery({ config: CONFIG, journal: journal([confirmedMint()]), accountState: state({ yesRaw: 999n }) }), { code: "INVENTORY_MINT_MISMATCH" });
 });
 
-test("confirmed mint recovery blocks mismatched capital", () => {
-  assert.throws(() => resolveMintRecovery({ config: CONFIG, journal: journal([confirmedMint()]), accountState: state({ capitalRaw: 1_000_000n }) }), { code: "CAPITAL_MINT_MISMATCH" });
+test("confirmed mint recovery accepts a larger account balance without a fixture cap", () => {
+  const result = resolveMintRecovery({ config: CONFIG, journal: journal([confirmedMint()]), accountState: state({ capitalRaw: 100_000_000n }) });
+  assert.equal(result.skipMint, true);
+  assert.equal(result.capitalRaw, 100_000_000n);
 });
 
 test("inventory without a confirmed mint is never adopted", () => {

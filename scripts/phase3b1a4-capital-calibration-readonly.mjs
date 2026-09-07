@@ -11,7 +11,7 @@ import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 import { evaluateCapitalAtSnapshot, createProjectedEvaluator } from "../src/execution/lp-feasibility-simulation.mjs";
 import { DEFAULT_PHASE_3B1_CAPS } from "../src/execution/lp-transaction-policy.mjs";
-import { calibrationCandidatesRaw, compareLockedCaps, deriveCapitalEquation, LP_CAPITAL_CALIBRATION_VERSION, PHASE_3B1A4_BASELINE_CAPITAL_RAW } from "../src/execution/lp-capital-calibration.mjs";
+import { calibrationCandidatesRaw, compareLockedCaps, deriveCapitalEquation, LP_CAPITAL_CALIBRATION_VERSION } from "../src/execution/lp-capital-calibration.mjs";
 
 const execFileAsync = promisify(execFile);
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
@@ -75,9 +75,9 @@ function candidateSummary(candidateRows, decimals) {
     notional: { buyOnlyRaw: first.buyOnly.quantityRaw, mintSellRaw: first.mintSell.quantityRaw },
     pendingExposureRaw: first.pendingExposureRaw,
     caps: {
-      currentCapital: first.currentCapitalPass ? "PASS" : "FAIL: MAX_ACCOUNT_CAPITAL",
+      currentCapital: "NOT_APPLICABLE",
       nonCapital: allStrategy ? "PASS" : "FAIL",
-      currentPolicy: first.currentCapsPass && allStrategy ? "PASS" : "FAIL",
+      currentPolicy: allStrategy ? "PASS" : "FAIL",
       proposedReplacement: allStrategy ? "PASS" : "FAIL",
     },
     pathReasons: { buyOnly: union(candidateRows.flatMap((row) => row.buyOnly.reasons)), mintSell: union(candidateRows.flatMap((row) => row.mintSell.reasons)) },
@@ -112,7 +112,7 @@ const snapshotResults = snapshots.map((shadow, index) => {
   const capitalRaw = raw(shadow.capital.collateralAvailableRaw, "live collateral");
   const snapshotYesRaw = raw(shadow.inventory.yesRaw ?? shadow.inventory.yes, "YES inventory");
   const snapshotNoRaw = raw(shadow.inventory.noRaw ?? shadow.inventory.no, "NO inventory");
-  const rows = candidateInputs.map((candidate) => evaluateCapitalAtSnapshot({ evaluator, collateralRaw: candidate.raw, yesRaw: snapshotYesRaw, noRaw: snapshotNoRaw, minimumMintRaw, currentCapitalCapRaw: PHASE_3B1A4_BASELINE_CAPITAL_RAW, recommendedCapitalRaw: null }));
+  const rows = candidateInputs.map((candidate) => evaluateCapitalAtSnapshot({ evaluator, collateralRaw: candidate.raw, yesRaw: snapshotYesRaw, noRaw: snapshotNoRaw, minimumMintRaw, currentCapitalCapRaw: null, recommendedCapitalRaw: null }));
   return { index: index + 1, marketId: market.marketId, headroomSec: Number(shadow.risk?.authoritativeTime?.timeRemainingSec ?? 0), liveCapitalRaw: capitalRaw, yesRaw: snapshotYesRaw, noRaw: snapshotNoRaw, rows, evaluator };
 });
 
@@ -148,7 +148,7 @@ console.log(jsonSafe({
   equation: { pathA: "reserve + DreamDEX-held collateral + BUY order escrow + safety margin", pathB: "reserve + DreamDEX-held collateral + required complete-set mint + safety margin", reserveRaw: 1_000_000n, dreamDexReservedCollateralRaw: snapshotResults[0].evaluator.dreamDexReservedCollateralRaw, dreamDexVaultCreditRaw: first.capital.dreamDexVaultCreditRaw ?? null, vaultTreatment: "vault credit is reported but not counted as direct working capital because this bounded path contains no withdrawal", rounding: "all raw arithmetic is integer; BUY escrow uses ceil(price * quantity / 1e6); MINT+SELL has no order escrow", inventory: { currentYesRaw: yesRaw, requiredMintRaw: minimumMintRaw }, mathematicalMinimumRaw: mathFloorRaw, mathematicalMinimumTUSDC: mathFloor, pathBPerSnapshot: bEquations.map((equation) => ({ requiredCapitalRaw: equation.requiredCapitalRaw, requiredCapitalTUSDC: equation.requiredCapital, components: equation.components })) },
   candidates: outputSummaries,
   preferredProofPath: preferred,
-  recommendation: { currentCapTUSDC: tUSDC(PHASE_3B1A4_BASELINE_CAPITAL_RAW, decimals), activatedPhase3B1CapTUSDC: tUSDC(DEFAULT_PHASE_3B1_CAPS.MAX_ACCOUNT_CAPITAL, decimals), mathematicalMinimumTUSDC: mathFloor, recommendedPhase3B1BCapTUSDC: recommendedRaw === null ? null : tUSDC(recommendedRaw, decimals), recommendedRaw, safetyMarginTUSDC: safetyMarginRaw === null ? null : tUSDC(safetyMarginRaw, decimals), additionalOwnerDepositTUSDC: recommendedRaw === null ? null : tUSDC(recommendedRaw - raw(first.capital.collateralAvailableRaw, "live collateral"), decimals), minimumStrategyCapitalTUSDC: mathFloor, proposedReplacement: "docs/PHASE_3B1A_4_CAPITAL_CALIBRATION.md" },
+  recommendation: { currentCapTUSDC: null, activatedPhase3B1CapTUSDC: null, mathematicalMinimumTUSDC: mathFloor, recommendedPhase3B1BCapTUSDC: recommendedRaw === null ? null : tUSDC(recommendedRaw, decimals), recommendedRaw, safetyMarginTUSDC: safetyMarginRaw === null ? null : tUSDC(safetyMarginRaw, decimals), additionalOwnerDepositTUSDC: recommendedRaw === null ? null : tUSDC(recommendedRaw - raw(first.capital.collateralAvailableRaw, "live collateral"), decimals), minimumStrategyCapitalTUSDC: mathFloor, proposedReplacement: "docs/PHASE_3B1A_4_CAPITAL_CALIBRATION.md" },
   lockedCaps: { pass: lockedCaps.pass, differences: lockedCaps.differences, values: lockedCaps.values },
   proof: { currentCapChanged: false, liveAccountMutated: false, ownerRequestsEmitted: false, marketApprovalsPrepared: false, marketApprovalsSent: false, transactionCount: 0, blockchainWrites: 0 },
 }));

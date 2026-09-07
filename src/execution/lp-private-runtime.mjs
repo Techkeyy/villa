@@ -16,7 +16,7 @@ import { privateKeyToAccount } from "viem/accounts";
 import { createPublicClient, createWalletClient, http, isAddress } from "viem";
 import { SomniaMarkets, SOMNIA_TESTNET_ADDRESSES, SOMNIA_TESTNET_PRICE_FEED } from "@somnia-chain/markets-sdk";
 import { somniaShannon } from "@somnia-chain/markets-sdk/chains";
-import { VILLA_ACCOUNT_CONFIG } from "../../dashboard/account-config.mjs";
+import { MIN_STRATEGY_CAPITAL_RAW, VILLA_ACCOUNT_CONFIG } from "../../dashboard/account-config.mjs";
 import {
   createLpExecutionAdapter,
   createViemLpAccountReader,
@@ -346,7 +346,7 @@ export async function runPrivateLpOneShot({ env = process.env, args = {}, depend
         chainId: config.chainId,
         sessionId: config.sessionId,
         market: { marketId: config.marketId, series: config.marketSeries, intervalSec: config.intervalSec, expirySec: feasibility.market.expirySec, headroomSec: feasibility.market.headroomSec, status: Number(shadow.riskSnapshot?.market?.status ?? 0), pool: accountMarket.pool },
-        capital: { raw: capitalRaw, expectedRaw: 1_002_000n, pass: capitalRaw <= 1_002_000n },
+        capital: { raw: capitalRaw, minimumRaw: MIN_STRATEGY_CAPITAL_RAW, pass: capitalRaw >= MIN_STRATEGY_CAPITAL_RAW },
         protocol: { marketApproved: protocol.marketApproved, moduleOperator: protocol.moduleOperator, poolOperator: protocol.poolOperator, collateralAllowanceRaw: protocol.collateralAllowance },
         preflight: { ...preflight, blockers: ["EXECUTION_DISABLED"] },
         planActions: plans.map((plan) => ({ functionName: plan.functionName, action: plan.intent.action, txIndex: plan.intent.txIndex, marketId: plan.intent.marketId, destination: plan.destination, broadcast: plan.broadcast })),
@@ -403,7 +403,8 @@ export async function runPrivateLpOneShot({ env = process.env, args = {}, depend
         records.push(await writer.enqueue(burn));
       }
       const finalAccount = await adapter.readAccountState({ marketId: config.marketId });
-      if (!recovery.skipBurn && (finalAccount.capital.directCollateralRaw !== 1_002_000n || finalAccount.inventory.yesRaw !== 0n || finalAccount.inventory.noRaw !== 0n || finalAccount.orders.status !== "VERIFIED" || finalAccount.orders.orders.length !== 0)) fail("FINAL_RECONCILIATION_FAILED", "final account state did not return to the exact clean baseline");
+      const expectedCleanCollateralRaw = capitalRaw + (recovery.skipMint && !recovery.skipBurn ? recovery.amountRaw : 0n);
+      if (!recovery.skipBurn && (finalAccount.capital.directCollateralRaw !== expectedCleanCollateralRaw || finalAccount.inventory.yesRaw !== 0n || finalAccount.inventory.noRaw !== 0n || finalAccount.orders.status !== "VERIFIED" || finalAccount.orders.orders.length !== 0)) fail("FINAL_RECONCILIATION_FAILED", "final account state did not return to its clean pre-session collateral baseline");
       return { ...baseResult, result: "COMPLETED", code: "WET_ONE_SHOT_COMPLETE", broadcast: records.length > 0, writes: records.length, broadcastAttempts: records.length, orderProof, final: { collateralRaw: finalAccount.capital.directCollateralRaw, yesRaw: finalAccount.inventory.yesRaw, noRaw: finalAccount.inventory.noRaw, openOrders: finalAccount.orders.orders.length }, records };
     } finally {
       const stopping = activeSession.state === "RUNNING" ? transitionLpSession(activeSession, "STOPPING") : activeSession;

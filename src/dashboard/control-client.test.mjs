@@ -181,6 +181,24 @@ test("authoritative ERROR clears stale active session without claiming it stoppe
   assert.equal(reconciled.result, null);
 });
 
+test("authoritative nested ERROR overrides a stale STARTING outer state", () => {
+  const reconciled = reconcileControlPayload(
+    { state: "STARTING", session: { state: "ERROR", sessionId: "uat-failed" }, error: { code: "ACCOUNT_PREFLIGHT_BLOCKED" } },
+    { state: "RUNNING", session: { sessionId: "uat-failed" }, snapshot: { strategy: { side: "SELL_YES" } } },
+  );
+  assert.equal(reconciled.state, "ERROR");
+  assert.equal(reconciled.active, false);
+});
+
+test("authoritative nested result ERROR overrides a stale RECONNECTING outer state", () => {
+  const reconciled = reconcileControlPayload(
+    { state: "RECONNECTING", session: null, result: { status: "ERROR", code: "ACCOUNT_CAPITAL_CAP" } },
+    { state: "RUNNING", session: { sessionId: "uat-failed" }, snapshot: { strategy: { side: "SELL_YES" } } },
+  );
+  assert.equal(reconciled.state, "ERROR");
+  assert.equal(reconciled.active, false);
+});
+
 test("transient polling failure enters reconnecting instead of fake STOPPED", () => {
   assert.equal(controlStateAfterPollFailure("RUNNING"), "RECONNECTING");
   assert.equal(controlStateAfterPollFailure("RECONNECTING"), "RECONNECTING");

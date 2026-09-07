@@ -21,7 +21,7 @@ const TX_HASH = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 function fixtureAdapter(sessionId) {
   const reader = {
     async readAccountIdentity({ account }) { return { account, owner: OWNER, operator: OPERATOR, collateralToken: TOKEN, outcomeToken: TOKEN, binaryModule: MODULE, binarySettlement: TOKEN, maxOrderQuantity: 1000n, maxOrderCollateral: 1000n }; },
-    async readCapital({ account, marketId }) { return { account, directCollateralRaw: 1_001_000n, vaultRaw: 0n, marketId, pool: POOL }; },
+    async readCapital({ account, marketId }) { return { account, directCollateralRaw: 9_999_000n, vaultRaw: 0n, marketId, pool: POOL }; },
     async readOutcomeInventory({ account, marketId }) { return { account, marketId, yesRaw: 1000n, noRaw: 1000n }; },
     async readOrders({ account, marketId }) { return { account, marketId, status: "VERIFIED", orders: [] }; },
     async readMarket({ account, marketId }) { return { account, marketId, collateral: TOKEN, market: TOKEN, pool: POOL, yesId: 1n, noId: 2n, tradingStart: 1n, expiry: 9_000_000_000n }; },
@@ -56,7 +56,7 @@ function accountState() {
     owner: OWNER,
     operator: OPERATOR,
     identity: { account: ACCOUNT, owner: OWNER, operator: OPERATOR, collateralToken: TOKEN, outcomeToken: TOKEN, binaryModule: MODULE, binarySettlement: TOKEN, maxOrderQuantity: 1000n, maxOrderCollateral: 1000n },
-    capital: { account: ACCOUNT, directCollateralRaw: 1_001_000n, vaultRaw: 0n, marketId: MARKET, pool: POOL },
+    capital: { account: ACCOUNT, directCollateralRaw: 9_999_000n, vaultRaw: 0n, marketId: MARKET, pool: POOL },
     inventory: { account: ACCOUNT, marketId: MARKET, yesRaw: 1000n, noRaw: 1000n },
     orders: { account: ACCOUNT, marketId: MARKET, status: "VERIFIED", orders: [] },
   };
@@ -120,6 +120,8 @@ test("private runtime dry recovery reconciles confirmed mint and never plans a d
   assert.equal(result.recovery.mint, "ALREADY_CONFIRMED");
   assert.equal(result.recovery.skippedMint, true);
   assert.equal(result.recovery.nextAction, "PLACE_ORDER");
+  assert.equal(result.capital.raw, 9_999_000n);
+  assert.equal(result.capital.pass, true);
   assert.equal(result.broadcast, false);
   assert.equal(result.writes, 0);
   assert.equal(result.broadcastAttempts, 0);
