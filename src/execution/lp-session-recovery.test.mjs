@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { recoveryActions, validateExpiredSessionRecovery, validatePreflightFailureRecovery } from "./lp-session-recovery.mjs";
+import { classifyRecoveryRoute, recoveryActions, validateExpiredSessionRecovery, validatePreflightFailureRecovery, validateSignerFreePreMarketEvidence } from "./lp-session-recovery.mjs";
 
 const ACCOUNT = "0x1111111111111111111111111111111111111111";
 const OWNER = "0x2222222222222222222222222222222222222222";
@@ -32,6 +32,17 @@ function preMarketFixtures() {
     orders: { status: "NOT_SELECTED", orders: [] },
   };
   return { session, stored, expiredLease: null, journal: { pending: 0, unknown: 0, reverted: 0, records: [] }, accountState, activeUnit: false };
+}
+
+function preMarketStatus(value, patch = {}) {
+  return {
+    state: "ERROR",
+    session: { ...value.session },
+    error: { code: "ACCOUNT_CAPITAL_CAP" },
+    result: null,
+    snapshot: null,
+    ...patch,
+  };
 }
 
 test("10. authenticated expired-session recovery derives only the proven cancellation", () => {
@@ -93,6 +104,29 @@ test("narrow pre-market capital failure reconciles without a market", () => {
   const result = validatePreflightFailureRecovery(preMarketFixtures());
   assert.equal(result.classification, "NARROW_PREMARKET_RECOVERY");
   assert.equal(result.capitalRaw, 2_001_000n);
+});
+
+test("signer-free routing requires the explicit allowlisted pre-market failure", () => {
+  const value = preMarketFixtures();
+  assert.equal(classifyRecoveryRoute(value), "SIGNER_FREE_PREMARKET");
+  assert.throws(() => classifyRecoveryRoute({ ...value, stored: { ...value.stored, error: { code: "OTHER_FAILURE" } } }), { code: "RECOVERY_NOT_PREFLIGHT_ONLY" });
+  assert.equal(classifyRecoveryRoute({ ...value, session: { ...value.session, currentMarketId: MARKET }, stored: { ...value.stored, session: { ...value.stored.session, currentMarketId: MARKET } } }), "SIGNER_CAPABLE_MARKET");
+});
+
+test("signer-free pre-market evidence validates terminal status and preserves the exact clean boundary", () => {
+  const value = preMarketFixtures();
+  const result = validateSignerFreePreMarketEvidence({ ...value, status: preMarketStatus(value, { snapshot: { openOrders: [], yesRaw: 0, noRaw: 0, aggregateExposure: 0, mintExposure: 0, pendingSettlement: null } }) });
+  assert.equal(result.classification, "NARROW_PREMARKET_RECOVERY");
+  assert.equal(result.capitalRaw, 2_001_000n);
+  assert.throws(() => validateSignerFreePreMarketEvidence({ ...value, status: preMarketStatus(value, { state: "STOPPED_CLEAN" }) }), { code: "RECOVERY_STATUS_INVALID" });
+  assert.throws(() => validateSignerFreePreMarketEvidence({ ...value, status: preMarketStatus(value, { result: { writes: ["unexpected"] } }) }), { code: "RECOVERY_STATUS_INVALID" });
+});
+
+test("signer-free status evidence rejects any market-bound state or write evidence", () => {
+  const value = preMarketFixtures();
+  assert.throws(() => validateSignerFreePreMarketEvidence({ ...value, status: preMarketStatus(value, { snapshot: { openOrders: [{ orderId: "1" }] } }) }), { code: "RECOVERY_ORDER_STATE_UNKNOWN" });
+  assert.throws(() => validateSignerFreePreMarketEvidence({ ...value, status: preMarketStatus(value, { snapshot: { openOrders: [], marketId: MARKET } }) }), { code: "RECOVERY_MARKET_STATE_PRESENT" });
+  assert.throws(() => validateSignerFreePreMarketEvidence({ ...value, status: preMarketStatus(value), stored: { ...value.stored, writes: [{ action: "PLACE_ORDER" }] } }), { code: "RECOVERY_CHAIN_ACTIVITY_PRESENT" });
 });
 
 test("pre-market recovery rejects an active lease or original worker", () => {

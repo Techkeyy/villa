@@ -3,16 +3,27 @@ import net from "node:net";
 import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { createPublicClient, http } from "viem";
+import { somniaShannon } from "@somnia-chain/markets-sdk/chains";
+import { VILLA_CHAIN } from "../dashboard/account-config.mjs";
 import { createOnChainAccountVerifier } from "../src/operator/account-binding.mjs";
+import { persistUatState } from "../src/operator/uat-state.mjs";
+import { createViemLpAccountReader } from "../src/execution/lp-adapter.mjs";
+import { classifyRecoveryRoute, validateSignerFreePreMarketEvidence } from "../src/execution/lp-session-recovery.mjs";
 
 const execFileAsync = promisify(execFile);
 const SOCKET_PATH = process.env.VILLA_UAT_BROKER_SOCKET || "/run/villa-uat-broker/control.sock";
 const BINDING_DIR = "/run/villa-uat-bindings";
 const STATUS_DIR = "/run/villa-uat-status";
+const PRIVATE_STATE_ROOT = "/var/lib/villa-engine";
 const SESSION_RE = /^uat-[0-9]+-[0-9a-f]{8}$/;
 const ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
 const ACTIONS = new Set(["start", "stop", "settle", "recover"]);
-const verifyAccount = createOnChainAccountVerifier({ env: { ...process.env, VILLA_ENGINE_OPERATOR: "0xaf4ee6C0c6Ff6337F4C4F07b87C8343dF73e8d37" } });
+const CANONICAL_OPERATOR = "0xaf4ee6C0c6Ff6337F4C4F07b87C8343dF73e8d37";
+const READONLY_RPC_URL = String(process.env.RPC_URL || VILLA_CHAIN.rpcUrl).trim();
+const READONLY_CLIENT = createPublicClient({ chain: somniaShannon, transport: http(READONLY_RPC_URL, { timeout: 15_000 }) });
+const READONLY_READER = createViemLpAccountReader({ publicClient: READONLY_CLIENT });
+const verifyAccount = createOnChainAccountVerifier({ env: { ...process.env, VILLA_ENGINE_OPERATOR: CANONICAL_OPERATOR }, publicClient: READONLY_CLIENT, identityReader: READONLY_READER });
 
 function validAddress(value) {
   return ADDRESS_RE.test(String(value ?? ""));
@@ -32,6 +43,121 @@ function bindingPath(sessionId) {
 
 function statusPath(sessionId) {
   return path.join(STATUS_DIR, `${sessionId}.json`);
+}
+
+function privateStatePath(sessionId) {
+  return path.join(PRIVATE_STATE_ROOT, `uat-${sessionId}`, "session.json");
+}
+
+function journalPath(sessionId) {
+  return path.join(PRIVATE_STATE_ROOT, `uat-${sessionId}`, "transactions.json");
+}
+
+function leasePath(sessionId, account) {
+  return path.join(PRIVATE_STATE_ROOT, `uat-${sessionId}`, `${account.toLowerCase()}.lease.json`);
+}
+
+async function readJson(file, label) {
+  try {
+    return JSON.parse(await fs.readFile(file, "utf8"));
+  } catch {
+    throw new Error(`the exact ${label} is unavailable or invalid`);
+  }
+}
+
+async function readPreMarketJournal(sessionId) {
+  let payload;
+  try {
+    payload = JSON.parse(await fs.readFile(journalPath(sessionId), "utf8"));
+  } catch (error) {
+    if (error?.code === "ENOENT") return { pending: 0, unknown: 0, reverted: 0, records: [] };
+    throw new Error("the exact transaction journal is unavailable or invalid");
+  }
+  if (payload?.version !== "villa-private-account-writer-v1" || !Array.isArray(payload.records) || payload.halted === true) {
+    throw new Error("the exact transaction journal is not cleanly empty");
+  }
+  return {
+    pending: payload.records.filter((record) => record?.state === "PENDING").length,
+    unknown: payload.records.filter((record) => record?.state === "UNKNOWN").length,
+    reverted: payload.records.filter((record) => record?.state === "REVERTED").length,
+    records: payload.records,
+  };
+}
+
+async function assertUnitInactive(unit) {
+  let state;
+  try {
+    ({ stdout: state } = await execFileAsync("/usr/bin/systemctl", ["show", "-p", "ActiveState", "--value", unit], { windowsHide: true }));
+  } catch {
+    throw new Error("the exact session unit state is unavailable");
+  }
+  if (!["inactive", "failed"].includes(String(state).trim())) throw new Error("the exact session has an active or transitioning systemd unit");
+}
+
+async function assertNoLease(sessionId, account) {
+  try {
+    await fs.lstat(leasePath(sessionId, account));
+    throw new Error("the exact pre-market session has a lease file");
+  } catch (error) {
+    if (error?.code === "ENOENT") return;
+    throw error;
+  }
+}
+
+async function readPreMarketAccountState(account) {
+  const identity = await READONLY_READER.readAccountIdentity({ account });
+  const capital = await READONLY_READER.readCapital({ account, identity, marketId: null });
+  return {
+    account,
+    identity,
+    capital,
+    inventory: null,
+    positions: null,
+    orders: { account, marketId: null, status: "NOT_SELECTED", orders: [] },
+  };
+}
+
+async function reconcileSignerFreePreMarket(sessionId, owner, account) {
+  const status = await readJson(statusPath(sessionId), "public status");
+  const stored = await readJson(privateStatePath(sessionId), "private session state");
+  const session = { sessionId, owner, account, operator: CANONICAL_OPERATOR, currentMarketId: status?.session?.currentMarketId };
+  const route = classifyRecoveryRoute({ session, stored });
+  if (route !== "SIGNER_FREE_PREMARKET") throw new Error("the exact session is not eligible for signer-free reconciliation");
+  await assertUnitInactive(`villa-engine-uat@${sessionId}.service`);
+  await assertUnitInactive(`villa-engine-uat-recover@${sessionId}.service`);
+  await assertNoLease(sessionId, account);
+  const journal = await readPreMarketJournal(sessionId);
+  const accountState = await readPreMarketAccountState(account);
+  const preflight = validateSignerFreePreMarketEvidence({ session, stored, status, expiredLease: null, journal, accountState, activeUnit: false });
+  const finalSession = { ...status.session, sessionId, owner, account, operator: CANONICAL_OPERATOR, currentMarketId: null, leaseId: null, state: "STOPPED_CLEAN" };
+  persistUatState(statusPath(sessionId), {
+    type: "snapshot",
+    snapshot: {
+      ...status.snapshot,
+      marketId: null,
+      collateralRaw: accountState.capital.directCollateralRaw,
+      vaultRaw: accountState.capital.vaultRaw ?? 0n,
+      yesRaw: 0n,
+      noRaw: 0n,
+      openOrders: [],
+      pendingSettlement: null,
+      lastAction: "preflight_failure_reconciled",
+    },
+  });
+  persistUatState(statusPath(sessionId), {
+    type: "result",
+    session: finalSession,
+    result: {
+      status: "STOPPED_CLEAN",
+      reason: "PREFLIGHT_FAILURE_RECONCILED",
+      classification: preflight.classification,
+      writes: [],
+      finalValueRaw: preflight.capitalRaw,
+      pendingSettlement: false,
+    },
+  });
+  persistUatState(statusPath(sessionId), { type: "state", state: "STOPPED_CLEAN", session: finalSession });
+  await fs.rm(bindingPath(sessionId), { force: false });
 }
 
 async function assertExistingBinding(sessionId, owner, account) {
@@ -131,8 +257,18 @@ async function handle(socket, raw) {
       }
     }
     if (!alreadyReconciled) {
-      await runSystemd(action, sessionId);
-      if (action === "recover") await clearPreflightBinding(sessionId, owner, account);
+      if (action === "recover") {
+        const status = await readJson(statusPath(sessionId), "public status");
+        const stored = await readJson(privateStatePath(sessionId), "private session state");
+        const route = classifyRecoveryRoute({ session: { ...status.session, sessionId, owner, account, operator: CANONICAL_OPERATOR }, stored });
+        if (route === "SIGNER_FREE_PREMARKET") await reconcileSignerFreePreMarket(sessionId, owner, account);
+        else {
+          await runSystemd(action, sessionId);
+          await clearPreflightBinding(sessionId, owner, account);
+        }
+      } else {
+        await runSystemd(action, sessionId);
+      }
     }
     response(socket, { ok: true });
   } catch (error) {

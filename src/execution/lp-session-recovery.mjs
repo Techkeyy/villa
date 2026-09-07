@@ -10,6 +10,8 @@ const ALLOWED_ACTIONS = new Set([
   "BURN_COMPLETE_SET",
   "CLAIM_VAULT_CREDIT",
 ]);
+const PREMARKET_FAILURE_CODES = new Set(["ACCOUNT_CAPITAL_CAP"]);
+export const PREMARKET_RECOVERY_CLASSIFICATION = "NARROW_PREMARKET_RECOVERY";
 
 export class LpSessionRecoveryError extends Error {
   constructor(code, message) {
@@ -39,6 +41,73 @@ function raw(value, label) {
 
 function orderId(value) {
   return raw(value, "order id").toString();
+}
+
+function emptyRaw(value, label) {
+  if (value === undefined || value === null) return;
+  if (raw(value, label) !== 0n) fail("RECOVERY_MARKET_STATE_PRESENT", `pre-market recovery requires zero ${label}`);
+}
+
+function assertEmptyStatusSnapshot(snapshot) {
+  if (snapshot === undefined || snapshot === null) return;
+  if (snapshot.marketId !== undefined && snapshot.marketId !== null) fail("RECOVERY_MARKET_STATE_PRESENT", "pre-market recovery requires no selected market");
+  if (!Array.isArray(snapshot.openOrders) || snapshot.openOrders.length !== 0) fail("RECOVERY_ORDER_STATE_UNKNOWN", "pre-market recovery requires an empty order snapshot");
+  emptyRaw(snapshot.yesRaw, "YES inventory");
+  emptyRaw(snapshot.noRaw, "NO inventory");
+  emptyRaw(snapshot.aggregateExposure, "aggregate exposure");
+  emptyRaw(snapshot.mintExposure, "mint exposure");
+  if (snapshot.positions !== undefined && snapshot.positions !== null) fail("RECOVERY_MARKET_STATE_PRESENT", "pre-market recovery requires no positions");
+  if (snapshot.position !== undefined && snapshot.position !== null) fail("RECOVERY_MARKET_STATE_PRESENT", "pre-market recovery requires no positions");
+  if (snapshot.pendingSettlement !== undefined && snapshot.pendingSettlement !== null && snapshot.pendingSettlement !== false) {
+    fail("RECOVERY_SETTLEMENT_PRESENT", "pre-market recovery requires no pending settlement");
+  }
+  if (Array.isArray(snapshot.writes) && snapshot.writes.length > 0) fail("RECOVERY_CHAIN_ACTIVITY_PRESENT", "pre-market recovery requires no write evidence");
+}
+
+function assertNoWriteEvidence(document, label) {
+  if (!document || typeof document !== "object") return;
+  if (Array.isArray(document.writes) && document.writes.length > 0) fail("RECOVERY_CHAIN_ACTIVITY_PRESENT", `${label} contains write evidence`);
+  if (Array.isArray(document.transactions) && document.transactions.length > 0) fail("RECOVERY_CHAIN_ACTIVITY_PRESENT", `${label} contains transaction evidence`);
+  if (Array.isArray(document.result?.writes) && document.result.writes.length > 0) fail("RECOVERY_CHAIN_ACTIVITY_PRESENT", `${label} contains write evidence`);
+}
+
+/** Classify recovery before any service launch. Null market is only eligible
+ * for the explicit allowlisted terminal preflight error. */
+export function classifyRecoveryRoute({ session, stored } = {}) {
+  if (!session || !stored?.session) fail("RECOVERY_STATE_REQUIRED", "session and private state are required");
+  const storedMarketId = stored.session.currentMarketId;
+  const sessionMarketId = session.currentMarketId;
+  if (storedMarketId === null || sessionMarketId === null) {
+    if (storedMarketId === null && sessionMarketId === null && PREMARKET_FAILURE_CODES.has(String(stored.error?.code ?? ""))) return "SIGNER_FREE_PREMARKET";
+    fail("RECOVERY_NOT_PREFLIGHT_ONLY", "the failed session is not an explicitly allowlisted pre-market rejection");
+  }
+  if (!same(storedMarketId, sessionMarketId)) fail("RECOVERY_SCOPE_MISMATCH", "private state currentMarketId does not match the recovery session");
+  return "SIGNER_CAPABLE_MARKET";
+}
+
+/** Validate the complete signer-free pre-market evidence set. This function
+ * has no chain-write or signer capability and is shared by the root broker and
+ * focused recovery tests. */
+export function validateSignerFreePreMarketEvidence({ session, stored, status, expiredLease = null, journal, accountState, activeUnit = false } = {}) {
+  const route = classifyRecoveryRoute({ session, stored });
+  if (route !== "SIGNER_FREE_PREMARKET") fail("RECOVERY_NOT_PREFLIGHT_ONLY", "the session is not eligible for signer-free pre-market reconciliation");
+  if (!status || status.state !== "ERROR" || !status.session || (status.result !== null && status.result !== undefined)) {
+    fail("RECOVERY_STATUS_INVALID", "pre-market recovery requires the exact terminal error status");
+  }
+  for (const [field, exact = false] of [["owner"], ["account"], ["operator"], ["sessionId", true]]) {
+    const matches = exact ? String(status.session[field] ?? "") === String(session[field] ?? "") : same(status.session[field], session[field]);
+    if (!matches) fail("RECOVERY_SCOPE_MISMATCH", `public status ${field} does not match the recovery session`);
+  }
+  if (status.session.currentMarketId !== null || status.error?.code !== "ACCOUNT_CAPITAL_CAP") {
+    fail("RECOVERY_NOT_PREFLIGHT_ONLY", "public status is not the allowlisted terminal pre-market rejection");
+  }
+  if (status.session.leaseId !== null && status.session.leaseId !== undefined && String(status.session.leaseId) !== "") {
+    fail("RECOVERY_LEASE_UNEXPECTED", "a pre-market failure must not contain a stored lease");
+  }
+  assertEmptyStatusSnapshot(status.snapshot);
+  assertNoWriteEvidence(stored, "private state");
+  assertNoWriteEvidence(status, "public status");
+  return validatePreflightFailureRecovery({ session, stored, expiredLease, journal, accountState, activeUnit });
 }
 
 /** Validate a failed START that stopped before lease acquisition or any write. */
@@ -77,7 +146,7 @@ export function validatePreflightFailureRecovery({ session, stored, expiredLease
     }
     if (raw(accountState.identity.aggregateExposure, "aggregate exposure") !== 0n) fail("RECOVERY_EXPOSURE_PRESENT", "pre-market recovery requires zero aggregate exposure");
     if (raw(accountState.identity.mintExposure, "mint exposure") !== 0n) fail("RECOVERY_MINT_EXPOSURE_PRESENT", "pre-market recovery requires zero mint exposure");
-    return Object.freeze({ classification: "NARROW_PREMARKET_RECOVERY", capitalRaw: raw(accountState?.capital?.directCollateralRaw, "account capital"), nextTxIndex: 0 });
+    return Object.freeze({ classification: PREMARKET_RECOVERY_CLASSIFICATION, capitalRaw: raw(accountState?.capital?.directCollateralRaw, "account capital"), nextTxIndex: 0 });
   }
 
   if (!same(stored.session.currentMarketId, session.currentMarketId)) fail("RECOVERY_SCOPE_MISMATCH", "private state currentMarketId does not match the recovery session");

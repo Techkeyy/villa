@@ -87,6 +87,17 @@ test("pre-market recovery waits for the exact unit and clears only its reconcile
   assert.doesNotMatch(broker, /villa-uat-bindings\/\*|rmSync\([^)]*\*|readdir\(BINDING_DIR/);
 });
 
+test("allowlisted pre-market recovery is signer-free and does not launch a recovery unit", () => {
+  const broker = fs.readFileSync(path.join(ROOT, "scripts/villa-uat-broker.mjs"), "utf8");
+  assert.match(broker, /validateSignerFreePreMarketEvidence/);
+  assert.match(broker, /readPreMarketAccountState/);
+  assert.match(broker, /if \(route === "SIGNER_FREE_PREMARKET"\) await reconcileSignerFreePreMarket/);
+  assert.match(broker, /persistUatState\(statusPath\(sessionId\)/);
+  assert.doesNotMatch(broker, /createWalletClient|loadPrivateSigner|createAccountBoundPrivateWriter/);
+  assert.match(broker, /await assertUnitInactive\(`villa-engine-uat@\$\{sessionId\}\.service`\)/);
+  assert.match(broker, /await assertNoLease\(sessionId, account\)/);
+});
+
 test("private bundle entrypoints and specs contain no public-writable runtime path", () => {
   assert.deepEqual(PRIVATE_RUNTIME_ENTRIES, [
     "scripts/villa-uat-broker.mjs",
