@@ -135,7 +135,7 @@ test("systemd Start reattaches the matching owner/account session without creati
     version: "villa-uat-state-v1",
     updatedAt: Date.now(),
     state: "RUNNING",
-    session: { sessionId, account: ACCOUNT, owner: OWNER, operator: OPERATOR, startedAt: 1234567891 },
+    session: { sessionId, account: ACCOUNT, owner: OWNER, operator: OPERATOR, leaseId: "lease-active", startedAt: 1234567891 },
   }));
   const commands = [];
   const control = createUatAccountControl({
@@ -238,6 +238,35 @@ test("systemd Start rejects an active status that changes account or owner scope
   }
 });
 
+test("historical process ERROR with its binding cleared allows a fresh start", async () => {
+  let launches = 0;
+  const control = createUatAccountControl({
+    env: env(),
+    spawnImpl: (_command, _args, _options) => {
+      launches += 1;
+      const child = new EventEmitter();
+      child.connected = true;
+      child.send = () => undefined;
+      child.kill = () => undefined;
+      queueMicrotask(() => {
+        if (launches === 1) {
+          child.emit("message", { type: "error", code: "PRICE_STALE", message: "historical transient failure" });
+        } else {
+          child.emit("message", { type: "ready", session: { sessionId: "uat-fresh", account: ACCOUNT, owner: OWNER, operator: OPERATOR } });
+        }
+      });
+      return child;
+    },
+    readyTimeoutMs: 500,
+  });
+
+  await assert.rejects(() => control.start({ caller: OWNER }), { code: "PRICE_STALE" });
+  assert.equal((await control.getState({ caller: OWNER })).state, "ERROR");
+  const restarted = await control.start({ caller: OWNER });
+  assert.equal(restarted.state, "RUNNING");
+  assert.equal(restarted.session.sessionId, "uat-fresh");
+  assert.equal(launches, 2);
+});
 test("systemd Start requires scoped reconciliation for an errored session and does not create a unit", async () => {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), "villa-uat-error-"));
   const sessionId = "uat-1234567894-abcdef12";

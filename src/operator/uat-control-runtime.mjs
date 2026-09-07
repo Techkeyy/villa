@@ -275,12 +275,13 @@ export function createUatAccountControl({
   }
 
   async function recoverExternal() {
-    if (launchMode !== "systemd" || activeSessionId) return;
+    if (launchMode !== "systemd") return { verified: true, binding: null };
+    if (activeSessionId) return { verified: true, binding: null };
     let names;
     try {
       names = await fs.readdir(stateDirectory);
     } catch {
-      return;
+      return { verified: false, binding: null };
     }
     const candidates = [];
     for (const name of names) {
@@ -301,9 +302,10 @@ export function createUatAccountControl({
       }
     }
     candidates.sort((left, right) => right.updatedAt - left.updatedAt);
-    if (!candidates[0]) return;
+    if (!candidates[0]) return { verified: true, binding: null };
     activeSessionId = candidates[0].external.session.sessionId;
     applyExternal(candidates[0].external);
+    return { verified: true, binding: candidates[0].external };
   }
 
   function handleMessage(message, resolveReady, rejectReady) {
@@ -395,15 +397,17 @@ export function createUatAccountControl({
   async function start({ caller = null } = {}) {
     assertCaller(caller);
     if (!enabled) throw new AccountControlError("ACCOUNT_EXECUTION_DISABLED", "account execution is not enabled for this deployment", 423);
-    if (launchMode === "systemd") {
-      await recoverExternal();
-      await syncExternal();
-    }
+    const persistedBindingCheck = launchMode === "systemd"
+      ? await recoverExternal()
+      : { verified: true, binding: null };
+    const syncedExternal = launchMode === "systemd" ? await syncExternal() : null;
     if ((child || activeSessionId) && REATTACHABLE_STATES.has(state)) return publicState();
-    if (state === "ERROR") {
+    const persistedBinding = syncedExternal ?? persistedBindingCheck.binding;
+    const unresolvedBinding = Boolean(child || activeSessionId || persistedBinding);
+    if (state === "ERROR" && (!persistedBindingCheck.verified || unresolvedBinding)) {
       throw new AccountControlError("UAT_SESSION_RECONCILIATION_REQUIRED", "The existing UAT session is errored and requires owner/account-scoped reconciliation before Start can retry.", 409);
     }
-    if (child || activeSessionId || state !== "STOPPED") throw new AccountControlError("SESSION_ALREADY_ACTIVE", "VILLA already has an active UAT session");
+    if (child || activeSessionId || (state !== "STOPPED" && state !== "ERROR")) throw new AccountControlError("SESSION_ALREADY_ACTIVE", "VILLA already has an active UAT session");
     const sessionId = `uat-${Date.now()}-${randomUUID().slice(0, 8)}`;
     activeSessionId = sessionId;
     session = { sessionId, account, owner, operator, state: "STARTING" };
