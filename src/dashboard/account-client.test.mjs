@@ -325,6 +325,32 @@ test("wrong-network UI keeps switching actionable and gates account discovery", 
   assert.doesNotMatch(html, /id="switch-network"[^>]*disabled/);
 });
 
+test("healthy STOPPED control refresh clears a stale reconciliation message", () => {
+  const app = fs.readFileSync(new URL("../../dashboard/app.mjs", import.meta.url), "utf8");
+  const refresh = app.slice(app.indexOf("async function refreshControlState"), app.indexOf("function renderLiveCapital"));
+  assert.match(refresh, /state === "STOPPED" && !payload\?\.error/);
+  assert.match(refresh, /setMessage\("control-message", ""\)/);
+});
+
+test("authoritative reconciliation-required and ERROR states preserve control errors", () => {
+  const app = fs.readFileSync(new URL("../../dashboard/app.mjs", import.meta.url), "utf8");
+  assert.match(app, /UAT_SESSION_RECONCILIATION_REQUIRED/);
+  assert.match(app, /if \(state === "ERROR"\) showControlTerminalError\(payload\)/);
+  assert.match(app, /showControlTerminalError\(result\)/);
+});
+
+test("RUNNING and STOPPING control states retain their active lifecycle handling", () => {
+  const app = fs.readFileSync(new URL("../../dashboard/app.mjs", import.meta.url), "utf8");
+  assert.match(app, /CONTROL_ACTIVE_STATES\.includes\(state\)/);
+  assert.match(app, /state === "STOPPING"/);
+  assert.doesNotMatch(app, /state === "RUNNING" && !payload\?\.error/);
+});
+
+test("chainChanged refreshes account and authoritative control state together", () => {
+  const app = fs.readFileSync(new URL("../../dashboard/app.mjs", import.meta.url), "utf8");
+  assert.match(app, /chainChanged.*refreshAccount\(\)\.then\(\(\) => refreshControlState\(\)\)/);
+});
+
 test("Explorer no-logs response is a genuine no-account result", async () => {
   const originalFetch = globalThis.fetch;
   let providerCalls = 0;

@@ -442,6 +442,7 @@ async function refreshControlState() {
     renderUatMonitor({ state, session, snapshot, result });
     renderLiveCapital(snapshot);
     if (CONTROL_ACTIVE_STATES.includes(state)) scheduleControlPoll(); else clearControlPoll();
+    if (state === "STOPPED" && !payload?.error) setMessage("control-message", "");
     if (state === "ERROR") showControlTerminalError(payload);
   } catch (error) {
     if (CONTROL_ACTIVE_STATES.includes(String(appState.controlState || "").toUpperCase()) || appState.controlState === "RECONNECTING") {
@@ -1131,7 +1132,7 @@ function initWallet() {
     if (!accounts?.[0]) disconnectWallet();
     else connectWallet(accounts).catch((error) => showActionError("wallet-message", error));
   });
-  provider?.on?.("chainChanged", () => refreshAccount().catch((error) => showActionError("network-message", error)));
+  provider?.on?.("chainChanged", () => refreshAccount().then(() => refreshControlState()).catch((error) => showActionError("network-message", error)));
   if (provider?.request) connectWallet(request(provider, "eth_accounts")).catch(() => {
     // A passive restore should not make a disconnected wallet look broken.
   });
