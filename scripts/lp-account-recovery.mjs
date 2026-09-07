@@ -10,7 +10,7 @@ import { createLpExecutionAdapter, createViemLpAccountReader, VILLA_ACCOUNT_READ
 import { createAccountBoundPrivateWriter } from "../src/execution/lp-private-writer.mjs";
 import { createFileAccountLeaseStore, createLpExecutionSession, transitionLpSession, attachLease } from "../src/execution/lp-session.mjs";
 import { createLeaseHeartbeat, LP_LEASE_DURATION_MS, LP_LEASE_HEARTBEAT_INTERVAL_MS } from "../src/execution/lp-lease-heartbeat.mjs";
-import { validateExpiredSessionRecovery, validatePreflightFailureRecovery, recoveryActions } from "../src/execution/lp-session-recovery.mjs";
+import { isPreMarketFailureCode, validateExpiredSessionRecovery, validatePreflightFailureRecovery, recoveryActions } from "../src/execution/lp-session-recovery.mjs";
 import { reconcileDurableJournal } from "../src/execution/lp-recovery.mjs";
 import { DEFAULT_PHASE_3B1_CAPS, createLpTransactionPolicy } from "../src/execution/lp-transaction-policy.mjs";
 import { loadPrivateSigner } from "../src/execution/lp-private-runtime.mjs";
@@ -72,7 +72,7 @@ async function main() {
   const stored = readJson(env.VILLA_UAT_PRIVATE_STATE_FILE, "private session state");
   const storedMarketId = stored?.session?.currentMarketId;
   const marketId = storedMarketId === null ? null : String(storedMarketId ?? "").toLowerCase();
-  const preMarketFailure = marketId === null && stored?.error?.code === "ACCOUNT_CAPITAL_CAP";
+  const preMarketFailure = marketId === null && isPreMarketFailureCode(stored?.error?.code);
   if ((marketId !== null && !BYTES32_RE.test(marketId)) || (!preMarketFailure && marketId === null)
     || stored?.session?.sessionId !== config.sessionId || !same(stored?.session?.owner, config.owner) || !same(stored?.session?.account, config.account) || !same(stored?.session?.operator, config.operator)) {
     fail("RECOVERY_SCOPE_MISMATCH", "private state is not bound to this exact owner/account/session");

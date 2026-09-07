@@ -10,9 +10,13 @@ const ALLOWED_ACTIONS = new Set([
   "BURN_COMPLETE_SET",
   "CLAIM_VAULT_CREDIT",
 ]);
-const PREMARKET_FAILURE_CODES = new Set(["ACCOUNT_CAPITAL_CAP"]);
+const PREMARKET_FAILURE_CODES = new Set(["ACCOUNT_CAPITAL_CAP", "NO_VALID_QUOTE"]);
 export const SIGNER_FREE_PREMARKET_ROUTE = "SIGNER_FREE_PREMARKET_RECONCILIATION";
 export const PREMARKET_RECOVERY_CLASSIFICATION = "NARROW_PREMARKET_RECOVERY";
+
+export function isPreMarketFailureCode(code) {
+  return PREMARKET_FAILURE_CODES.has(String(code ?? ""));
+}
 
 export class LpSessionRecoveryError extends Error {
   constructor(code, message) {
@@ -83,7 +87,7 @@ export function classifyRecoveryRoute({ session, stored } = {}) {
   const storedMarketId = stored.session.currentMarketId;
   const sessionMarketId = session.currentMarketId;
   if (noMarket(storedMarketId) || noMarket(sessionMarketId)) {
-    if (noMarket(storedMarketId) && noMarket(sessionMarketId) && PREMARKET_FAILURE_CODES.has(String(stored.error?.code ?? ""))) return SIGNER_FREE_PREMARKET_ROUTE;
+    if (noMarket(storedMarketId) && noMarket(sessionMarketId) && isPreMarketFailureCode(stored.error?.code)) return SIGNER_FREE_PREMARKET_ROUTE;
     fail("RECOVERY_NOT_PREFLIGHT_ONLY", "the failed session is not an explicitly allowlisted pre-market rejection");
   }
   if (!same(storedMarketId, sessionMarketId)) fail("RECOVERY_SCOPE_MISMATCH", "private state currentMarketId does not match the recovery session");
@@ -103,7 +107,7 @@ export function validateSignerFreePreMarketEvidence({ session, stored, status, e
     const matches = exact ? String(status.session[field] ?? "") === String(session[field] ?? "") : same(status.session[field], session[field]);
     if (!matches) fail("RECOVERY_SCOPE_MISMATCH", `public status ${field} does not match the recovery session`);
   }
-  if (!noMarket(status.session.currentMarketId) || status.error?.code !== "ACCOUNT_CAPITAL_CAP") {
+  if (!noMarket(status.session.currentMarketId) || !isPreMarketFailureCode(status.error?.code)) {
     fail("RECOVERY_NOT_PREFLIGHT_ONLY", "public status is not the allowlisted terminal pre-market rejection");
   }
   if (status.session.leaseId !== null && status.session.leaseId !== undefined && String(status.session.leaseId) !== "") {
@@ -123,7 +127,9 @@ export function validatePreflightFailureRecovery({ session, stored, expiredLease
     const matches = exact ? String(stored.session[field] ?? "") === String(session[field] ?? "") : same(stored.session[field], session[field]);
     if (!matches) fail("RECOVERY_SCOPE_MISMATCH", `private state ${field} does not match the recovery session`);
   }
-  if (String(stored.error?.code ?? "") !== "ACCOUNT_CAPITAL_CAP") fail("RECOVERY_NOT_PREFLIGHT_ONLY", "the failed session is not a recognized preflight-only capital rejection");
+  if (preMarketFailure ? !isPreMarketFailureCode(stored.error?.code) : stored.error?.code !== "ACCOUNT_CAPITAL_CAP") {
+  fail("RECOVERY_NOT_PREFLIGHT_ONLY", "the failed session is not a recognized preflight-only rejection");
+}
 
   if (preMarketFailure) {
     if (activeUnit !== false) fail("RECOVERY_ACTIVE_UNIT", "pre-market recovery requires the original session unit to be inactive");

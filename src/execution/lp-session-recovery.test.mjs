@@ -59,6 +59,15 @@ function productionPreMarketFixtures() {
   };
 }
 
+function noQuotePreMarketFixtures() {
+  const value = productionPreMarketFixtures();
+  return {
+    ...value,
+    stored: { ...value.stored, error: { code: "NO_VALID_QUOTE", message: "the live projected SELL_YES plan is not valid" } },
+    status: { ...value.status, error: { code: "NO_VALID_QUOTE", message: "the live projected SELL_YES plan is not valid" } },
+  };
+}
+
 test("10. authenticated expired-session recovery derives only the proven cancellation", () => {
   const value = fixtures();
   const provenance = validateExpiredSessionRecovery(value);
@@ -132,6 +141,34 @@ test("production-shaped missing currentMarketId routes to signer-free reconcilia
   assert.equal(classifyRecoveryRoute(value), SIGNER_FREE_PREMARKET_ROUTE);
   const result = validateSignerFreePreMarketEvidence(value);
   assert.equal(result.classification, "NARROW_PREMARKET_RECOVERY");
+});
+
+test("production-shaped NO_VALID_QUOTE uses signer-free reconciliation when the pre-market state is clean", () => {
+  const value = noQuotePreMarketFixtures();
+  assert.equal(classifyRecoveryRoute(value), SIGNER_FREE_PREMARKET_ROUTE);
+  const result = validateSignerFreePreMarketEvidence(value);
+  assert.equal(result.classification, "NARROW_PREMARKET_RECOVERY");
+  assert.equal(result.capitalRaw, 2_001_000n);
+});
+
+test("NO_VALID_QUOTE pre-market reconciliation rejects writes, leases, inventory, orders, settlement, and exposure", () => {
+  const value = noQuotePreMarketFixtures();
+  assert.throws(() => validateSignerFreePreMarketEvidence({ ...value, stored: { ...value.stored, writes: [{ action: "PLACE_ORDER" }] } }), { code: "RECOVERY_CHAIN_ACTIVITY_PRESENT" });
+  assert.throws(() => validateSignerFreePreMarketEvidence({ ...value, journal: { ...value.journal, records: [{ action: "PLACE_ORDER" }] } }), { code: "RECOVERY_CHAIN_ACTIVITY_PRESENT" });
+  assert.throws(() => validateSignerFreePreMarketEvidence({ ...value, expiredLease: { leaseId: "active" } }), { code: "RECOVERY_LEASE_UNEXPECTED" });
+  assert.throws(() => validateSignerFreePreMarketEvidence({ ...value, accountState: { ...value.accountState, orders: { status: "VERIFIED", orders: [{ orderId: 1n }] } } }), { code: "RECOVERY_ORDER_STATE_UNKNOWN" });
+  assert.throws(() => validateSignerFreePreMarketEvidence({ ...value, accountState: { ...value.accountState, inventory: { yesRaw: 1n, noRaw: 0n } } }), { code: "RECOVERY_MARKET_STATE_PRESENT" });
+  assert.throws(() => validateSignerFreePreMarketEvidence({ ...value, accountState: { ...value.accountState, positions: { marketId: MARKET } } }), { code: "RECOVERY_MARKET_STATE_PRESENT" });
+  assert.throws(() => validateSignerFreePreMarketEvidence({ ...value, accountState: { ...value.accountState, capital: { directCollateralRaw: 2_001_000n, vaultRaw: 1n } } }), { code: "RECOVERY_SETTLEMENT_PRESENT" });
+  assert.throws(() => validateSignerFreePreMarketEvidence({ ...value, accountState: { ...value.accountState, identity: { aggregateExposure: 1n, mintExposure: 0n } } }), { code: "RECOVERY_EXPOSURE_PRESENT" });
+  assert.throws(() => validateSignerFreePreMarketEvidence({ ...value, accountState: { ...value.accountState, identity: { aggregateExposure: 0n, mintExposure: 1n } } }), { code: "RECOVERY_MINT_EXPOSURE_PRESENT" });
+});
+
+test("NO_VALID_QUOTE pre-market reconciliation preserves exact owner, account, and session binding", () => {
+  const value = noQuotePreMarketFixtures();
+  assert.throws(() => validateSignerFreePreMarketEvidence({ ...value, stored: { ...value.stored, session: { ...value.stored.session, owner: "0x4444444444444444444444444444444444444444" } } }), { code: "RECOVERY_SCOPE_MISMATCH" });
+  assert.throws(() => validateSignerFreePreMarketEvidence({ ...value, stored: { ...value.stored, session: { ...value.stored.session, account: "0x5555555555555555555555555555555555555555" } } }), { code: "RECOVERY_SCOPE_MISMATCH" });
+  assert.throws(() => validateSignerFreePreMarketEvidence({ ...value, stored: { ...value.stored, session: { ...value.stored.session, sessionId: "uat-2000-bbbbbbbb" } } }), { code: "RECOVERY_SCOPE_MISMATCH" });
 });
 
 test("signer-free pre-market evidence validates terminal status and preserves the exact clean boundary", () => {
