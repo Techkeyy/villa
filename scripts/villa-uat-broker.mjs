@@ -9,7 +9,7 @@ import { VILLA_CHAIN } from "../dashboard/account-config.mjs";
 import { createOnChainAccountVerifier } from "../src/operator/account-binding.mjs";
 import { persistUatState } from "../src/operator/uat-state.mjs";
 import { createViemLpAccountReader } from "../src/execution/lp-adapter.mjs";
-import { classifyRecoveryRoute, validateSignerFreePreMarketEvidence } from "../src/execution/lp-session-recovery.mjs";
+import { classifyRecoveryRoute, SIGNER_FREE_PREMARKET_ROUTE, validateSignerFreePreMarketEvidence } from "../src/execution/lp-session-recovery.mjs";
 
 const execFileAsync = promisify(execFile);
 const SOCKET_PATH = process.env.VILLA_UAT_BROKER_SOCKET || "/run/villa-uat-broker/control.sock";
@@ -122,7 +122,7 @@ async function reconcileSignerFreePreMarket(sessionId, owner, account) {
   const stored = await readJson(privateStatePath(sessionId), "private session state");
   const session = { sessionId, owner, account, operator: CANONICAL_OPERATOR, currentMarketId: status?.session?.currentMarketId };
   const route = classifyRecoveryRoute({ session, stored });
-  if (route !== "SIGNER_FREE_PREMARKET") throw new Error("the exact session is not eligible for signer-free reconciliation");
+  if (route !== SIGNER_FREE_PREMARKET_ROUTE) throw new Error("the exact session is not eligible for signer-free reconciliation");
   await assertUnitInactive(`villa-engine-uat@${sessionId}.service`);
   await assertUnitInactive(`villa-engine-uat-recover@${sessionId}.service`);
   await assertNoLease(sessionId, account);
@@ -261,7 +261,7 @@ async function handle(socket, raw) {
         const status = await readJson(statusPath(sessionId), "public status");
         const stored = await readJson(privateStatePath(sessionId), "private session state");
         const route = classifyRecoveryRoute({ session: { ...status.session, sessionId, owner, account, operator: CANONICAL_OPERATOR }, stored });
-        if (route === "SIGNER_FREE_PREMARKET") await reconcileSignerFreePreMarket(sessionId, owner, account);
+        if (route === SIGNER_FREE_PREMARKET_ROUTE) await reconcileSignerFreePreMarket(sessionId, owner, account);
         else {
           await runSystemd(action, sessionId);
           await clearPreflightBinding(sessionId, owner, account);

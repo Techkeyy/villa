@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { classifyRecoveryRoute, recoveryActions, validateExpiredSessionRecovery, validatePreflightFailureRecovery, validateSignerFreePreMarketEvidence } from "./lp-session-recovery.mjs";
+import { classifyRecoveryRoute, recoveryActions, SIGNER_FREE_PREMARKET_ROUTE, validateExpiredSessionRecovery, validatePreflightFailureRecovery, validateSignerFreePreMarketEvidence } from "./lp-session-recovery.mjs";
 
 const ACCOUNT = "0x1111111111111111111111111111111111111111";
 const OWNER = "0x2222222222222222222222222222222222222222";
@@ -42,6 +42,20 @@ function preMarketStatus(value, patch = {}) {
     result: null,
     snapshot: null,
     ...patch,
+  };
+}
+
+function productionPreMarketFixtures() {
+  const value = preMarketFixtures();
+  const session = { ...value.session };
+  const storedSession = { ...value.stored.session };
+  delete session.currentMarketId;
+  delete storedSession.currentMarketId;
+  return {
+    ...value,
+    session,
+    stored: { ...value.stored, session: storedSession },
+    status: { state: "ERROR", session, error: { code: "ACCOUNT_CAPITAL_CAP" }, result: null, snapshot: null },
   };
 }
 
@@ -108,9 +122,16 @@ test("narrow pre-market capital failure reconciles without a market", () => {
 
 test("signer-free routing requires the explicit allowlisted pre-market failure", () => {
   const value = preMarketFixtures();
-  assert.equal(classifyRecoveryRoute(value), "SIGNER_FREE_PREMARKET");
+  assert.equal(classifyRecoveryRoute(value), SIGNER_FREE_PREMARKET_ROUTE);
   assert.throws(() => classifyRecoveryRoute({ ...value, stored: { ...value.stored, error: { code: "OTHER_FAILURE" } } }), { code: "RECOVERY_NOT_PREFLIGHT_ONLY" });
   assert.equal(classifyRecoveryRoute({ ...value, session: { ...value.session, currentMarketId: MARKET }, stored: { ...value.stored, session: { ...value.stored.session, currentMarketId: MARKET } } }), "SIGNER_CAPABLE_MARKET");
+});
+
+test("production-shaped missing currentMarketId routes to signer-free reconciliation", () => {
+  const value = productionPreMarketFixtures();
+  assert.equal(classifyRecoveryRoute(value), SIGNER_FREE_PREMARKET_ROUTE);
+  const result = validateSignerFreePreMarketEvidence(value);
+  assert.equal(result.classification, "NARROW_PREMARKET_RECOVERY");
 });
 
 test("signer-free pre-market evidence validates terminal status and preserves the exact clean boundary", () => {

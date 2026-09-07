@@ -91,7 +91,7 @@ test("allowlisted pre-market recovery is signer-free and does not launch a recov
   const broker = fs.readFileSync(path.join(ROOT, "scripts/villa-uat-broker.mjs"), "utf8");
   assert.match(broker, /validateSignerFreePreMarketEvidence/);
   assert.match(broker, /readPreMarketAccountState/);
-  assert.match(broker, /if \(route === "SIGNER_FREE_PREMARKET"\) await reconcileSignerFreePreMarket/);
+  assert.match(broker, /if \(route === SIGNER_FREE_PREMARKET_ROUTE\) await reconcileSignerFreePreMarket/);
   assert.match(broker, /persistUatState\(statusPath\(sessionId\)/);
   assert.doesNotMatch(broker, /createWalletClient|loadPrivateSigner|createAccountBoundPrivateWriter/);
   assert.match(broker, /await assertUnitInactive\(`villa-engine-uat@\$\{sessionId\}\.service`\)/);

@@ -11,6 +11,7 @@ const ALLOWED_ACTIONS = new Set([
   "CLAIM_VAULT_CREDIT",
 ]);
 const PREMARKET_FAILURE_CODES = new Set(["ACCOUNT_CAPITAL_CAP"]);
+export const SIGNER_FREE_PREMARKET_ROUTE = "SIGNER_FREE_PREMARKET_RECONCILIATION";
 export const PREMARKET_RECOVERY_CLASSIFICATION = "NARROW_PREMARKET_RECOVERY";
 
 export class LpSessionRecoveryError extends Error {
@@ -27,6 +28,10 @@ function fail(code, message) {
 
 function same(left, right) {
   return String(left ?? "").toLowerCase() === String(right ?? "").toLowerCase();
+}
+
+function noMarket(value) {
+  return value === null || value === undefined;
 }
 
 function raw(value, label) {
@@ -77,8 +82,8 @@ export function classifyRecoveryRoute({ session, stored } = {}) {
   if (!session || !stored?.session) fail("RECOVERY_STATE_REQUIRED", "session and private state are required");
   const storedMarketId = stored.session.currentMarketId;
   const sessionMarketId = session.currentMarketId;
-  if (storedMarketId === null || sessionMarketId === null) {
-    if (storedMarketId === null && sessionMarketId === null && PREMARKET_FAILURE_CODES.has(String(stored.error?.code ?? ""))) return "SIGNER_FREE_PREMARKET";
+  if (noMarket(storedMarketId) || noMarket(sessionMarketId)) {
+    if (noMarket(storedMarketId) && noMarket(sessionMarketId) && PREMARKET_FAILURE_CODES.has(String(stored.error?.code ?? ""))) return SIGNER_FREE_PREMARKET_ROUTE;
     fail("RECOVERY_NOT_PREFLIGHT_ONLY", "the failed session is not an explicitly allowlisted pre-market rejection");
   }
   if (!same(storedMarketId, sessionMarketId)) fail("RECOVERY_SCOPE_MISMATCH", "private state currentMarketId does not match the recovery session");
@@ -90,7 +95,7 @@ export function classifyRecoveryRoute({ session, stored } = {}) {
  * focused recovery tests. */
 export function validateSignerFreePreMarketEvidence({ session, stored, status, expiredLease = null, journal, accountState, activeUnit = false } = {}) {
   const route = classifyRecoveryRoute({ session, stored });
-  if (route !== "SIGNER_FREE_PREMARKET") fail("RECOVERY_NOT_PREFLIGHT_ONLY", "the session is not eligible for signer-free pre-market reconciliation");
+  if (route !== SIGNER_FREE_PREMARKET_ROUTE) fail("RECOVERY_NOT_PREFLIGHT_ONLY", "the session is not eligible for signer-free pre-market reconciliation");
   if (!status || status.state !== "ERROR" || !status.session || (status.result !== null && status.result !== undefined)) {
     fail("RECOVERY_STATUS_INVALID", "pre-market recovery requires the exact terminal error status");
   }
@@ -98,7 +103,7 @@ export function validateSignerFreePreMarketEvidence({ session, stored, status, e
     const matches = exact ? String(status.session[field] ?? "") === String(session[field] ?? "") : same(status.session[field], session[field]);
     if (!matches) fail("RECOVERY_SCOPE_MISMATCH", `public status ${field} does not match the recovery session`);
   }
-  if (status.session.currentMarketId !== null || status.error?.code !== "ACCOUNT_CAPITAL_CAP") {
+  if (!noMarket(status.session.currentMarketId) || status.error?.code !== "ACCOUNT_CAPITAL_CAP") {
     fail("RECOVERY_NOT_PREFLIGHT_ONLY", "public status is not the allowlisted terminal pre-market rejection");
   }
   if (status.session.leaseId !== null && status.session.leaseId !== undefined && String(status.session.leaseId) !== "") {
@@ -113,7 +118,7 @@ export function validateSignerFreePreMarketEvidence({ session, stored, status, e
 /** Validate a failed START that stopped before lease acquisition or any write. */
 export function validatePreflightFailureRecovery({ session, stored, expiredLease = null, journal, accountState, activeUnit = false } = {}) {
   if (!session || !stored?.session) fail("RECOVERY_STATE_REQUIRED", "session and private state are required");
-  const preMarketFailure = stored.session.currentMarketId === null && session.currentMarketId === null;
+  const preMarketFailure = noMarket(stored.session.currentMarketId) && noMarket(session.currentMarketId);
   for (const [field, exact = false] of [["owner"], ["account"], ["operator"], ...(preMarketFailure ? [] : [["currentMarketId"]]), ["sessionId", true]]) {
     const matches = exact ? String(stored.session[field] ?? "") === String(session[field] ?? "") : same(stored.session[field], session[field]);
     if (!matches) fail("RECOVERY_SCOPE_MISMATCH", `private state ${field} does not match the recovery session`);
