@@ -67,6 +67,20 @@ test("readiness rejects risk halt, active second session, and non-shadow mode", 
   assert.ok(result.reasons.includes("EXECUTION_MODE_INVALID"));
 });
 
+test("readiness allows only the explicit stale-price waiting state", () => {
+  const result = evaluateLpExecutionReadiness(base({
+    risk: { state: "HALT", primaryReasonCode: "PRICE_STALE", waitState: "WAITING_FOR_FRESH_PRICE" },
+  }));
+  assert.equal(result.ready, true);
+  assert.ok(!result.reasons.includes("RISK_HALTED"));
+
+  const other = evaluateLpExecutionReadiness(base({
+    risk: { state: "HALT", primaryReasonCode: "DRAWDOWN_HARD_STOP", waitState: "WAITING_FOR_FRESH_PRICE" },
+  }));
+  assert.equal(other.ready, false);
+  assert.ok(other.reasons.includes("RISK_HALTED"));
+});
+
 test("missing market is explicit rather than silently treated as current", () => {
   const result = evaluateLpExecutionReadiness(base({ market: null }));
   assert.equal(result.ready, false);

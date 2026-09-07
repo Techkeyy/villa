@@ -7,6 +7,36 @@
 const SAFE_RISK_STATES = new Set(["ALLOW", "REDUCE_ONLY"]);
 const QUOTE_PLANS = new Set(["ACTIVE", "ONE_SIDED", "NO_QUOTE"]);
 
+
+export function buildPriceFreshnessTelemetry({
+  snapshot = {},
+  decision = {},
+  lastFreshPriceTimestampSec = null,
+  maxPriceAgeSec = null,
+  maxSourceAgeSec = null,
+} = {}) {
+  const chainNowSec = Number(snapshot.chainTime?.chainNowSec);
+  const priceTimestampSec = Number(snapshot.feed?.timestampSec);
+  const feedAgeSec = Number.isFinite(chainNowSec) && Number.isFinite(priceTimestampSec)
+    ? Math.max(0, chainNowSec - priceTimestampSec)
+    : null;
+  const sourceAgeSec = snapshot.feed?.sourceAgeSec === undefined || snapshot.feed?.sourceAgeSec === null
+    ? null
+    : Number(snapshot.feed.sourceAgeSec);
+  const normalizedSourceAgeSec = Number.isFinite(sourceAgeSec) ? sourceAgeSec : null;
+  const stale = decision.primaryReasonCode === "PRICE_STALE"
+    || (Array.isArray(decision.triggeredRules) && decision.triggeredRules.includes("PRICE_STALE"));
+  const nextLastFreshPriceTimestampSec = !stale && Number.isFinite(priceTimestampSec)
+    ? priceTimestampSec
+    : lastFreshPriceTimestampSec;
+  return Object.freeze({
+    feedAgeSec,
+    sourceAgeSec: normalizedSourceAgeSec,
+    priceTimestampSec: Number.isFinite(priceTimestampSec) ? priceTimestampSec : null,
+    freshnessThresholds: Object.freeze({ maxFeedAgeSec: maxPriceAgeSec, maxSourceAgeSec }),
+    lastFreshPriceTimestampSec: nextLastFreshPriceTimestampSec,
+  });
+}
 export function assessProjectedQuote({ projectedDecision = {}, quotePlan = {} } = {}) {
   const projectedState = String(projectedDecision.state ?? "");
   const plan = String(quotePlan.plan ?? "");
@@ -22,6 +52,13 @@ export function assessProjectedQuote({ projectedDecision = {}, quotePlan = {} } 
     });
   }
   if (projectedState === "HALT") {
+    if (projectedDecision.primaryReasonCode === "PRICE_STALE") {
+      return Object.freeze({
+        disposition: "WAITING_FOR_FRESH_PRICE",
+        reasonCode: "PRICE_STALE",
+        message: "the live projected price is stale; waiting for fresh price data",
+      });
+    }
     return Object.freeze({
       disposition: "FAIL_CLOSED",
       reasonCode: "PROJECTED_RISK_HALT",

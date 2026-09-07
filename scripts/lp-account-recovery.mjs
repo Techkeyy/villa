@@ -72,7 +72,7 @@ async function main() {
   const stored = readJson(env.VILLA_UAT_PRIVATE_STATE_FILE, "private session state");
   const storedMarketId = stored?.session?.currentMarketId;
   const marketId = storedMarketId === null ? null : String(storedMarketId ?? "").toLowerCase();
-  const preMarketFailure = marketId === null && isPreMarketFailureCode(stored?.error?.code);
+  const preMarketFailure = marketId === null && isPreMarketFailureCode(stored?.error?.code, stored?.error?.message);
   if ((marketId !== null && !BYTES32_RE.test(marketId)) || (!preMarketFailure && marketId === null)
     || stored?.session?.sessionId !== config.sessionId || !same(stored?.session?.owner, config.owner) || !same(stored?.session?.account, config.account) || !same(stored?.session?.operator, config.operator)) {
     fail("RECOVERY_SCOPE_MISMATCH", "private state is not bound to this exact owner/account/session");

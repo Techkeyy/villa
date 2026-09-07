@@ -29,7 +29,7 @@ import { evaluateWetExecutionPreflight } from "../src/execution/lp-preflight.mjs
 import { reconcileLpSession } from "../src/execution/lp-reconciliation.mjs";
 import { attachLease, createFileAccountLeaseStore, createLpExecutionSession, transitionLpSession } from "../src/execution/lp-session.mjs";
 import { createLeaseHeartbeat, LP_LEASE_DURATION_MS, LP_LEASE_HEARTBEAT_INTERVAL_MS } from "../src/execution/lp-lease-heartbeat.mjs";
-import { assessProjectedQuote } from "../src/execution/lp-quote-gate.mjs";
+import { assessProjectedQuote, buildPriceFreshnessTelemetry } from "../src/execution/lp-quote-gate.mjs";
 import { DEFAULT_PHASE_3B1_CAPS, createLpTransactionPolicy, evaluateStrategyCapital } from "../src/execution/lp-transaction-policy.mjs";
 import { loadPrivateSigner } from "../src/execution/lp-private-runtime.mjs";
 import { assessSessionSettlement, classifySessionPnl } from "../src/settlement/session-lifecycle.mjs";
@@ -234,6 +234,23 @@ function publicAccountSnapshot(accountState, marketId, intervalSec, lastAction, 
   };
 }
 
+function waitingQuoteState(disposition) {
+  if (disposition === "WAITING_FOR_FRESH_PRICE") {
+    return {
+      stageCode: "WAITING_FOR_FRESH_PRICE",
+      label: "Waiting for fresh price",
+      message: "Waiting for fresh price",
+      snapshotAction: "waiting_for_fresh_price",
+    };
+  }
+  return {
+    stageCode: "WAITING_FOR_QUOTE",
+    label: "Waiting for quote",
+    message: "Waiting for a safe quote",
+    snapshotAction: "waiting_for_quote",
+  };
+}
+
 async function main() {
   const env = process.env;
   const config = configFromEnv(env);
@@ -273,6 +290,7 @@ async function main() {
   let latestChainTime = null;
   let latestDecision = null;
   let latestFairValue = null;
+  let lastFreshPriceTimestampSec = null;
   let strategyTelemetry = null;
 
   const buildTelemetry = (processState = "RUNNING") => {
@@ -417,6 +435,14 @@ async function main() {
     let quotePlan = planQuotes(projected.input);
     let ask = quotePlan.ask;
     let quoteReadiness = assessProjectedQuote({ projectedDecision: projected.projectedDecision, quotePlan });
+    const initialPriceFreshness = buildPriceFreshnessTelemetry({
+      snapshot: live.snapshot,
+      decision: projected.projectedDecision,
+      lastFreshPriceTimestampSec,
+      maxPriceAgeSec: DEFAULT_RISK_CONFIG.maxPriceAgeSec,
+      maxSourceAgeSec: DEFAULT_RISK_CONFIG.maxSourceAgeSec,
+    });
+    lastFreshPriceTimestampSec = initialPriceFreshness.lastFreshPriceTimestampSec;
     strategyTelemetry = {
       fairValue: latestFairValue,
       bestBidRaw: projected.input.book.bestBidRaw,
@@ -431,8 +457,9 @@ async function main() {
       askEnabled: ask?.enabled ?? null,
       askAction: ask?.action ?? null,
       reasonCode: quoteReadiness.reasonCode,
+      priceFreshness: initialPriceFreshness,
       postOnly: true,
-      status: quoteReadiness.disposition === "WAITING_FOR_QUOTE" ? "WAITING_FOR_QUOTE" : quoteReadiness.disposition === "EXECUTE" ? "PLANNED" : "FAIL_CLOSED",
+      status: quoteReadiness.disposition === "EXECUTE" ? "PLANNED" : quoteReadiness.disposition === "FAIL_CLOSED" ? "FAIL_CLOSED" : quoteReadiness.disposition,
     };
     if (quoteReadiness.disposition === "FAIL_CLOSED") fail(quoteReadiness.reasonCode, quoteReadiness.message);
     let quoteReady = quoteReadiness.disposition === "EXECUTE";
@@ -467,7 +494,7 @@ async function main() {
         requiresProtocolApproval: !identity.autonomousTradingEnabled,
         protocolPrepared: protocol.moduleOperator && protocol.poolOperator,
       },
-      riskLimits: { valid: true }, risk: { state: projected.projectedDecision.state }, executionConfig: { mode: "WET", minimumCollateralRaw: 1n, sessionActive: false }, caps: DEFAULT_PHASE_3B1_CAPS,
+      riskLimits: { valid: true }, risk: { state: projected.projectedDecision.state, primaryReasonCode: projected.projectedDecision.primaryReasonCode, waitState: quoteReadiness.disposition }, executionConfig: { mode: "WET", minimumCollateralRaw: 1n, sessionActive: false }, caps: DEFAULT_PHASE_3B1_CAPS,
     });
     if (!preflight.allowed || !reconciliation.safeToStart) fail("ACCOUNT_PREFLIGHT_BLOCKED", `the fresh account preflight did not pass: ${(preflight.reasons ?? []).join(",") || reconciliation.reasons.join(",")}`);
     const policy = createLpTransactionPolicy({ session, caps: DEFAULT_PHASE_3B1_CAPS });
@@ -521,8 +548,9 @@ async function main() {
     if (quoteReady) {
       await executeQuote(ask);
     } else {
-      setRuntimeStage("WAITING_FOR_QUOTE", "Waiting for quote", "RUNNING", session);
-      recordActivity("QUOTE", "Waiting for a safe quote", {
+      const waiting = waitingQuoteState(quoteReadiness.disposition);
+      setRuntimeStage(waiting.stageCode, waiting.label, "RUNNING", session);
+      recordActivity("QUOTE", waiting.message, {
         projectedDecisionState: projected.projectedDecision.state ?? null,
         quotePlan: quotePlan.plan ?? null,
         askEnabled: ask?.enabled ?? null,
@@ -530,7 +558,7 @@ async function main() {
         reasonCode: quoteReadiness.reasonCode,
       });
       send({ type: "state", state: "RUNNING", session });
-      emitSnapshot("waiting_for_quote");
+      emitSnapshot(waiting.snapshotAction);
     }
 
     const reevaluateWaitingQuote = async () => {
@@ -553,6 +581,14 @@ async function main() {
       quotePlan = planQuotes(nextProjected.input);
       ask = quotePlan.ask;
       quoteReadiness = assessProjectedQuote({ projectedDecision: nextProjected.projectedDecision, quotePlan });
+      const nextPriceFreshness = buildPriceFreshnessTelemetry({
+        snapshot: nextLive.snapshot,
+        decision: nextProjected.projectedDecision,
+        lastFreshPriceTimestampSec,
+        maxPriceAgeSec: DEFAULT_RISK_CONFIG.maxPriceAgeSec,
+        maxSourceAgeSec: DEFAULT_RISK_CONFIG.maxSourceAgeSec,
+      });
+      lastFreshPriceTimestampSec = nextPriceFreshness.lastFreshPriceTimestampSec;
       strategyTelemetry = {
         ...strategyTelemetry,
         fairValue: latestFairValue,
@@ -567,19 +603,21 @@ async function main() {
         askEnabled: ask?.enabled ?? null,
         askAction: ask?.action ?? null,
         reasonCode: quoteReadiness.reasonCode,
-        status: quoteReadiness.disposition === "WAITING_FOR_QUOTE" ? "WAITING_FOR_QUOTE" : quoteReadiness.disposition === "EXECUTE" ? "PLANNED" : "FAIL_CLOSED",
+        priceFreshness: nextPriceFreshness,
+        status: quoteReadiness.disposition === "EXECUTE" ? "PLANNED" : quoteReadiness.disposition === "FAIL_CLOSED" ? "FAIL_CLOSED" : quoteReadiness.disposition,
       };
       if (quoteReadiness.disposition === "FAIL_CLOSED") fail(quoteReadiness.reasonCode, quoteReadiness.message);
-      if (quoteReadiness.disposition === "WAITING_FOR_QUOTE") {
-        setRuntimeStage("WAITING_FOR_QUOTE", "Waiting for quote", "RUNNING", session);
-        recordActivity("QUOTE", "Still waiting for a safe quote", {
+      if (quoteReadiness.disposition === "WAITING_FOR_QUOTE" || quoteReadiness.disposition === "WAITING_FOR_FRESH_PRICE") {
+        const waiting = waitingQuoteState(quoteReadiness.disposition);
+        setRuntimeStage(waiting.stageCode, waiting.label, "RUNNING", session);
+        recordActivity("QUOTE", waiting.message, {
           projectedDecisionState: nextProjected.projectedDecision.state ?? null,
           quotePlan: quotePlan.plan ?? null,
           askEnabled: ask?.enabled ?? null,
           askAction: ask?.action ?? null,
           reasonCode: quoteReadiness.reasonCode,
         });
-        emitSnapshot("waiting_for_quote");
+        emitSnapshot(waiting.snapshotAction);
         return;
       }
       if (raw(ask.targetQuantityRaw, "quote quantity") > DEFAULT_PHASE_3B1_CAPS.MAX_ORDER_NOTIONAL || raw(ask.targetQuantityRaw, "quote quantity") > identity.maxOrderQuantity) fail("ORDER_CAP", "the live quote exceeds the account or policy cap");

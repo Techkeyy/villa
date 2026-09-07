@@ -98,7 +98,12 @@ export function evaluateLpExecutionReadiness(input = {}) {
   const minimum = raw(executionConfig.minimumCollateralRaw ?? executionConfig.minCollateralRaw ?? 0n);
   if (capital === null || minimum === null || capital <= minimum) add(reasons, "INSUFFICIENT_CAPITAL");
   if (input.riskLimits?.valid !== true && input.riskLimitsValid !== true) add(reasons, "RISK_LIMITS_INVALID");
-  if (input.risk?.state === "HALT" || input.riskDecision?.state === "HALT") add(reasons, "RISK_HALTED");
+  const riskState = input.risk?.state ?? input.riskDecision?.state;
+  const riskReason = input.risk?.primaryReasonCode ?? input.riskDecision?.primaryReasonCode;
+  const waitingForFreshPrice = riskState === "HALT"
+    && riskReason === "PRICE_STALE"
+    && input.risk?.waitState === "WAITING_FOR_FRESH_PRICE";
+  if (riskState === "HALT" && !waitingForFreshPrice) add(reasons, "RISK_HALTED");
   if (executionConfig.sessionActive === true || Number(executionConfig.activeSessionCount ?? 0) > 0) add(reasons, "ENGINE_SESSION_ACTIVE");
   const allowedExecutionModes = Array.isArray(input.allowedExecutionModes) && input.allowedExecutionModes.length
     ? input.allowedExecutionModes

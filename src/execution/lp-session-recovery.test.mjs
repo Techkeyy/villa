@@ -151,6 +151,22 @@ test("production-shaped NO_VALID_QUOTE uses signer-free reconciliation when the 
   assert.equal(result.capitalRaw, 2_001_000n);
 });
 
+test("legacy PROJECTED_RISK_HALT PRICE_STALE uses the explicit signer-free pre-market route", () => {
+  const value = productionPreMarketFixtures();
+  const error = { code: "PROJECTED_RISK_HALT", message: "the live projected risk decision is HALT: PRICE_STALE" };
+  const legacy = {
+    ...value,
+    stored: { ...value.stored, error },
+    status: { ...value.status, error },
+  };
+  assert.equal(classifyRecoveryRoute(legacy), SIGNER_FREE_PREMARKET_ROUTE);
+  assert.doesNotThrow(() => validateSignerFreePreMarketEvidence(legacy));
+  assert.throws(() => validateSignerFreePreMarketEvidence({
+    ...legacy,
+    stored: { ...legacy.stored, error: { ...error, message: "the live projected risk decision is HALT: OTHER" } },
+  }), { code: "RECOVERY_NOT_PREFLIGHT_ONLY" });
+});
+
 test("NO_VALID_QUOTE pre-market reconciliation rejects writes, leases, inventory, orders, settlement, and exposure", () => {
   const value = noQuotePreMarketFixtures();
   assert.throws(() => validateSignerFreePreMarketEvidence({ ...value, stored: { ...value.stored, writes: [{ action: "PLACE_ORDER" }] } }), { code: "RECOVERY_CHAIN_ACTIVITY_PRESENT" });
