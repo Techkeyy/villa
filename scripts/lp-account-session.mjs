@@ -29,6 +29,7 @@ import { evaluateWetExecutionPreflight } from "../src/execution/lp-preflight.mjs
 import { reconcileLpSession } from "../src/execution/lp-reconciliation.mjs";
 import { attachLease, createFileAccountLeaseStore, createLpExecutionSession, transitionLpSession } from "../src/execution/lp-session.mjs";
 import { createLeaseHeartbeat, LP_LEASE_DURATION_MS, LP_LEASE_HEARTBEAT_INTERVAL_MS } from "../src/execution/lp-lease-heartbeat.mjs";
+import { assessProjectedQuote } from "../src/execution/lp-quote-gate.mjs";
 import { DEFAULT_PHASE_3B1_CAPS, createLpTransactionPolicy, evaluateStrategyCapital } from "../src/execution/lp-transaction-policy.mjs";
 import { loadPrivateSigner } from "../src/execution/lp-private-runtime.mjs";
 import { assessSessionSettlement, classifySessionPnl } from "../src/settlement/session-lifecycle.mjs";
@@ -413,8 +414,9 @@ async function main() {
     if (mintAmountRaw > DEFAULT_PHASE_3B1_CAPS.MAX_MINT_AMOUNT || mintAmountRaw > identity.maxOrderCollateral || mintAmountRaw >= initialCollateralRaw) fail("MINT_CAP", "the live minimum mint is outside the bounded account policy");
     const projected = projectedPlannerInput({ snapshot: live.snapshot, decision: initialDecision, market: selected, accountState, params, decimals, mintAmountRaw });
     setRuntimeStage("BUILDING_QUOTE", "Building quote", "STARTING", bootSession);
-    const quotePlan = planQuotes(projected.input);
-    const ask = quotePlan.ask;
+    let quotePlan = planQuotes(projected.input);
+    let ask = quotePlan.ask;
+    let quoteReadiness = assessProjectedQuote({ projectedDecision: projected.projectedDecision, quotePlan });
     strategyTelemetry = {
       fairValue: latestFairValue,
       bestBidRaw: projected.input.book.bestBidRaw,
@@ -422,11 +424,19 @@ async function main() {
       side: "SELL_YES",
       priceRaw: ask?.targetPriceRaw ?? null,
       sizeRaw: ask?.targetQuantityRaw ?? null,
+      plannedPriceRaw: ask?.targetPriceRaw ?? null,
+      plannedQuantityRaw: ask?.targetQuantityRaw ?? null,
+      projectedDecisionState: projected.projectedDecision.state ?? null,
+      quotePlan: quotePlan.plan ?? null,
+      askEnabled: ask?.enabled ?? null,
+      askAction: ask?.action ?? null,
+      reasonCode: quoteReadiness.reasonCode,
       postOnly: true,
-      status: quotePlan.plan === "NO_QUOTE" ? "NO_QUOTE" : "PLANNED",
+      status: quoteReadiness.disposition === "WAITING_FOR_QUOTE" ? "WAITING_FOR_QUOTE" : quoteReadiness.disposition === "EXECUTE" ? "PLANNED" : "FAIL_CLOSED",
     };
-    if (projected.projectedDecision.state !== "ALLOW" || quotePlan.plan === "NO_QUOTE" || !ask?.enabled || ask.action !== "SELL_YES") fail("NO_VALID_QUOTE", "the live projected SELL_YES plan is not valid");
-    if (raw(ask.targetQuantityRaw, "quote quantity") > DEFAULT_PHASE_3B1_CAPS.MAX_ORDER_NOTIONAL || raw(ask.targetQuantityRaw, "quote quantity") > identity.maxOrderQuantity) fail("ORDER_CAP", "the live quote exceeds the account or policy cap");
+    if (quoteReadiness.disposition === "FAIL_CLOSED") fail(quoteReadiness.reasonCode, quoteReadiness.message);
+    let quoteReady = quoteReadiness.disposition === "EXECUTE";
+    if (quoteReady && (raw(ask.targetQuantityRaw, "quote quantity") > DEFAULT_PHASE_3B1_CAPS.MAX_ORDER_NOTIONAL || raw(ask.targetQuantityRaw, "quote quantity") > identity.maxOrderQuantity)) fail("ORDER_CAP", "the live quote exceeds the account or policy cap");
 
     const sessionBase = createLpExecutionSession({ sessionId: config.sessionId, account: config.account, owner: config.owner, operator: config.operator, chainId: 50312, marketSeries: selected.series, currentMarketId: selected.marketId, riskPolicyVersion: projected.projectedDecision.governorVersion, executionMode: "WET", createdAt: Date.now(), maxSessionDurationSec: MAX_SESSION_SEC });
     session = transitionLpSession(sessionBase, "PREFLIGHT");
@@ -479,37 +489,104 @@ async function main() {
     send({ type: "state", state: "RUNNING", session });
     emitSnapshot("preflight_passed");
 
-    if (identity.autonomousTradingEnabled && (!protocol.marketPrepared || !protocol.moduleOperator || !protocol.poolOperator)) {
-      const prepPlan = adapter.prepareMarket({ marketId: selected.marketId });
-      const prepResult = await enqueue(prepPlan);
-      rememberWrite("prepareMarket", prepResult);
-      recordActivity("CHAIN_WRITE", "Market prepared", { txHash: prepResult?.hash ?? prepResult?.transactionHash ?? null, marketId: selected.marketId });
-      emitSnapshot("market_prepared");
+    const executeQuote = async (quoteAsk) => {
+      if (identity.autonomousTradingEnabled && (!protocol.marketPrepared || !protocol.moduleOperator || !protocol.poolOperator)) {
+        const prepResult = await enqueue(adapter.prepareMarket({ marketId: selected.marketId }));
+        rememberWrite("prepareMarket", prepResult);
+        recordActivity("CHAIN_WRITE", "Market prepared", { txHash: prepResult?.hash ?? prepResult?.transactionHash ?? null, marketId: selected.marketId });
+        emitSnapshot("market_prepared");
+      } else {
+        recordActivity("MARKET", "Market already prepared", { marketId: selected.marketId });
+      }
+      const mintResult = await enqueue(adapter.mintCompleteSet({ marketId: selected.marketId, amountRaw: mintAmountRaw }));
+      rememberWrite("mintCompleteSet", mintResult);
+      recordActivity("CHAIN_WRITE", "Minted complete set", { txHash: mintResult?.hash ?? mintResult?.transactionHash ?? null, amountRaw: mintAmountRaw });
+      send({ type: "state", state: "RUNNING", session });
+      accountState = await readAccount(selected.marketId);
+      if (accountState.inventory.yesRaw < mintAmountRaw || accountState.inventory.noRaw < mintAmountRaw) fail("MINT_RECONCILIATION_FAILED", "mint did not reconcile to the account");
+      trackedInventory = { yesRaw: mintAmountRaw, noRaw: mintAmountRaw, marketId: selected.marketId, yesId: accountMarket.yesId, noId: accountMarket.noId };
+      emitSnapshot("mint_confirmed");
+      const quantityRaw = raw(quoteAsk.targetQuantityRaw, "quote quantity");
+      const priceRaw = raw(quoteAsk.targetPriceRaw, "quote price");
+      const expiryNs = raw(Math.max(1, Math.floor(selected.expirySec - 2)), "order expiry") * 1_000_000_000n;
+      const placeResult = await enqueue(adapter.placeOrder({ marketId: selected.marketId, action: "SELL_YES", priceRaw, quantityRaw, expireTimestampNs: expiryNs, orderType: 3, userData: 0n }), { openOrderCount: 0, pendingExposureRaw: quantityRaw });
+      rememberWrite("placeOrder", placeResult);
+      recordActivity("CHAIN_WRITE", "Order placed", { txHash: placeResult?.hash ?? placeResult?.transactionHash ?? null, orderId: null, side: "SELL_YES" });
+      strategyTelemetry = { ...strategyTelemetry, status: "POSTED" };
+      accountState = await readAccount(selected.marketId);
+      if (accountState.orders.status !== "VERIFIED" || accountState.orders.orders.length !== 1) fail("PLACE_RECONCILIATION_FAILED", "the bounded SELL_YES order did not reconcile");
+      emitSnapshot("sell_yes_posted");
+    };
+
+    if (quoteReady) {
+      await executeQuote(ask);
     } else {
-      recordActivity("MARKET", "Market already prepared", { marketId: selected.marketId });
+      setRuntimeStage("WAITING_FOR_QUOTE", "Waiting for quote", "RUNNING", session);
+      recordActivity("QUOTE", "Waiting for a safe quote", {
+        projectedDecisionState: projected.projectedDecision.state ?? null,
+        quotePlan: quotePlan.plan ?? null,
+        askEnabled: ask?.enabled ?? null,
+        askAction: ask?.action ?? null,
+        reasonCode: quoteReadiness.reasonCode,
+      });
+      send({ type: "state", state: "RUNNING", session });
+      emitSnapshot("waiting_for_quote");
     }
 
-    const mintPlan = adapter.mintCompleteSet({ marketId: selected.marketId, amountRaw: mintAmountRaw });
-    const mintResult = await enqueue(mintPlan);
-    rememberWrite("mintCompleteSet", mintResult);
-    recordActivity("CHAIN_WRITE", "Minted complete set", { txHash: mintResult?.hash ?? mintResult?.transactionHash ?? null, amountRaw: mintAmountRaw });
-    send({ type: "state", state: "RUNNING", session });
-    accountState = await readAccount(selected.marketId);
-    if (accountState.inventory.yesRaw < mintAmountRaw || accountState.inventory.noRaw < mintAmountRaw) fail("MINT_RECONCILIATION_FAILED", "mint did not reconcile to the account");
-    trackedInventory = { yesRaw: mintAmountRaw, noRaw: mintAmountRaw, marketId: selected.marketId, yesId: accountMarket.yesId, noId: accountMarket.noId };
-    emitSnapshot("mint_confirmed");
-
-    const quantityRaw = raw(ask.targetQuantityRaw, "quote quantity");
-    const priceRaw = raw(ask.targetPriceRaw, "quote price");
-    const expiryNs = raw(Math.max(1, Math.floor(selected.expirySec - 2)), "order expiry") * 1_000_000_000n;
-    const placePlan = adapter.placeOrder({ marketId: selected.marketId, action: "SELL_YES", priceRaw, quantityRaw, expireTimestampNs: expiryNs, orderType: 3, userData: 0n });
-    const placeResult = await enqueue(placePlan, { openOrderCount: 0, pendingExposureRaw: quantityRaw });
-    rememberWrite("placeOrder", placeResult);
-    recordActivity("CHAIN_WRITE", "Order placed", { txHash: placeResult?.hash ?? placeResult?.transactionHash ?? null, orderId: null, side: "SELL_YES" });
-    strategyTelemetry = { ...strategyTelemetry, status: "POSTED" };
-    accountState = await readAccount(selected.marketId);
-    if (accountState.orders.status !== "VERIFIED" || accountState.orders.orders.length !== 1) fail("PLACE_RECONCILIATION_FAILED", "the bounded SELL_YES order did not reconcile");
-    emitSnapshot("sell_yes_posted");
+    const reevaluateWaitingQuote = async () => {
+      if (quoteReady || stopSignal.requested) return;
+      const nextChain = await readChainTime(exchange);
+      latestChainTime = nextChain;
+      const nextLive = await collectRiskSnapshot(exchange, {
+        owner: config.account,
+        gasAddress: config.operator,
+        chainTime: nextChain,
+        market: { market: marketInfo, onchain: live.context.onchain },
+      });
+      if (!same(nextLive.context.marketId, selected.marketId)) fail("MARKET_CHANGED", "the selected market changed while waiting for a quote");
+      latestFairValue = nextLive.snapshot.fairValue ?? null;
+      latestDecision = evaluateRisk(nextLive.snapshot, DEFAULT_RISK_CONFIG);
+      accountState = await readAccount(selected.marketId);
+      if (accountState.orders.status !== "VERIFIED" || accountState.orders.orders.length !== 0 || accountState.inventory.yesRaw !== 0n || accountState.inventory.noRaw !== 0n) fail("ACCOUNT_STATE_CHANGED", "the account changed while waiting for a quote");
+      selected.book = await exchange.fetchOrderBook(yesSymbol, 5);
+      const nextProjected = projectedPlannerInput({ snapshot: nextLive.snapshot, decision: latestDecision, market: selected, accountState, params, decimals, mintAmountRaw });
+      quotePlan = planQuotes(nextProjected.input);
+      ask = quotePlan.ask;
+      quoteReadiness = assessProjectedQuote({ projectedDecision: nextProjected.projectedDecision, quotePlan });
+      strategyTelemetry = {
+        ...strategyTelemetry,
+        fairValue: latestFairValue,
+        bestBidRaw: nextProjected.input.book.bestBidRaw,
+        bestAskRaw: nextProjected.input.book.bestAskRaw,
+        priceRaw: ask?.targetPriceRaw ?? null,
+        sizeRaw: ask?.targetQuantityRaw ?? null,
+        plannedPriceRaw: ask?.targetPriceRaw ?? null,
+        plannedQuantityRaw: ask?.targetQuantityRaw ?? null,
+        projectedDecisionState: nextProjected.projectedDecision.state ?? null,
+        quotePlan: quotePlan.plan ?? null,
+        askEnabled: ask?.enabled ?? null,
+        askAction: ask?.action ?? null,
+        reasonCode: quoteReadiness.reasonCode,
+        status: quoteReadiness.disposition === "WAITING_FOR_QUOTE" ? "WAITING_FOR_QUOTE" : quoteReadiness.disposition === "EXECUTE" ? "PLANNED" : "FAIL_CLOSED",
+      };
+      if (quoteReadiness.disposition === "FAIL_CLOSED") fail(quoteReadiness.reasonCode, quoteReadiness.message);
+      if (quoteReadiness.disposition === "WAITING_FOR_QUOTE") {
+        setRuntimeStage("WAITING_FOR_QUOTE", "Waiting for quote", "RUNNING", session);
+        recordActivity("QUOTE", "Still waiting for a safe quote", {
+          projectedDecisionState: nextProjected.projectedDecision.state ?? null,
+          quotePlan: quotePlan.plan ?? null,
+          askEnabled: ask?.enabled ?? null,
+          askAction: ask?.action ?? null,
+          reasonCode: quoteReadiness.reasonCode,
+        });
+        emitSnapshot("waiting_for_quote");
+        return;
+      }
+      if (raw(ask.targetQuantityRaw, "quote quantity") > DEFAULT_PHASE_3B1_CAPS.MAX_ORDER_NOTIONAL || raw(ask.targetQuantityRaw, "quote quantity") > identity.maxOrderQuantity) fail("ORDER_CAP", "the live quote exceeds the account or policy cap");
+      quoteReady = true;
+      setRuntimeStage("RUNNING", "Strategy running", "RUNNING", session);
+      await executeQuote(ask);
+    };
 
     const cleanup = async (reason) => {
       session = transitionLpSession(session, "STOPPING");
@@ -550,7 +627,7 @@ async function main() {
       leaseHeartbeat.stop();
       runtimeTelemetry.stage = { code: "STOPPED", label: "Session stopped", atMs: Date.now() };
       recordActivity("SESSION", "Session stopped", { state: session.state, reason });
-      send({ type: "result", session, result: { status: session.state, reason, pnl, startingValueRaw, finalValueRaw, pendingValueRaw, ordersPlaced: 1, fills: pending ? "UNRESOLVED_OR_FILLED" : "NONE_CONFIRMED", marketId: selected.marketId, intervalSec: selected.intervalSec, pendingSettlement: pending, settlement } });
+      send({ type: "result", session, result: { status: session.state, reason, pnl, startingValueRaw, finalValueRaw, pendingValueRaw, ordersPlaced: quoteReady ? 1 : 0, fills: pending ? "UNRESOLVED_OR_FILLED" : "NONE_CONFIRMED", marketId: selected.marketId, intervalSec: selected.intervalSec, pendingSettlement: pending, settlement } });
       send({ type: "state", state: session.state, session });
     };
 
@@ -558,6 +635,7 @@ async function main() {
       const chain = await readChainTime(exchange);
       latestChainTime = chain;
       accountState = await readAccount(selected.marketId);
+      await reevaluateWaitingQuote();
       const timeRemainingSec = selected.expirySec - chain.chainNowSec;
       if (!runtimeTelemetry.activity.some((item) => item.type === "MONITORING")) recordActivity("MONITORING", "Monitoring live order book and account state", { timeRemainingSec });
       emitSnapshot(stopSignal.paused ? "paused" : "monitoring");
