@@ -208,6 +208,8 @@ function setAppNotice(message = "") {
 
 function humanError(error) {
   if (error?.code === "WALLET_REJECTED") return "The wallet request was cancelled. Nothing changed.";
+  if (error?.code === "NETWORK_SWITCH_REJECTED") return "Network switch was cancelled. Switch to Somnia Shannon to continue.";
+  if (error?.code === "WALLET_SWITCH_UNSUPPORTED") return "This wallet cannot switch networks from VILLA. Open it and select Somnia Shannon manually.";
   if (error?.code === "WALLET_MISSING") return "Wallet connection is unavailable. Reconnect your wallet.";
   if (error?.code === "WRONG_CODE") return "A candidate account failed verification. Capital actions are paused for safety.";
   if (error?.code === "UNVERIFIED_CANDIDATE") return "VILLA found a contract associated with this wallet, but could not verify it as a valid VILLA account. Creating another account is disabled until verification succeeds.";
@@ -851,6 +853,18 @@ async function connectWallet(accounts = null) {
   text("wallet-address", shorten(owner));
   setMessage("wallet-message", "");
   setAppNotice("");
+  const chainId = await getChainId(provider);
+  if (!setNetworkState(chainId)) {
+    showTransaction("WAITING_FOR_WALLET", "Switching network", "Confirm the Somnia Shannon network in your wallet.");
+    try {
+      const result = await ensureShannon(provider);
+      if (result.chainId !== VILLA_CHAIN.id) throw new AccountClientError("WRONG_NETWORK", "Switch to Somnia Shannon before continuing.");
+    } catch (error) {
+      showActionError("network-message", error);
+      setAppState({ error });
+      return;
+    }
+  }
   await refreshAccount();
 }
 

@@ -212,6 +212,9 @@ export async function request(provider, method, params = []) {
     const code = Number(error?.code);
     if (code === 4001) throw new AccountClientError("WALLET_REJECTED", "The wallet request was cancelled.", error?.message || "");
     if (code === 4902) throw new AccountClientError("NETWORK_UNKNOWN", "Somnia Shannon is not available in this wallet.", error?.message || "");
+    if ((method === "wallet_switchEthereumChain" || method === "wallet_addEthereumChain") && (code === 4200 || code === -32601)) {
+      throw new AccountClientError("WALLET_SWITCH_UNSUPPORTED", "This wallet does not support programmatic network switching. Open it and select Somnia Shannon manually.", error?.message || "");
+    }
     throw new AccountClientError("RPC_ERROR", "The wallet or network could not complete that request.", error?.message || String(error));
   }
 }
@@ -227,22 +230,51 @@ export async function getChainId(provider, options = {}) {
   return Number.parseInt(String(result), 16);
 }
 
-export async function ensureShannon(provider) {
-  const current = await getChainId(provider);
-  if (current === VILLA_CHAIN.id) return { switched: false, chainId: current };
-  try {
-    await request(provider, "wallet_switchEthereumChain", [{ chainId: VILLA_CHAIN.idHex }]);
-  } catch (error) {
-    if (error.code !== "NETWORK_UNKNOWN") throw error;
-    await request(provider, "wallet_addEthereumChain", [{
-      chainId: VILLA_CHAIN.idHex,
-      chainName: VILLA_CHAIN.name,
-      nativeCurrency: VILLA_CHAIN.nativeCurrency,
-      rpcUrls: [VILLA_CHAIN.rpcUrl],
-    }]);
-    await request(provider, "wallet_switchEthereumChain", [{ chainId: VILLA_CHAIN.idHex }]);
+const shannonSwitches = new WeakMap();
+
+function normalizeNetworkSwitchError(error) {
+  if (error?.code === "WALLET_REJECTED") {
+    return new AccountClientError("NETWORK_SWITCH_REJECTED", "Network switch was cancelled. Switch to Somnia Shannon to continue.", error.detail || error.message || "");
   }
-  return { switched: true, chainId: await getChainId(provider) };
+  if (error?.code === "WALLET_SWITCH_UNSUPPORTED") return error;
+  if (error?.code === "RPC_ERROR" && /(?:not supported|unsupported|method not found|not implemented)/i.test(String(error.detail || "") + " " + String(error.message || ""))) {
+    return new AccountClientError("WALLET_SWITCH_UNSUPPORTED", "This wallet does not support programmatic network switching. Open it and select Somnia Shannon manually.", error.detail || error.message || "");
+  }
+  return error;
+}
+
+export function ensureShannon(provider) {
+  if (!provider?.request) return Promise.reject(new AccountClientError("WALLET_MISSING", "Install or unlock a compatible wallet to continue."));
+  const existing = shannonSwitches.get(provider);
+  if (existing) return existing;
+  const operation = (async () => {
+    const current = await getChainId(provider);
+    if (current === VILLA_CHAIN.id) return { switched: false, chainId: current };
+    try {
+      await request(provider, "wallet_switchEthereumChain", [{ chainId: VILLA_CHAIN.idHex }]);
+    } catch (error) {
+      if (error.code !== "NETWORK_UNKNOWN") throw normalizeNetworkSwitchError(error);
+      try {
+        await request(provider, "wallet_addEthereumChain", [{
+          chainId: VILLA_CHAIN.idHex,
+          chainName: VILLA_CHAIN.name,
+          nativeCurrency: VILLA_CHAIN.nativeCurrency,
+          rpcUrls: [VILLA_CHAIN.rpcUrl],
+        }]);
+        await request(provider, "wallet_switchEthereumChain", [{ chainId: VILLA_CHAIN.idHex }]);
+      } catch (addOrSwitchError) {
+        throw normalizeNetworkSwitchError(addOrSwitchError);
+      }
+    }
+    return { switched: true, chainId: await getChainId(provider) };
+  })();
+  shannonSwitches.set(provider, operation);
+  operation.then(() => {
+    if (shannonSwitches.get(provider) === operation) shannonSwitches.delete(provider);
+  }, () => {
+    if (shannonSwitches.get(provider) === operation) shannonSwitches.delete(provider);
+  });
+  return operation;
 }
 
 async function bytecodeSha256(bytecode) {

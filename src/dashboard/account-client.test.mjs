@@ -257,8 +257,54 @@ test("rejected network switching returns a stable wallet error without adding a 
     },
   };
 
-  await assert.rejects(() => ensureShannon(provider), (error) => error.code === "WALLET_REJECTED");
+  await assert.rejects(
+    () => ensureShannon(provider),
+    (error) => error.code === "NETWORK_SWITCH_REJECTED" && error.message === "Network switch was cancelled. Switch to Somnia Shannon to continue.",
+  );
   assert.deepEqual(methods, ["eth_chainId", "wallet_switchEthereumChain"]);
+});
+
+test("unsupported programmatic switching gives a manual fallback", async () => {
+  const provider = {
+    async request({ method }) {
+      if (method === "eth_chainId") return "0x1";
+      throw { code: 4200, message: "wallet_switchEthereumChain is not supported" };
+    },
+  };
+
+  await assert.rejects(
+    () => ensureShannon(provider),
+    (error) => error.code === "WALLET_SWITCH_UNSUPPORTED" && /select Somnia Shannon manually/.test(error.message),
+  );
+});
+
+test("simultaneous switch requests share one wallet flow", async () => {
+  let chainId = "0x1";
+  let switchCalls = 0;
+  let releaseSwitch;
+  const switchGate = new Promise((resolve) => { releaseSwitch = resolve; });
+  const provider = {
+    async request({ method }) {
+      if (method === "eth_chainId") return chainId;
+      if (method === "wallet_switchEthereumChain") {
+        switchCalls += 1;
+        await switchGate;
+        chainId = VILLA_CHAIN.idHex;
+        return null;
+      }
+      throw new Error("unexpected method " + method);
+    },
+  };
+
+  const first = ensureShannon(provider);
+  const second = ensureShannon(provider);
+  assert.strictEqual(first, second);
+  releaseSwitch();
+  assert.deepEqual(await Promise.all([first, second]), [
+    { switched: true, chainId: VILLA_CHAIN.id },
+    { switched: true, chainId: VILLA_CHAIN.id },
+  ]);
+  assert.equal(switchCalls, 1);
 });
 
 test("wrong-network UI keeps switching actionable and gates account discovery", () => {
@@ -271,6 +317,9 @@ test("wrong-network UI keeps switching actionable and gates account discovery", 
   assert.match(app, /discoveryStatus: "IDLE"/);
   assert.doesNotMatch(app, /toggle\("account-loading", false\)/);
   assert.match(app, /ensureShannon\(provider\)[\s\S]*await refreshAccount\(\)/);
+  const connectWallet = app.slice(app.indexOf("async function connectWallet"), app.indexOf("function disconnectWallet"));
+  assert.ok(connectWallet.indexOf("ensureShannon(provider)") >= 0, "connect must use the same Shannon switch helper");
+  assert.ok(connectWallet.indexOf("ensureShannon(provider)") < connectWallet.indexOf("await refreshAccount()"), "connect must switch before account refresh");
   assert.match(app, /ownerAtStart !== appState\.owner/);
   assert.match(html, /id="switch-network"[^>]*>Switch to Shannon<\/button>/);
   assert.doesNotMatch(html, /id="switch-network"[^>]*disabled/);
