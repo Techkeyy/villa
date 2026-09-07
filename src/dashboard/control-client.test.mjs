@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { CONTROL_STOP_TERMINAL_STATES, ControlClientError, createAccountControlClient, waitForControlStop } from "../../dashboard/control-client.mjs";
+import { CONTROL_STOP_TERMINAL_STATES, ControlClientError, controlStateAfterPollFailure, createAccountControlClient, reconcileControlPayload, waitForControlStop } from "../../dashboard/control-client.mjs";
 
 const OWNER = "0xEFe0412781d3c1e7888b2DB9dEEcA3037542494d";
 
@@ -156,4 +156,77 @@ test("control stop polling reports an unfinished reconciliation without claiming
 test("stop terminal states include clean completion and cleanup error", () => {
   assert.ok(CONTROL_STOP_TERMINAL_STATES.includes("STOPPED_CLEAN"));
   assert.ok(CONTROL_STOP_TERMINAL_STATES.includes("ERROR"));
+});
+
+test("authoritative clean terminal state reconciles stale RUNNING state to STOPPED", () => {
+  const reconciled = reconcileControlPayload(
+    { state: "STOPPED_CLEAN", session: null, result: { status: "STOPPED_CLEAN", reason: "SESSION_DURATION_CAP" } },
+    { state: "RUNNING", session: { sessionId: "uat-stale" }, snapshot: { strategy: { side: "SELL_YES" } }, result: null },
+  );
+  assert.equal(reconciled.state, "STOPPED");
+  assert.equal(reconciled.session, null);
+  assert.equal(reconciled.snapshot, null);
+  assert.equal(reconciled.result.reason, "SESSION_DURATION_CAP");
+  assert.equal(reconciled.active, false);
+});
+
+test("authoritative ERROR clears stale active session without claiming it stopped", () => {
+  const reconciled = reconcileControlPayload(
+    { state: "ERROR", session: null, error: { code: "UAT_SESSION_FAILED" } },
+    { state: "RUNNING", session: { sessionId: "uat-stale" }, snapshot: { strategy: { side: "SELL_YES" } }, result: null },
+  );
+  assert.equal(reconciled.state, "ERROR");
+  assert.equal(reconciled.session, null);
+  assert.equal(reconciled.snapshot, null);
+  assert.equal(reconciled.result, null);
+});
+
+test("transient polling failure enters reconnecting instead of fake STOPPED", () => {
+  assert.equal(controlStateAfterPollFailure("RUNNING"), "RECONNECTING");
+  assert.equal(controlStateAfterPollFailure("RECONNECTING"), "RECONNECTING");
+  assert.notEqual(controlStateAfterPollFailure("RUNNING"), "STOPPED");
+});
+
+test("a subsequent authoritative poll replaces reconnecting state and preserves completed result", () => {
+  const reconciled = reconcileControlPayload(
+    { state: "STOPPED_CLEAN", session: null, result: { status: "STOPPED_CLEAN", reason: "OWNER_STOP" } },
+    { state: "RECONNECTING", session: { sessionId: "uat-stale" }, snapshot: null, result: null },
+  );
+  assert.equal(reconciled.state, "STOPPED");
+  assert.equal(reconciled.result.reason, "OWNER_STOP");
+});
+
+test("control command requests remain single-shot while state reconciliation is read-only", async () => {
+  globalThis.window = { location: { hostname: "localhost" } };
+  const account = "0x5555555555555555555555555555555555555555";
+  const calls = [];
+  const responses = [
+    response({ engineApiUrl: "http://127.0.0.1:8782" }),
+    response({ message: "VILLA sign-in", nonce: "nonce-single-shot", address: OWNER }),
+    response({ token: "session-token" }),
+    response({ state: "RUNNING", session: { sessionId: "uat-one", account } }),
+  ];
+  const provider = { async request() { return "0xsignature"; } };
+  const client = createAccountControlClient({ fetchImpl: async (url, options = {}) => { calls.push({ url, options }); return responses.shift(); }, provider, ownerProvider: () => OWNER, accountProvider: () => account });
+  await client.start();
+  assert.equal(calls.filter(({ url }) => url.endsWith("/account/session/start")).length, 1);
+  assert.equal(calls.filter(({ url }) => url.endsWith("/account/session/stop")).length, 0);
+});
+
+test("stop command requests remain single-shot while completion polling stays read-only", async () => {
+  globalThis.window = { location: { hostname: "localhost" } };
+  const account = "0x6666666666666666666666666666666666666666";
+  const calls = [];
+  const responses = [
+    response({ engineApiUrl: "http://127.0.0.1:8782" }),
+    response({ message: "VILLA sign-in", nonce: "nonce-stop-single-shot", address: OWNER }),
+    response({ token: "session-token" }),
+    response({ state: "STOPPING", session: { sessionId: "uat-stop-one", account } }),
+  ];
+  const provider = { async request() { return "0xsignature"; } };
+  const client = createAccountControlClient({ fetchImpl: async (url, options = {}) => { calls.push({ url, options }); return responses.shift(); }, provider, ownerProvider: () => OWNER, accountProvider: () => account });
+  await client.stop();
+  assert.equal(calls.filter(({ url }) => url.endsWith("/account/session/stop")).length, 1);
+  assert.equal(calls.filter(({ url }) => url.endsWith("/account/session/start")).length, 0);
+  assert.equal(calls.filter(({ url }) => url.endsWith("/account/state")).length, 0);
 });

@@ -19,6 +19,7 @@ test("telemetry view maps the real live snapshot into user-readable sections", (
   });
   assert.equal(view.state, "RUNNING");
   assert.equal(view.active, true);
+  assert.equal(view.panelLabel, "LIVE SESSION");
   assert.equal(view.marketAsset, "BTC");
   assert.equal(view.marketTimeRemaining, "1m 59s");
   assert.equal(view.fairValue, "YES 62.00% / NO 38.00%");
@@ -36,4 +37,12 @@ test("telemetry view explains unavailable P&L and does not invent an activity fe
   assert.match(view.pnl, /P&L unavailable/);
   assert.equal(view.activity.length, 0);
   assert.equal(view.visible, true);
+  assert.equal(view.panelLabel, "COMPLETED SESSION");
+});
+
+test("reconnecting telemetry is non-terminal and does not present stale live values", () => {
+  const view = telemetryView({ state: "RECONNECTING" });
+  assert.equal(view.active, false);
+  assert.equal(view.panelLabel, "SESSION STATUS");
+  assert.match(view.copy, /Reconnecting/);
 });

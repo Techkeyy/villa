@@ -19,8 +19,56 @@ export const CONTROL_STOP_TERMINAL_STATES = Object.freeze([
   "ERROR",
 ]);
 
+export const CONTROL_ACTIVE_STATES = Object.freeze([
+  "STARTING",
+  "RUNNING",
+  "PAUSED",
+  "STOPPING",
+  "SETTLEMENT_READY",
+  "SETTLING",
+]);
+
+export function normalizeControlState(value) {
+  const state = String(value || "STOPPED").toUpperCase();
+  return state === "STOPPED_CLEAN" ? "STOPPED" : state;
+}
+
 export function controlStateOf(payload) {
   return String(payload?.state || payload?.session?.state || "STOPPED").toUpperCase();
+}
+
+export function reconcileControlPayload(payload, previous = {}) {
+  const rawState = controlStateOf(payload);
+  const state = normalizeControlState(rawState);
+  const active = CONTROL_ACTIVE_STATES.includes(rawState);
+  const terminal = CONTROL_STOP_TERMINAL_STATES.includes(rawState)
+    || CONTROL_STOP_TERMINAL_STATES.includes(String(payload?.session?.state || "").toUpperCase())
+    || CONTROL_STOP_TERMINAL_STATES.includes(String(payload?.result?.status || "").toUpperCase());
+  const result = payload?.result ?? (terminal && state !== "ERROR" ? previous.result ?? null : null);
+
+  if (terminal && !active) {
+    return Object.freeze({
+      state,
+      session: payload?.session ?? null,
+      snapshot: payload?.snapshot ?? null,
+      result,
+      active: false,
+      authoritative: true,
+    });
+  }
+
+  return Object.freeze({
+    state,
+    session: payload?.session ?? previous.session ?? null,
+    snapshot: payload?.snapshot ?? previous.snapshot ?? null,
+    result: payload?.result ?? previous.result ?? null,
+    active,
+    authoritative: true,
+  });
+}
+
+export function controlStateAfterPollFailure(previousState) {
+  return CONTROL_ACTIVE_STATES.includes(normalizeControlState(previousState)) ? "RECONNECTING" : normalizeControlState(previousState);
 }
 
 export async function waitForControlStop(readState, { delayMs = 1_000, maxAttempts = 30, sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)), onState = () => undefined } = {}) {

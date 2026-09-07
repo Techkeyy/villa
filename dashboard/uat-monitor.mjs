@@ -92,6 +92,7 @@ export function telemetryView({ state = "STOPPED", session = null, snapshot = nu
     state: normalized,
     visible: normalized !== "STOPPED" || Boolean(snapshot) || Boolean(result),
     active: ACTIVE_STATES.has(normalized),
+    panelLabel: ACTIVE_STATES.has(normalized) ? "LIVE SESSION" : normalized === "RECONNECTING" ? "SESSION STATUS" : "COMPLETED SESSION",
     stage: snapshot?.stage?.label ?? session?.stage?.label ?? (normalized === "STARTING" ? "Starting" : ""),
     marketAsset: display(market.asset, "Asset not available yet."),
     marketTitle: display(market.title, "Title not available yet."),
@@ -130,7 +131,9 @@ export function telemetryView({ state = "STOPPED", session = null, snapshot = nu
     advancedBlock: display(snapshot?.advanced?.chainBlockNumber, "Not available yet"),
     advancedTx: Array.isArray(snapshot?.advanced?.transactionHashes) ? snapshot.advanced.transactionHashes : [],
     activity,
-    copy: ACTIVE_STATES.has(normalized)
+    copy: normalized === "RECONNECTING"
+      ? "Live session status is temporarily unavailable. Reconnecting…"
+      : ACTIVE_STATES.has(normalized)
       ? "Live values are read from the account-bound engine. Stop blocks new risk before scoped cleanup."
       : result
         ? "The session ended with the recorded result. Withdrawals remain an owner-signed account action."
@@ -161,6 +164,8 @@ export function renderUatMonitor({ state = "STOPPED", session = null, snapshot =
   const view = telemetryView({ state, session, snapshot, result });
   const panel = node("session-monitor");
   panel?.toggleAttribute("hidden", !view.visible);
+  const panelLabel = panel?.querySelector(".panel-label");
+  if (panelLabel) panelLabel.textContent = view.panelLabel;
   const pill = node("session-monitor-state");
   if (pill) {
     pill.className = "status-pill " + (view.active ? "status-safe" : view.state === "ERROR" ? "status-error" : "status-preview");

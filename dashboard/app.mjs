@@ -27,7 +27,7 @@ import { deriveWalletStatus, renderAccountJourney } from "./account-journey.mjs"
 import { createAddLiquidityHandler, runAddLiquidity } from "./liquidity-flow.mjs";
 import { evaluateVerifiedOwnerAccountReadiness, isStrategyCapitalReady, isVerifiedOwnerAccountReady } from "./account-readiness.mjs";
 import { createAuthorizationHandler, runAuthorization } from "./authorization-flow.mjs";
-import { CONTROL_STOP_TERMINAL_STATES, ControlClientError, controlStateOf, createAccountControlClient, waitForControlStop } from "./control-client.mjs";
+import { CONTROL_ACTIVE_STATES, CONTROL_STOP_TERMINAL_STATES, ControlClientError, controlStateAfterPollFailure, controlStateOf, createAccountControlClient, reconcileControlPayload, waitForControlStop } from "./control-client.mjs";
 import { ensureUatMonitor, renderUatMonitor } from "./uat-monitor.mjs";
 
 const page = document.body.dataset.route || window.location.pathname.replace(/\/+$/, "") || "/";
@@ -353,7 +353,7 @@ function accountReadyForControl() {
 }
 
 function controlStateLabel(state) {
-  return ({ STARTING: "Starting", RUNNING: "Running", PAUSED: "Paused", STOPPING: "Stopping", ERROR: "Needs attention", STOPPED: "Ready to start", STOPPED_CLEAN: "Stopped", STOPPED_SETTLEMENT_PENDING: "Settlement pending", SETTLEMENT_READY: "Settlement ready", SETTLING: "Settling", SETTLED: "Settled", WITHDRAWABLE: "Withdrawable" })[state] || "Ready to start";
+  return ({ STARTING: "Starting", RUNNING: "Running", PAUSED: "Paused", STOPPING: "Stopping", RECONNECTING: "Reconnecting…", ERROR: "Needs attention", STOPPED: "Ready to start", STOPPED_CLEAN: "Stopped", STOPPED_SETTLEMENT_PENDING: "Settlement pending", SETTLEMENT_READY: "Settlement ready", SETTLING: "Settling", SETTLED: "Settled", WITHDRAWABLE: "Withdrawable" })[state] || "Ready to start";
 }
 
 function renderControlControls() {
@@ -369,7 +369,8 @@ function renderControlControls() {
     settle.addEventListener("click", handleSettleStrategy);
     strategyButtons.append(settle);
   }
-  const active = ["STARTING", "RUNNING", "PAUSED", "STOPPING", "SETTLEMENT_READY", "SETTLING"].includes(state);
+  const active = CONTROL_ACTIVE_STATES.includes(state);
+  const reconnecting = state === "RECONNECTING";
   const stoppable = active || state === "ERROR";
   const ready = accountReadyForControl();
   const start = element("start-villa");
@@ -378,7 +379,7 @@ function renderControlControls() {
   const status = element("control-plane-status");
   text("strategy-market", strategyMarketLabel());
   text("control-state", controlStateLabel(state));
-  if (start) syncButtonDisabled(start, !ready || appState.busy || appState.controlBusy || active);
+  if (start) syncButtonDisabled(start, !ready || appState.busy || appState.controlBusy || active || reconnecting);
   const settlementReady = ["STOPPED_SETTLEMENT_PENDING", "SETTLEMENT_READY"].includes(state);
   toggle("settle-villa", settlementReady);
   if (settle) syncButtonDisabled(settle, appState.busy || appState.controlBusy || state === "SETTLING");
@@ -386,7 +387,7 @@ function renderControlControls() {
   if (stop) syncButtonDisabled(stop, appState.busy || appState.controlBusy || state === "STOPPING");
   if (status) {
     status.className = `status-pill ${active ? "status-safe" : "status-preview"}`;
-    status.textContent = active ? state : state === "ERROR" ? "ATTENTION" : "ACCOUNT-BOUND CONTROL";
+    status.textContent = active ? state : reconnecting ? "RECONNECTING" : state === "ERROR" ? "ATTENTION" : "ACCOUNT-BOUND CONTROL";
   }
   text("control-plane-copy", "Start and Stop use the wallet-authenticated, account-bound control plane. The browser never signs engine transactions. Account execution is deployment-gated and only verified owner-bound sessions can start.");
 }
@@ -403,7 +404,7 @@ function clearControlPoll() {
 
 function scheduleControlPoll() {
   clearControlPoll();
-  const active = ["STARTING", "RUNNING", "PAUSED", "STOPPING", "SETTLEMENT_READY", "SETTLING"].includes(String(appState.controlState || "").toUpperCase());
+  const active = CONTROL_ACTIVE_STATES.includes(String(appState.controlState || "").toUpperCase()) || String(appState.controlState || "").toUpperCase() === "RECONNECTING";
   if (!active || !provider || !appState.owner) return;
   controlPollTimer = setTimeout(() => { void refreshControlState(); }, 5_000);
 }
@@ -432,23 +433,26 @@ async function refreshControlState() {
   if (!provider || !appState.owner || !appState.currentAccountAddress || !controlClient) return;
   try {
     const payload = await controlClient.state();
-    const state = controlStateOf(payload);
-    const session = payload?.session || appState.controlSession;
-    appState = { ...appState, controlState: state, controlSession: session, controlSnapshot: payload?.snapshot ?? appState.controlSnapshot, controlResult: payload?.result ?? appState.controlResult, controlBusy: false };
+    const reconciled = reconcileControlPayload(payload, { session: appState.controlSession, snapshot: appState.controlSnapshot, result: appState.controlResult });
+    const { state, session, snapshot, result } = reconciled;
+    appState = { ...appState, controlState: state, controlSession: session, controlSnapshot: snapshot, controlResult: result, controlBusy: false };
     renderControlControls();
-    renderUatMonitor({ state, session, snapshot: appState.controlSnapshot, result: appState.controlResult });
-    renderLiveCapital(appState.controlSnapshot);
-    if (["STARTING", "RUNNING", "PAUSED", "STOPPING", "SETTLEMENT_READY", "SETTLING"].includes(state)) scheduleControlPoll(); else clearControlPoll();
+    renderUatMonitor({ state, session, snapshot, result });
+    renderLiveCapital(snapshot);
+    if (CONTROL_ACTIVE_STATES.includes(state)) scheduleControlPoll(); else clearControlPoll();
     if (state === "ERROR") showControlTerminalError(payload);
   } catch (error) {
-    if (["STARTING", "RUNNING", "PAUSED", "STOPPING", "SETTLEMENT_READY", "SETTLING"].includes(String(appState.controlState || "").toUpperCase())) {
+    if (CONTROL_ACTIVE_STATES.includes(String(appState.controlState || "").toUpperCase()) || appState.controlState === "RECONNECTING") {
       if (controlAuthNeedsAttention(error)) {
         const controlError = error instanceof ControlClientError ? error : new ControlClientError("SESSION_REQUIRED", "Connect your owner wallet to continue.");
         setControlView("ERROR", "Reconnect your owner wallet to resume session monitoring.");
         showTransaction("FAILED", "Session monitoring paused.", "Reconnect your owner wallet to resume monitoring.", controlErrorDetail(controlError));
         return;
       }
-      setMessage("control-message", "Live session status is temporarily unavailable. Retrying.");
+      appState = { ...appState, controlState: controlStateAfterPollFailure(appState.controlState), controlBusy: false };
+      renderControlControls();
+      renderUatMonitor({ state: "RECONNECTING", session: null, snapshot: null, result: null });
+      setMessage("control-message", "Reconnecting to the account control service…");
       scheduleControlPoll();
     }
   }
