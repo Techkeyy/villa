@@ -136,6 +136,17 @@ test("signer-free routing requires the explicit allowlisted pre-market failure",
   assert.equal(classifyRecoveryRoute({ ...value, session: { ...value.session, currentMarketId: MARKET }, stored: { ...value.stored, session: { ...value.stored.session, currentMarketId: MARKET } } }), "SIGNER_CAPABLE_MARKET");
 });
 
+test("omitted and explicit null currentMarketId share the clean pre-market route", () => {
+  const omitted = productionPreMarketFixtures();
+  const explicitNull = preMarketFixtures();
+  assert.equal(omitted.session.currentMarketId, undefined);
+  assert.equal(explicitNull.session.currentMarketId, null);
+  assert.equal(classifyRecoveryRoute(omitted), SIGNER_FREE_PREMARKET_ROUTE);
+  assert.equal(classifyRecoveryRoute(explicitNull), SIGNER_FREE_PREMARKET_ROUTE);
+  assert.doesNotThrow(() => validateSignerFreePreMarketEvidence(omitted));
+  assert.doesNotThrow(() => validatePreflightFailureRecovery(explicitNull));
+});
+
 test("production-shaped missing currentMarketId routes to signer-free reconciliation", () => {
   const value = productionPreMarketFixtures();
   assert.equal(classifyRecoveryRoute(value), SIGNER_FREE_PREMARKET_ROUTE);
