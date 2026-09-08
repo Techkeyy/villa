@@ -9,13 +9,15 @@ import { VILLA_CHAIN } from "../dashboard/account-config.mjs";
 import { createOnChainAccountVerifier } from "../src/operator/account-binding.mjs";
 import { persistUatState } from "../src/operator/uat-state.mjs";
 import { createViemLpAccountReader } from "../src/execution/lp-adapter.mjs";
-import { classifyRecoveryRoute, SIGNER_FREE_PREMARKET_ROUTE, validateSignerFreePreMarketEvidence } from "../src/execution/lp-session-recovery.mjs";
+import { classifyRecoveryRoute, LEGACY_AMBIGUOUS_CLASSIFICATION, SIGNER_FREE_PREMARKET_ROUTE, validateSignerFreePreMarketEvidence } from "../src/execution/lp-session-recovery.mjs";
+import { createFileGlobalExecutionAdmission } from "../src/execution/lp-global-admission.mjs";
 
 const execFileAsync = promisify(execFile);
 const SOCKET_PATH = process.env.VILLA_UAT_BROKER_SOCKET || "/run/villa-uat-broker/control.sock";
 const BINDING_DIR = "/run/villa-uat-bindings";
 const STATUS_DIR = "/run/villa-uat-status";
 const PRIVATE_STATE_ROOT = "/var/lib/villa-engine";
+const GLOBAL_ADMISSION_FILE = String(process.env.VILLA_GLOBAL_EXECUTION_ADMISSION_FILE || `${PRIVATE_STATE_ROOT}/global-execution-admission.json`);
 const SESSION_RE = /^uat-[0-9]+-[0-9a-f]{8}$/;
 const ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
 const ACTIONS = new Set(["start", "stop", "settle", "recover"]);
@@ -24,6 +26,7 @@ const READONLY_RPC_URL = String(process.env.RPC_URL || VILLA_CHAIN.rpcUrl).trim(
 const READONLY_CLIENT = createPublicClient({ chain: somniaShannon, transport: http(READONLY_RPC_URL, { timeout: 15_000 }) });
 const READONLY_READER = createViemLpAccountReader({ publicClient: READONLY_CLIENT });
 const verifyAccount = createOnChainAccountVerifier({ env: { ...process.env, VILLA_ENGINE_OPERATOR: CANONICAL_OPERATOR }, publicClient: READONLY_CLIENT, identityReader: READONLY_READER });
+const globalAdmission = createFileGlobalExecutionAdmission({ filePath: GLOBAL_ADMISSION_FILE });
 
 function validAddress(value) {
   return ADDRESS_RE.test(String(value ?? ""));
@@ -49,6 +52,8 @@ function privateStatePath(sessionId) {
   return path.join(PRIVATE_STATE_ROOT, `uat-${sessionId}`, "session.json");
 }
 
+function provenancePath(sessionId) { return path.join(PRIVATE_STATE_ROOT, `uat-${sessionId}`, "provenance.json"); }
+
 function journalPath(sessionId) {
   return path.join(PRIVATE_STATE_ROOT, `uat-${sessionId}`, "transactions.json");
 }
@@ -65,15 +70,15 @@ async function readJson(file, label) {
   }
 }
 
-async function readPreMarketJournal(sessionId) {
+async function readPreMarketJournal(sessionId, { required = false } = {}) {
   let payload;
   try {
     payload = JSON.parse(await fs.readFile(journalPath(sessionId), "utf8"));
   } catch (error) {
-    if (error?.code === "ENOENT") return { pending: 0, unknown: 0, reverted: 0, records: [] };
+    if (error?.code === "ENOENT") { if (required) throw new Error("the new-session transaction journal is unavailable"); return { pending: 0, unknown: 0, reverted: 0, records: [] }; }
     throw new Error("the exact transaction journal is unavailable or invalid");
   }
-  if (payload?.version !== "villa-private-account-writer-v1" || !Array.isArray(payload.records) || payload.halted === true) {
+  if (payload?.version !== "villa-private-account-writer-v1" || payload.initializedBeforeWrite !== true || !Array.isArray(payload.records) || payload.halted === true) {
     throw new Error("the exact transaction journal is not cleanly empty");
   }
   return {
@@ -117,18 +122,19 @@ async function readPreMarketAccountState(account) {
   };
 }
 
-async function reconcileSignerFreePreMarket(sessionId, owner, account) {
+async function reconcileSignerFreePreMarket(sessionId, owner, account, provenance = null) {
   const status = await readJson(statusPath(sessionId), "public status");
   const stored = await readJson(privateStatePath(sessionId), "private session state");
+  if (!provenance) throw new Error("legacy ambiguous sessions cannot use signer-free reconciliation");
   const session = { sessionId, owner, account, operator: CANONICAL_OPERATOR, currentMarketId: status?.session?.currentMarketId };
-  const route = classifyRecoveryRoute({ session, stored });
+  const route = classifyRecoveryRoute({ session, stored, provenance });
   if (route !== SIGNER_FREE_PREMARKET_ROUTE) throw new Error("the exact session is not eligible for signer-free reconciliation");
   await assertUnitInactive(`villa-engine-uat@${sessionId}.service`);
   await assertUnitInactive(`villa-engine-uat-recover@${sessionId}.service`);
   await assertNoLease(sessionId, account);
-  const journal = await readPreMarketJournal(sessionId);
+  const journal = await readPreMarketJournal(sessionId, { required: true });
   const accountState = await readPreMarketAccountState(account);
-  const preflight = validateSignerFreePreMarketEvidence({ session, stored, status, expiredLease: null, journal, accountState, activeUnit: false });
+  const preflight = validateSignerFreePreMarketEvidence({ session, stored, status, provenance, expiredLease: null, journal, accountState, activeUnit: false });
   const finalSession = { ...status.session, sessionId, owner, account, operator: CANONICAL_OPERATOR, currentMarketId: null, leaseId: null, state: "STOPPED_CLEAN" };
   persistUatState(statusPath(sessionId), {
     type: "snapshot",
@@ -174,16 +180,26 @@ async function assertExistingBinding(sessionId, owner, account) {
     || values.VILLA_ENGINE_ACCOUNT.toLowerCase() !== account.toLowerCase()) throw new Error("the session binding scope does not match");
 }
 
-async function writeBinding(sessionId, owner, account) {
+async function writeBinding(sessionId, owner, account, admission = null) {
   await fs.mkdir(BINDING_DIR, { recursive: true, mode: 0o750 });
   const temporary = path.join(BINDING_DIR, `.${sessionId}.${process.pid}`);
-  const content = `VILLA_ENGINE_OWNER=${owner}\nVILLA_ENGINE_ACCOUNT=${account}\nVILLA_ENGINE_SESSION_ID=${sessionId}\n`;
+  const content = `VILLA_ENGINE_OWNER=${owner}\nVILLA_ENGINE_ACCOUNT=${account}\nVILLA_ENGINE_SESSION_ID=${sessionId}\n${admission ? `VILLA_EXECUTION_ADMISSION_ID=${admission.admissionId}\nVILLA_GLOBAL_EXECUTION_ADMISSION_FILE=${GLOBAL_ADMISSION_FILE}\nVILLA_REQUIRE_GLOBAL_ADMISSION=true\n` : ""}`;
   await fs.writeFile(temporary, content, { encoding: "utf8", mode: 0o600, flag: "wx" });
   try {
     await fs.link(temporary, bindingPath(sessionId));
   } finally {
     await fs.rm(temporary, { force: true });
   }
+}
+
+async function attachAdmissionToBinding(sessionId, owner, account, admission) {
+  const file = bindingPath(sessionId);
+  const content = await fs.readFile(file, "utf8");
+  const expected = `VILLA_ENGINE_OWNER=${owner}\nVILLA_ENGINE_ACCOUNT=${account}\nVILLA_ENGINE_SESSION_ID=${sessionId}\n`;
+  if (!content.startsWith(expected)) throw new Error("the session binding scope does not match");
+  const temporary = path.join(BINDING_DIR, `.${sessionId}.admission.${process.pid}`);
+  await fs.writeFile(temporary, `${expected}VILLA_EXECUTION_ADMISSION_ID=${admission.admissionId}\nVILLA_GLOBAL_EXECUTION_ADMISSION_FILE=${GLOBAL_ADMISSION_FILE}\nVILLA_REQUIRE_GLOBAL_ADMISSION=true\n`, { encoding: "utf8", mode: 0o600, flag: "wx" });
+  await fs.rename(temporary, file);
 }
 
 async function runSystemd(action, sessionId) {
@@ -211,6 +227,66 @@ async function runSystemd(action, sessionId) {
   await execFileAsync("/usr/bin/systemctl", [verb, unit], { windowsHide: true });
 }
 
+function admissionUnit(admission) {
+  const sessionId = admission?.session?.sessionId;
+  if (admission?.role === "settlement") return `villa-engine-uat-settle@${sessionId}.service`;
+  if (admission?.role === "recovery") return `villa-engine-uat-recover@${sessionId}.service`;
+  return `villa-engine-uat@${sessionId}.service`;
+}
+
+async function admissionLiveness(admission) {
+  const unit = admissionUnit(admission);
+  try {
+    await execFileAsync("/usr/bin/systemctl", ["is-active", "--quiet", unit], { windowsHide: true });
+    return true;
+  } catch (error) {
+    if (Number(error?.code) !== 3) return null;
+  }
+  try {
+    const { stdout = "" } = await execFileAsync("/usr/bin/pgrep", ["-a", "-f", "/opt/villa-private-runtime/scripts/lp-account-"], { windowsHide: true });
+    const lines = String(stdout).split(String.fromCharCode(10)).filter(Boolean);
+    if (lines.some((line) => line.includes(admission.session.sessionId))) return true;
+    if (lines.length > 0) return null;
+  } catch (error) {
+    if (Number(error?.code) !== 1) return null;
+  }
+  let status;
+  try { status = await readJson(statusPath(admission.session.sessionId), "public status"); } catch { return null; }
+  if (status?.session?.sessionId !== admission.session.sessionId
+    || String(status.session.owner ?? "").toLowerCase() !== admission.session.owner
+    || String(status.session.account ?? "").toLowerCase() !== admission.session.account) return null;
+  if (["STOPPED", "STOPPED_CLEAN", "SETTLED", "WITHDRAWABLE", "ERROR"].includes(status?.state)) return false;
+  if (["STARTING", "RUNNING", "STOPPING", "CHECKING_SETTLEMENT"].includes(status?.state)) return true;
+  return null;
+}
+
+async function claimAdmission(session, role) {
+  const exact = { sessionId: session.sessionId, owner: session.owner, account: session.account, operator: CANONICAL_OPERATOR };
+  const existing = globalAdmission.get();
+  if (existing) {
+    const live = await admissionLiveness(existing);
+    if (live === true) throw Object.assign(new Error("VILLA is currently running another strategy. Try again shortly."), { code: "GLOBAL_EXECUTION_BUSY" });
+    if (live !== false) throw Object.assign(new Error("the shared execution admission cannot be safely reconciled yet"), { code: "GLOBAL_ADMISSION_LIVENESS_UNKNOWN" });
+    globalAdmission.reconcileStale({ admissionId: existing.admissionId, session: existing.session, isActive: () => false });
+  }
+  return globalAdmission.claim({ session: exact, role });
+}
+
+function monitorGlobalAdmission(admission) {
+  const timer = setInterval(async () => {
+    try {
+      const current = globalAdmission.get();
+      if (!current || current.admissionId !== admission.admissionId) { clearInterval(timer); return; }
+      const live = await admissionLiveness(current);
+      if (live === false) {
+        globalAdmission.reconcileStale({ admissionId: current.admissionId, session: current.session, isActive: () => false });
+        clearInterval(timer);
+      }
+    } catch { /* retain the claim when liveness is not authoritative */ }
+  }, 5_000);
+  timer.unref?.();
+  return timer;
+}
 async function readPreflightReconciledStatus(sessionId, owner, account) {
   try {
     const document = JSON.parse(await fs.readFile(statusPath(sessionId), "utf8"));
@@ -245,9 +321,14 @@ async function handle(socket, raw) {
     return;
   }
   try {
+    let admission = null;
+    let handedOff = false;
     if (action === "start" || action === "settle" || action === "recover") await verifyAccount({ caller: owner, account, requireOperator: true });
     let alreadyReconciled = false;
-    if (action === "start") await writeBinding(sessionId, owner.toLowerCase(), account.toLowerCase());
+    if (action === "start") {
+      admission = await claimAdmission({ sessionId, owner, account }, "strategy");
+      await writeBinding(sessionId, owner.toLowerCase(), account.toLowerCase(), admission);
+    }
     else {
       try {
         await assertExistingBinding(sessionId, owner, account);
@@ -260,19 +341,33 @@ async function handle(socket, raw) {
       if (action === "recover") {
         const status = await readJson(statusPath(sessionId), "public status");
         const stored = await readJson(privateStatePath(sessionId), "private session state");
-        const route = classifyRecoveryRoute({ session: { ...status.session, sessionId, owner, account, operator: CANONICAL_OPERATOR }, stored });
-        if (route === SIGNER_FREE_PREMARKET_ROUTE) await reconcileSignerFreePreMarket(sessionId, owner, account);
+        let provenance = null;
+        try { provenance = JSON.parse(await fs.readFile(provenancePath(sessionId), "utf8")); } catch { /* missing provenance is explicitly legacy ambiguous */ }
+        const route = classifyRecoveryRoute({ session: { ...status.session, sessionId, owner, account, operator: CANONICAL_OPERATOR }, stored, provenance });
+        if (route === SIGNER_FREE_PREMARKET_ROUTE) await reconcileSignerFreePreMarket(sessionId, owner, account, provenance);
+        else if (route === LEGACY_AMBIGUOUS_CLASSIFICATION) throw new Error("legacy ambiguous sessions cannot be recovered automatically");
         else {
+          admission = await claimAdmission({ sessionId, owner, account }, "recovery");
+          await attachAdmissionToBinding(sessionId, owner, account, admission);
+          handedOff = true;
           await runSystemd(action, sessionId);
           await clearPreflightBinding(sessionId, owner, account);
         }
       } else {
+        if (action === "settle") {
+          admission = await claimAdmission({ sessionId, owner, account }, "settlement");
+          await attachAdmissionToBinding(sessionId, owner, account, admission);
+        }
+        handedOff = true;
         await runSystemd(action, sessionId);
       }
     }
+    if (admission) monitorGlobalAdmission(admission);
     response(socket, { ok: true });
   } catch (error) {
+    if (admission && !handedOff) { try { globalAdmission.release({ admissionId: admission.admissionId, session: { sessionId, owner, account, operator: CANONICAL_OPERATOR } }); } catch { /* preserve a claim if its state is uncertain */ } }
     console.error(`[villa-uat-broker] action=${action} sessionId=${sessionId} code=${error?.code || "ERROR"} message=${error?.message || String(error)}`);
+    if (["GLOBAL_EXECUTION_BUSY", "GLOBAL_ADMISSION_LIVENESS_UNKNOWN", "GLOBAL_ADMISSION_STALE"].includes(error?.code)) { fail(socket, error.code, error.message); return; }
     fail(socket, "BROKER_OPERATION_FAILED", "the root account broker refused the operation");
   }
 }

@@ -13,6 +13,7 @@ const ALLOWED_ACTIONS = new Set([
 const PREMARKET_FAILURE_CODES = new Set(["ACCOUNT_CAPITAL_CAP", "NO_VALID_QUOTE", "PRICE_STALE"]);
 export const SIGNER_FREE_PREMARKET_ROUTE = "SIGNER_FREE_PREMARKET_RECONCILIATION";
 export const PREMARKET_RECOVERY_CLASSIFICATION = "NARROW_PREMARKET_RECOVERY";
+export const LEGACY_AMBIGUOUS_CLASSIFICATION = "LEGACY_AMBIGUOUS";
 
 export function isPreMarketFailureCode(code, message = null) {
   const normalizedCode = String(code ?? "");
@@ -84,12 +85,16 @@ function assertNoWriteEvidence(document, label) {
 
 /** Classify recovery before any service launch. Null market is only eligible
  * for the explicit allowlisted terminal preflight error. */
-export function classifyRecoveryRoute({ session, stored } = {}) {
+export function classifyRecoveryRoute({ session, stored, provenance = null } = {}) {
   if (!session || !stored?.session) fail("RECOVERY_STATE_REQUIRED", "session and private state are required");
   const storedMarketId = stored.session.currentMarketId;
   const sessionMarketId = session.currentMarketId;
   if (noMarket(storedMarketId) || noMarket(sessionMarketId)) {
-    if (noMarket(storedMarketId) && noMarket(sessionMarketId) && isPreMarketFailureCode(stored.error?.code, stored.error?.message)) return SIGNER_FREE_PREMARKET_ROUTE;
+    if (noMarket(storedMarketId) && noMarket(sessionMarketId) && isPreMarketFailureCode(stored.error?.code, stored.error?.message)) {
+      if (!provenance) return LEGACY_AMBIGUOUS_CLASSIFICATION;
+      if (provenance.schemaVersion !== "villa-lp-execution-provenance-v1") fail("RECOVERY_PROVENANCE_UNKNOWN", "the new-session provenance envelope is invalid");
+      return SIGNER_FREE_PREMARKET_ROUTE;
+    }
     fail("RECOVERY_NOT_PREFLIGHT_ONLY", "the failed session is not an explicitly allowlisted pre-market rejection");
   }
   if (!same(storedMarketId, sessionMarketId)) fail("RECOVERY_SCOPE_MISMATCH", "private state currentMarketId does not match the recovery session");
@@ -99,8 +104,8 @@ export function classifyRecoveryRoute({ session, stored } = {}) {
 /** Validate the complete signer-free pre-market evidence set. This function
  * has no chain-write or signer capability and is shared by the root broker and
  * focused recovery tests. */
-export function validateSignerFreePreMarketEvidence({ session, stored, status, expiredLease = null, journal, accountState, activeUnit = false } = {}) {
-  const route = classifyRecoveryRoute({ session, stored });
+export function validateSignerFreePreMarketEvidence({ session, stored, status, provenance = null, expiredLease = null, journal, accountState, activeUnit = false } = {}) {
+  const route = classifyRecoveryRoute({ session, stored, provenance });
   if (route !== SIGNER_FREE_PREMARKET_ROUTE) fail("RECOVERY_NOT_PREFLIGHT_ONLY", "the session is not eligible for signer-free pre-market reconciliation");
   if (!status || status.state !== "ERROR" || !status.session || (status.result !== null && status.result !== undefined)) {
     fail("RECOVERY_STATUS_INVALID", "pre-market recovery requires the exact terminal error status");
@@ -173,7 +178,7 @@ export function validatePreflightFailureRecovery({ session, stored, expiredLease
   return Object.freeze({ classification: "MARKET_BOUND_PREFLIGHT_RECOVERY", capitalRaw: raw(accountState?.capital?.directCollateralRaw, "account capital"), nextTxIndex: 0 });
 }
 
-export function validateExpiredSessionRecovery({ session, stored, expiredLease, journal, accountState } = {}) {
+export function validateExpiredSessionRecovery({ session, stored, provenance = null, expiredLease, journal, accountState } = {}) {
   if (!session || !stored?.session || !expiredLease) fail("RECOVERY_STATE_REQUIRED", "session, private state, and expired lease are required");
   for (const [field, exact = false] of [["owner"], ["account"], ["operator"], ["currentMarketId"], ["sessionId", true]]) {
     const matches = exact ? String(stored.session[field] ?? "") === String(session[field] ?? "") : same(stored.session[field], session[field]);
@@ -224,6 +229,18 @@ export function validateExpiredSessionRecovery({ session, stored, expiredLease, 
     knownOrderIds: Object.freeze([...knownOrders.keys()]),
     nextTxIndex: records.length,
   });
+}
+
+/** Fact-based classification for new records. Missing evidence is UNKNOWN and fails closed. */
+export function classifyFactBasedRecovery({ provenance, journal, facts = {} } = {}) {
+  if (!provenance || provenance.schemaVersion !== "villa-lp-execution-provenance-v1") return Object.freeze({ classification: LEGACY_AMBIGUOUS_CLASSIFICATION, safeToRetry: false });
+  if (!journal || journal.initializedBeforeWrite !== true || !Array.isArray(journal.records)) return Object.freeze({ classification: "UNKNOWN", safeToRetry: false, reason: "JOURNAL_UNAVAILABLE" });
+  const required = ["activeUnit", "activeLease", "activeSignerWorker", "openOrders", "outcomeInventory", "aggregateExposure", "mintExposure", "vault", "claimableValue", "pendingSettlement", "redeemableValue", "unknownTransactions"];
+  if (required.some((key) => facts[key] === undefined || facts[key] === null || facts[key] === "UNKNOWN")) return Object.freeze({ classification: "UNKNOWN", safeToRetry: false, reason: "AUTHORITATIVE_FACT_MISSING" });
+  const clean = facts.activeUnit === false && facts.activeLease === false && facts.activeSignerWorker === false && facts.openOrders === 0 && facts.outcomeInventory === 0 && facts.aggregateExposure === 0 && facts.mintExposure === 0 && facts.vault === 0 && facts.claimableValue === 0 && facts.pendingSettlement === false && facts.redeemableValue === 0 && facts.unknownTransactions === 0;
+  if (!clean) return Object.freeze({ classification: "DIRTY", safeToRetry: false, reason: "ACCOUNT_STATE_PRESENT" });
+  if (journal.records.length === 0 && journal.writeAuthorityReached !== true) return Object.freeze({ classification: "CLEAN", safeToRetry: true, reason: "PRE_WRITE" });
+  return Object.freeze({ classification: "DIRTY", safeToRetry: false, reason: "WRITE_EVIDENCE_PRESENT" });
 }
 
 export function recoveryActions({ session, provenance, accountState } = {}) {

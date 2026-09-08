@@ -11,6 +11,7 @@ import * as fs from "node:fs";
 import path from "node:path";
 import { VILLA_ACCOUNT_OPERATOR_ABI } from "./lp-adapter.mjs";
 import { LP_ALLOWED_ACCOUNT_OPERATIONS } from "./lp-transaction-policy.mjs";
+import { readExecutionProvenance } from "./lp-execution-provenance.mjs";
 
 export const LP_PRIVATE_WRITER_VERSION = "villa-private-account-writer-v1";
 export const LP_PRIVATE_WRITER_STATES = Object.freeze(["PENDING", "CONFIRMED", "REVERTED", "UNKNOWN"]);
@@ -88,6 +89,8 @@ export function createAccountBoundPrivateWriter({
   readPendingNonce,
   readReceipt = null,
   journalPath = null,
+  provenancePath = null,
+  requireProvenance = false,
   now = () => Date.now(),
   receiptRecoveryAttempts = LP_RECEIPT_RECOVERY_ATTEMPTS,
   receiptRecoveryDelayMs = LP_RECEIPT_RECOVERY_DELAY_MS,
@@ -109,6 +112,10 @@ export function createAccountBoundPrivateWriter({
   if (!publicClient || typeof publicClient.simulateContract !== "function") throw new LpPrivateWriterError("SIMULATOR_REQUIRED", "a public simulation client is required");
   if (!walletClient || typeof walletClient.writeContract !== "function") throw new LpPrivateWriterError("WALLET_REQUIRED", "the private wallet client is required");
   if (typeof readLatestNonce !== "function" || typeof readPendingNonce !== "function") throw new LpPrivateWriterError("NONCE_READER_REQUIRED", "latest and pending nonce readers are required");
+  if (requireProvenance === true) {
+    if (!provenancePath) throw new LpPrivateWriterError("PROVENANCE_REQUIRED", "immutable execution provenance is required before private writes");
+    try { readExecutionProvenance(provenancePath, { session }); } catch (error) { throw new LpPrivateWriterError(error?.code ?? "PROVENANCE_INVALID", error?.message ?? "execution provenance is invalid"); }
+  }
 
   const recoveryAttempts = positiveInteger(receiptRecoveryAttempts, LP_RECEIPT_RECOVERY_ATTEMPTS);
   const recoveryDelayMs = Math.max(0, Number.isFinite(Number(receiptRecoveryDelayMs)) ? Number(receiptRecoveryDelayMs) : LP_RECEIPT_RECOVERY_DELAY_MS);
@@ -119,13 +126,15 @@ export function createAccountBoundPrivateWriter({
   let tail = Promise.resolve();
   let nextNonce = null;
   let sequence = 0;
+  let writeAuthorityReached = false;
+  let journalMetadata = {};
   const records = new Map();
 
   function persist() {
     if (!journalPath) return;
     fs.mkdirSync(path.dirname(journalPath), { recursive: true });
     const temporary = `${journalPath}.tmp-${process.pid}`;
-    fs.writeFileSync(temporary, journalString({ version: LP_PRIVATE_WRITER_VERSION, nextNonce, sequence, halted, records: [...records.values()] }), { mode: 0o600 });
+    fs.writeFileSync(temporary, journalString({ ...journalMetadata, version: LP_PRIVATE_WRITER_VERSION, nextNonce, sequence, halted, writeAuthorityReached, records: [...records.values()] }), { mode: 0o600 });
     fs.renameSync(temporary, journalPath);
   }
 
@@ -134,9 +143,15 @@ export function createAccountBoundPrivateWriter({
     let payload;
     try { payload = JSON.parse(fs.readFileSync(journalPath, "utf8")); } catch { throw new LpPrivateWriterError("JOURNAL_CORRUPT", "private writer journal is unreadable; recovery is blocked"); }
     if (payload?.version !== LP_PRIVATE_WRITER_VERSION || !Array.isArray(payload.records)) throw new LpPrivateWriterError("JOURNAL_CORRUPT", "private writer journal version is unsupported; recovery is blocked");
+    for (const field of ["sessionId", "owner", "account", "operator"]) {
+      if (payload[field] !== undefined && String(payload[field]).toLowerCase() !== String(session[field]).toLowerCase()) throw new LpPrivateWriterError("JOURNAL_SCOPE_MISMATCH", "private writer journal does not match the session scope");
+    }
+    if (payload.marketId !== undefined && String(payload.marketId ?? "") !== String(session.currentMarketId ?? "")) throw new LpPrivateWriterError("JOURNAL_SCOPE_MISMATCH", "private writer journal does not match the market scope");
+    journalMetadata = Object.fromEntries(Object.entries(payload).filter(([key]) => !["version", "nextNonce", "sequence", "halted", "writeAuthorityReached", "records"].includes(key)));
     nextNonce = payload.nextNonce === null || payload.nextNonce === undefined ? null : numberNonce(payload.nextNonce);
     sequence = Number.isSafeInteger(Number(payload.sequence)) && Number(payload.sequence) >= 0 ? Number(payload.sequence) : 0;
     halted = Boolean(payload.halted);
+    writeAuthorityReached = Boolean(payload.writeAuthorityReached);
     for (const record of payload.records) {
       if (!record || typeof record.hash !== "string") throw new LpPrivateWriterError("JOURNAL_CORRUPT", "private writer journal contains an invalid record");
       const recovered = record.state === "PENDING"
@@ -158,6 +173,7 @@ export function createAccountBoundPrivateWriter({
       nextNonce,
       pending: [...records.values()].filter((record) => record.state === "PENDING").length,
       unknown: [...records.values()].filter((record) => record.state === "UNKNOWN").length,
+      writeAuthorityReached,
       records: clone([...records.values()]),
     };
   }
@@ -220,6 +236,7 @@ export function createAccountBoundPrivateWriter({
     const provisionalHash = `intent-${plan.intent.sessionId}-${txIndex}-${sequence}`;
     sequence += 1;
     records.set(provisionalHash, { hash: provisionalHash, intentId, sessionId: plan.intent.sessionId, action: plan.intent.action, account: session.account, marketId: plan.intent.marketId, amountRaw: plan.intent.amountRaw === null || plan.intent.amountRaw === undefined ? null : String(plan.intent.amountRaw), priceRaw: plan.intent.priceRaw === null || plan.intent.priceRaw === undefined ? null : String(plan.intent.priceRaw), side: plan.intent.side ?? null, nonce: txNonce, state: "PENDING", createdAt: now(), updatedAt: now(), receiptBlock: null, revertReason: null });
+    writeAuthorityReached = true;
     persist();
 
     let txHash;

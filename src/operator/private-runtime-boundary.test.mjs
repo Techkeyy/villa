@@ -70,7 +70,7 @@ test("root broker is the only dynamic identity boundary", () => {
   assert.match(brokerUnit, /User=root/);
   assert.match(brokerUnit, /Group=villa/);
   assert.match(brokerUnit, /villa-uat-broker\.mjs/);
-  assert.match(brokerUnit, /ReadWritePaths=\/run\/villa-uat-broker \/run\/villa-uat-bindings/);
+  assert.match(brokerUnit, /ReadWritePaths=\/run\/villa-uat-broker \/run\/villa-uat-bindings \/var\/lib\/villa-engine\/global-execution-admission\.json/);
   assert.match(brokerUnit, /InaccessiblePaths=\/etc\/villa-engine\.env/);
   assert.match(brokerUnit, /UnsetEnvironment=OPERATOR_PRIVATE_KEY TAKER_PRIVATE_KEY PRIVATE_KEY WALLET_SEED MNEMONIC CREDENTIALS_DIRECTORY/);
   assert.match(brokerUnit, /VILLA_ENGINE_OPERATOR=0xaf4ee6/);
@@ -116,7 +116,8 @@ test("private bundle entrypoints and specs contain no public-writable runtime pa
   assert.equal(PRIVATE_DEPLOYMENT_MODES["etc/sudoers.d/villa-uat-control"], undefined);
   const broker = fs.readFileSync(path.join(ROOT, "scripts/villa-uat-broker.mjs"), "utf8");
   assert.match(broker, /fs\.link\(temporary, bindingPath\(sessionId\)\)/);
-  assert.doesNotMatch(broker, /fs\.rename\(/);
+  assert.match(broker, /fs\.rename\(temporary, file\)/);
+  assert.match(broker, /VILLA_EXECUTION_ADMISSION_ID/);
 });
 
 test("service stop forwards a typed product stop and waits for cleanup with observable stdio", () => {

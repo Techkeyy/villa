@@ -25,6 +25,8 @@ import {
   VILLA_ACCOUNT_READ_ABI,
 } from "../src/execution/lp-adapter.mjs";
 import { createAccountBoundPrivateWriter } from "../src/execution/lp-private-writer.mjs";
+import { createExecutionProvenance, initializeDurableJournal, persistExecutionProvenance, readExecutionProvenance } from "../src/execution/lp-execution-provenance.mjs";
+import { createFileGlobalExecutionAdmission, LP_GLOBAL_ADMISSION_HEARTBEAT_MS } from "../src/execution/lp-global-admission.mjs";
 import { evaluateWetExecutionPreflight } from "../src/execution/lp-preflight.mjs";
 import { reconcileLpSession } from "../src/execution/lp-reconciliation.mjs";
 import { attachLease, createFileAccountLeaseStore, createLpExecutionSession, transitionLpSession } from "../src/execution/lp-session.mjs";
@@ -139,11 +141,17 @@ function configFromEnv(env) {
   if (env.VILLA_ACCOUNT_EXECUTION_ENABLED !== "true") fail("ACCOUNT_EXECUTION_DISABLED", "the private account session execution flag is disabled");
   if (String(env.VILLA_EXECUTION_MODE ?? "WET").toUpperCase() !== "WET") fail("MODE_INVALID", "the private UAT session requires WET mode");
   if (!SESSION_RE.test(String(env.VILLA_ENGINE_SESSION_ID ?? ""))) fail("SESSION_INVALID", "the private session id is invalid");
+  const stateDir = String(env.VILLA_STATE_DIR || `/var/lib/villa-engine/uat-${env.VILLA_ENGINE_SESSION_ID}`);
   return Object.freeze({
     owner: address(env.VILLA_ENGINE_OWNER, "LP owner"),
     account: address(env.VILLA_ENGINE_ACCOUNT, "VillaAccount"),
     operator: address(env.VILLA_ENGINE_OPERATOR ?? env.OPERATOR_ADDRESS, "VILLA operator"),
     sessionId: String(env.VILLA_ENGINE_SESSION_ID ?? ""),
+    stateDir,
+    provenancePath: String(env.VILLA_EXECUTION_PROVENANCE_FILE ?? `${stateDir}/provenance.json`),
+    globalAdmissionFile: String(env.VILLA_GLOBAL_EXECUTION_ADMISSION_FILE ?? "/var/lib/villa-engine/global-execution-admission.json"),
+    globalAdmissionId: String(env.VILLA_EXECUTION_ADMISSION_ID ?? ""),
+    requireGlobalAdmission: env.VILLA_REQUIRE_GLOBAL_ADMISSION === "true",
   });
 }
 
@@ -257,19 +265,30 @@ async function main() {
   const env = process.env;
   const config = configFromEnv(env);
   if (!config.sessionId) fail("SESSION_REQUIRED", "a private UAT session id is required");
+  if (config.requireGlobalAdmission && !config.globalAdmissionId) fail("GLOBAL_ADMISSION_REQUIRED", "a durable global execution admission is required");
   const bootSession = { sessionId: config.sessionId, account: config.account, owner: config.owner, operator: config.operator };
   setRuntimeStage("VERIFYING_ACCOUNT", "Verifying account", "STARTING", bootSession);
   const signerInfo = loadPrivateSigner({ credentialsDirectory: env.CREDENTIALS_DIRECTORY, expectedOperator: config.operator });
   const publicClient = createPublicClient({ chain: somniaShannon, transport: http(env.RPC_URL || VILLA_ACCOUNT_CONFIG.rpcUrl, { timeout: 15_000 }) });
   const exchange = new SomniaMarkets({ account: config.account, indexerUrl: env.INDEXER_URL || "https://dev.smk.somnia.host/v1/graphql", chain: somniaShannon, wsRpcUrl: env.WS_RPC_URL || "wss://api.infra.testnet.somnia.network/ws", addresses: SOMNIA_TESTNET_ADDRESSES, priceFeed: SOMNIA_TESTNET_PRICE_FEED });
-  const leaseStore = createFileAccountLeaseStore({ directory: env.VILLA_LEASE_DIR || env.VILLA_STATE_DIR || "/var/lib/villa-engine", leaseDurationMs: 30_000 });
-  const journalPath = env.VILLA_WRITER_JOURNAL || `${env.VILLA_STATE_DIR || "/var/lib/villa-engine"}/transactions.json`;
+  const leaseStore = createFileAccountLeaseStore({ directory: env.VILLA_LEASE_DIR || config.stateDir, leaseDurationMs: 30_000 });
+  const journalPath = env.VILLA_WRITER_JOURNAL || `${config.stateDir}/transactions.json`;
   const reader = createViemLpAccountReader({ publicClient, listOpenOrderIds: async ({ pool }) => publicClient.readContract({ address: pool, abi: OWN_ORDERS_ABI, functionName: "getOwnOpenOrders", account: config.account }) });
   const adapter = createLpExecutionAdapter({ account: config.account, owner: config.owner, operator: config.operator, reader, sessionId: config.sessionId });
   const stopSignal = { requested: false, reason: null, paused: false };
   const requestStop = (reason) => {
     if (!stopSignal.requested) { stopSignal.requested = true; stopSignal.reason = reason; }
   };
+  const admissionStore = createFileGlobalExecutionAdmission({ filePath: config.globalAdmissionFile });
+  let admissionClaim = null;
+  let admissionHeartbeat = null;
+  if (config.globalAdmissionId) {
+    admissionClaim = admissionStore.adopt({ admissionId: config.globalAdmissionId, session: bootSession, role: "strategy" });
+    admissionHeartbeat = setInterval(() => {
+      try { admissionClaim = admissionStore.heartbeat({ admissionId: admissionClaim.admissionId, session: bootSession }); }
+      catch (error) { requestStop("GLOBAL_ADMISSION_LOST"); recordActivity("ADMISSION", "Global execution admission lost", { reasonCode: error?.code ?? "GLOBAL_ADMISSION_LOST" }); }
+    }, LP_GLOBAL_ADMISSION_HEARTBEAT_MS);
+  }
   process.on("message", (message) => {
     if (message?.type === "stop") requestStop(String(message.reason || "OWNER_STOP"));
     if (message?.type === "pause") stopSignal.paused = true;
@@ -495,6 +514,11 @@ async function main() {
     send({ type: "state", state: "STARTING", session });
     lease = leaseStore.acquire(session);
     session = attachLease(session, lease);
+
+    const existingProvenance = readExecutionProvenance(config.provenancePath, { session });
+    const provenance = existingProvenance ?? createExecutionProvenance({ session, marketIdentity: { marketId: selected.marketId, pool: selected.pool, series: selected.series }, executionAdmission: admissionClaim, lease, journalPath, executionStage: "PREFLIGHT" });
+    persistExecutionProvenance({ provenancePath: config.provenancePath, provenance });
+    initializeDurableJournal({ journalPath, session, provenancePath: config.provenancePath });
     send({ type: "state", state: "STARTING", session });
     leaseHeartbeat = createLeaseHeartbeat({
       leaseStore,
@@ -537,7 +561,7 @@ async function main() {
     };
     const walletClient = (await import("viem")).createWalletClient({ account: signerInfo.signer, chain: somniaShannon, transport: http(env.RPC_URL || VILLA_ACCOUNT_CONFIG.rpcUrl, { timeout: 15_000 }) });
     session = transitionLpSession(session, "RUNNING");
-    writer = createAccountBoundPrivateWriter({ session, lease: leaseHeartbeat.authority, policy, signer: signerInfo.signer, publicClient, walletClient, executionEnabled: true, readLatestNonce: () => publicClient.getTransactionCount({ address: signerInfo.address, blockTag: "latest" }), readPendingNonce: () => publicClient.getTransactionCount({ address: signerInfo.address, blockTag: "pending" }), readReceipt: (hash) => publicClient.getTransactionReceipt({ hash }), journalPath });
+    writer = createAccountBoundPrivateWriter({ session, lease: leaseHeartbeat.authority, policy, signer: signerInfo.signer, publicClient, walletClient, executionEnabled: true, readLatestNonce: () => publicClient.getTransactionCount({ address: signerInfo.address, blockTag: "latest" }), readPendingNonce: () => publicClient.getTransactionCount({ address: signerInfo.address, blockTag: "pending" }), readReceipt: (hash) => publicClient.getTransactionReceipt({ hash }), journalPath, provenancePath: config.provenancePath, requireProvenance: true });
     send({ type: "ready", session: { sessionId: session.sessionId, account: session.account, owner: session.owner, operator: session.operator, marketSeries: session.marketSeries, currentMarketId: session.currentMarketId } });
     setRuntimeStage("RUNNING", "Strategy running", "RUNNING", session);
     recordActivity("SESSION", "Session started", { sessionId: session.sessionId });
@@ -697,6 +721,7 @@ async function main() {
       leaseStore.release(session, { reconciled: true });
       leaseHeartbeat.authority.held = false;
       leaseHeartbeat.stop();
+      if (admissionClaim) { admissionStore.release({ admissionId: admissionClaim.admissionId, session: bootSession }); admissionClaim = null; }
       runtimeTelemetry.stage = { code: "STOPPED", label: "Session stopped", atMs: Date.now() };
       recordActivity("SESSION", "Session stopped", { state: session.state, reason });
       send({ type: "result", session, result: { status: session.state, reason, pnl, startingValueRaw, finalValueRaw, pendingValueRaw, ordersPlaced, fills: pending ? "UNRESOLVED_OR_FILLED" : "NONE_CONFIRMED", marketId: selected.marketId, intervalSec: selected.intervalSec, pendingSettlement: pending, settlement } });
@@ -725,6 +750,8 @@ async function main() {
     send({ type: "error", code: lostLease ? "ACCOUNT_LEASE_LOST" : (error?.code ?? "UAT_SESSION_FAILED"), message: lostLease ? "Lease authority was lost; no further writes are allowed and owner/account-scoped recovery is required." : (error?.message ?? "The private UAT session failed.") });
     process.exitCode = 1;
   } finally {
+    if (admissionHeartbeat) clearInterval(admissionHeartbeat);
+    if (admissionClaim && (!writer || writer.getState?.().writeAuthorityReached !== true)) { try { admissionStore.release({ admissionId: admissionClaim.admissionId, session: bootSession }); } catch { /* preserve a claim when liveness is uncertain */ } }
     leaseHeartbeat?.stop?.();
     writer?.close?.();
     await closeExchangeBounded(exchange);

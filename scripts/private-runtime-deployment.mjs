@@ -45,6 +45,9 @@ Environment=VILLA_UAT_PRIVATE_STATE_FILE=/var/lib/villa-engine/uat-%i/session.js
 Environment=VILLA_LEASE_DIR=/var/lib/villa-engine/uat-%i
 Environment=VILLA_STATE_DIR=/var/lib/villa-engine/uat-%i
 Environment=VILLA_WRITER_JOURNAL=/var/lib/villa-engine/uat-%i/transactions.json
+Environment=VILLA_EXECUTION_PROVENANCE_FILE=/var/lib/villa-engine/uat-%i/provenance.json
+Environment=VILLA_GLOBAL_EXECUTION_ADMISSION_FILE=/var/lib/villa-engine/global-execution-admission.json
+Environment=VILLA_REQUIRE_GLOBAL_ADMISSION=true
 LoadCredential=operator-key:/etc/villa-engine.env
 StateDirectory=villa-engine/uat-%i
 UMask=0077
@@ -99,6 +102,9 @@ Environment=VILLA_UAT_PRIVATE_STATE_FILE=/var/lib/villa-engine/uat-%i/session.js
 Environment=VILLA_LEASE_DIR=/var/lib/villa-engine/uat-%i
 Environment=VILLA_STATE_DIR=/var/lib/villa-engine/uat-%i
 Environment=VILLA_WRITER_JOURNAL=/var/lib/villa-engine/uat-%i/transactions.json
+Environment=VILLA_EXECUTION_PROVENANCE_FILE=/var/lib/villa-engine/uat-%i/provenance.json
+Environment=VILLA_GLOBAL_EXECUTION_ADMISSION_FILE=/var/lib/villa-engine/global-execution-admission.json
+Environment=VILLA_REQUIRE_GLOBAL_ADMISSION=true
 LoadCredential=operator-key:/etc/villa-engine.env
 StateDirectory=villa-engine/uat-%i
 UMask=0077
@@ -150,6 +156,9 @@ Environment=VILLA_UAT_PRIVATE_STATE_FILE=/var/lib/villa-engine/uat-%i/session.js
 Environment=VILLA_LEASE_DIR=/var/lib/villa-engine/uat-%i
 Environment=VILLA_STATE_DIR=/var/lib/villa-engine/uat-%i
 Environment=VILLA_WRITER_JOURNAL=/var/lib/villa-engine/uat-%i/transactions.json
+Environment=VILLA_EXECUTION_PROVENANCE_FILE=/var/lib/villa-engine/uat-%i/provenance.json
+Environment=VILLA_GLOBAL_EXECUTION_ADMISSION_FILE=/var/lib/villa-engine/global-execution-admission.json
+Environment=VILLA_REQUIRE_GLOBAL_ADMISSION=true
 LoadCredential=operator-key:/etc/villa-engine.env
 StateDirectory=villa-engine/uat-%i
 UMask=0077
@@ -187,6 +196,7 @@ Group=villa
 WorkingDirectory=/opt/villa-private-runtime
 ExecStart=/usr/bin/node /opt/villa-private-runtime/scripts/villa-uat-broker.mjs
 Environment=VILLA_UAT_BROKER_SOCKET=/run/villa-uat-broker/control.sock
+Environment=VILLA_GLOBAL_EXECUTION_ADMISSION_FILE=/var/lib/villa-engine/global-execution-admission.json
 Environment=VILLA_ENGINE_OPERATOR=0xaf4ee6C0c6Ff6337F4C4F07b87C8343dF73e8d37
 UnsetEnvironment=OPERATOR_PRIVATE_KEY TAKER_PRIVATE_KEY PRIVATE_KEY WALLET_SEED MNEMONIC CREDENTIALS_DIRECTORY
 UMask=0007
@@ -204,7 +214,7 @@ CapabilityBoundingSet=CAP_CHOWN CAP_DAC_OVERRIDE CAP_FOWNER CAP_SETGID CAP_SETUI
 AmbientCapabilities=CAP_CHOWN CAP_DAC_OVERRIDE CAP_FOWNER CAP_SETGID CAP_SETUID CAP_KILL
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 InaccessiblePaths=/etc/villa-engine.env
-ReadWritePaths=/run/villa-uat-broker /run/villa-uat-bindings
+ReadWritePaths=/run/villa-uat-broker /run/villa-uat-bindings /var/lib/villa-engine/global-execution-admission.json
 Restart=no
 
 [Install]

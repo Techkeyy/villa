@@ -31,7 +31,7 @@ function preMarketFixtures() {
     positions: null,
     orders: { status: "NOT_SELECTED", orders: [] },
   };
-  return { session, stored, expiredLease: null, journal: { pending: 0, unknown: 0, reverted: 0, records: [] }, accountState, activeUnit: false };
+  return { session, stored, expiredLease: null, journal: { pending: 0, unknown: 0, reverted: 0, records: [] }, accountState, activeUnit: false, provenance: { schemaVersion: "villa-lp-execution-provenance-v1" } };
 }
 
 function preMarketStatus(value, patch = {}) {
