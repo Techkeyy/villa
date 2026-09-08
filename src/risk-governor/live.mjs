@@ -203,7 +203,7 @@ function committedBuyCollateral(openOrders) {
 /** Collect a complete normalized risk snapshot without a signer or write path. */
 export async function collectRiskSnapshot(exchange, options = {}) {
   const chainTime = options.chainTime ?? await readChainTime(exchange);
-  const spot = await fetchSpot(exchange, "BTC", { nowSec: chainTime.chainNowSec });
+  const spot = await fetchSpot(exchange, "BTC", { nowSec: chainTime.chainNowSec, deferSourceFreshnessToGovernor: options.deferSourceFreshnessToGovernor === true });
   const { market, onchain } = options.market ?? await findLiveBtcMarket(exchange, chainTime.chainNowSec, options.minHeadroomSec ?? RISK_SNAPSHOT_MIN_HEADROOM_SEC);
   const collectorMarket = {
     ...market,

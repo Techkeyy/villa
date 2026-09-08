@@ -27,7 +27,7 @@ export const MAX_SOURCE_AGE_SEC = 60;
  *
  * @param {import("@somnia-chain/markets-sdk").SomniaMarkets} exchange
  * @param {string} asset
- * @param {{ nowMs?: number, nowSec?: number }} [opts]
+ * @param {{ nowMs?: number, nowSec?: number, deferSourceFreshnessToGovernor?: boolean }} [opts]
  */
 export async function fetchSpot(exchange, asset, opts = {}) {
   const nowMs = opts.nowMs ?? Date.now();
@@ -54,7 +54,7 @@ export async function fetchSpot(exchange, asset, opts = {}) {
   if (sourceAgeSec !== null && (!Number.isFinite(sourceAgeSec) || sourceAgeSec < -5)) {
     throw new LiveDataError("BAD_SOURCE_AGE", `price source freshness is invalid: ${sourceAgeSec}`);
   }
-  if (sourceAgeSec !== null && sourceAgeSec > MAX_SOURCE_AGE_SEC) {
+  if (sourceAgeSec !== null && sourceAgeSec > MAX_SOURCE_AGE_SEC && opts.deferSourceFreshnessToGovernor !== true) {
     throw new LiveDataError("STALE_SOURCE", `price source age ${sourceAgeSec}s exceeds ${MAX_SOURCE_AGE_SEC}s`);
   }
 

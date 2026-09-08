@@ -6,6 +6,7 @@
 
 import { isAddress } from "viem";
 import { LP_SESSION_VERSION } from "./lp-session.mjs";
+import { isTransientPriceHalt } from "./lp-quote-gate.mjs";
 
 export const LP_RECONCILIATION_VERSION = "villa-lp-reconciliation-v1";
 export const LP_RECONCILIATION_STATUSES = Object.freeze(["RECONCILED", "UNKNOWN"]);
@@ -85,7 +86,9 @@ export function reconcileLpSession({
   if (unknownOrders > 0) reasons.push("UNKNOWN_ORDER_STATE");
   const openOrders = Array.isArray(orders?.orders) ? orders.orders : [];
   if (openOrders.some((order) => order.owner && !sameAddress(order.owner, session.account))) reasons.push("ORDER_SCOPE_MISMATCH");
-  if (risk?.state === "HALT") reasons.push("RISK_HALTED");
+  // Admission to a no-write waiting session is not admission to trade.
+  const priceWait = risk?.waitState === "WAITING_FOR_FRESH_PRICE" && isTransientPriceHalt(risk);
+  if (risk?.state === "HALT" && !priceWait) reasons.push("RISK_HALTED");
   const status = reasons.length === 0 ? "RECONCILED" : "UNKNOWN";
   return Object.freeze({
     version: LP_RECONCILIATION_VERSION,

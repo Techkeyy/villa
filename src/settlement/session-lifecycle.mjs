@@ -84,7 +84,9 @@ export function assessSessionSettlement({
   if (!session || !same(session.currentMarketId, marketId)) fail("MARKET_SCOPE_MISMATCH", "settlement market differs from the session market");
   if (account !== null && !same(account, session.account)) fail("ACCOUNT_SCOPE_MISMATCH", "settlement account differs from the session account");
   if (owner !== null && !same(owner, session.owner)) fail("OWNER_SCOPE_MISMATCH", "settlement owner differs from the session owner");
-  const heldInventory = inventory(held, "held");
+  // No mint means no tracked inventory. Never infer ownership from current
+  // balances: any nonzero owned balance still fails the provenance check.
+  const heldInventory = inventory(held ?? { yesRaw: 0n, noRaw: 0n }, "held");
   const ownedInventory = inventory(owned, "owned");
   if (ownedInventory.yesRaw > heldInventory.yesRaw || ownedInventory.noRaw > heldInventory.noRaw) fail("OWNERSHIP_MISMATCH", "current market inventory exceeds the amount tracked by this session");
   const openOrders = Array.isArray(orders?.orders) ? orders.orders : [];

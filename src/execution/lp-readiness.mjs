@@ -7,6 +7,7 @@
 
 import { isAddress } from "viem";
 import { LP_EXECUTION_MODE, SHANNON_CHAIN_ID, ZERO_ADDRESS } from "./lp-adapter.mjs";
+import { isTransientPriceHalt } from "./lp-quote-gate.mjs";
 
 export const LP_READINESS_VERSION = "villa-lp-readiness-v1";
 
@@ -99,9 +100,7 @@ export function evaluateLpExecutionReadiness(input = {}) {
   if (capital === null || minimum === null || capital <= minimum) add(reasons, "INSUFFICIENT_CAPITAL");
   if (input.riskLimits?.valid !== true && input.riskLimitsValid !== true) add(reasons, "RISK_LIMITS_INVALID");
   const riskState = input.risk?.state ?? input.riskDecision?.state;
-  const riskReason = input.risk?.primaryReasonCode ?? input.riskDecision?.primaryReasonCode;
-  const waitingForFreshPrice = riskState === "HALT"
-    && riskReason === "PRICE_STALE"
+  const waitingForFreshPrice = isTransientPriceHalt(input.risk ?? input.riskDecision)
     && input.risk?.waitState === "WAITING_FOR_FRESH_PRICE";
   if (riskState === "HALT" && !waitingForFreshPrice) add(reasons, "RISK_HALTED");
   if (executionConfig.sessionActive === true || Number(executionConfig.activeSessionCount ?? 0) > 0) add(reasons, "ENGINE_SESSION_ACTIVE");

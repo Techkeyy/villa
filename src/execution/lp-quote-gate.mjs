@@ -7,6 +7,13 @@
 const SAFE_RISK_STATES = new Set(["ALLOW", "REDUCE_ONLY"]);
 const QUOTE_PLANS = new Set(["ACTIVE", "ONE_SIDED", "NO_QUOTE"]);
 
+/** A stale price cannot conceal a second, nonrecoverable HALT reason. */
+export function isTransientPriceHalt(decision = {}) {
+  return decision.state === "HALT"
+    && decision.primaryReasonCode === "PRICE_STALE"
+    && (decision.triggeredRules === undefined || (Array.isArray(decision.triggeredRules)
+      && decision.triggeredRules.every((reason) => reason === "PRICE_STALE")));
+}
 
 export function buildPriceFreshnessTelemetry({
   snapshot = {},
@@ -52,7 +59,7 @@ export function assessProjectedQuote({ projectedDecision = {}, quotePlan = {} } 
     });
   }
   if (projectedState === "HALT") {
-    if (projectedDecision.primaryReasonCode === "PRICE_STALE") {
+    if (isTransientPriceHalt(projectedDecision)) {
       return Object.freeze({
         disposition: "WAITING_FOR_FRESH_PRICE",
         reasonCode: "PRICE_STALE",
