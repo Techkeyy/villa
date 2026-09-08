@@ -120,6 +120,23 @@ test("private bundle entrypoints and specs contain no public-writable runtime pa
   assert.match(broker, /VILLA_EXECUTION_ADMISSION_ID/);
 });
 
+test("every production signer worker is provenance, journal, admission, and policy gated", () => {
+  const workers = [
+    ["scripts/lp-account-session.mjs", /createExecutionProvenance/, /initializeDurableJournal/],
+    ["scripts/lp-account-recovery.mjs", /prepareSignerExecution/, /reconcileDurableJournal/],
+    ["scripts/lp-account-settlement.mjs", /prepareSignerExecution/, /reconcileDurableJournal/],
+  ];
+  for (const [entry, provenanceHook, journalHook] of workers) {
+    const source = fs.readFileSync(path.join(ROOT, entry), "utf8");
+    assert.match(source, provenanceHook);
+    assert.match(source, journalHook);
+    assert.match(source, /createLpTransactionPolicy/);
+    assert.match(source, /requireProvenance: true/);
+    assert.match(source, /requireGlobalAdmission: true|config\.requireGlobalAdmission/);
+    assert.match(source, /executionAdmission:/);
+  }
+});
+
 test("service stop forwards a typed product stop and waits for cleanup with observable stdio", () => {
   const broker = fs.readFileSync(path.join(ROOT, "scripts/villa-uat-broker.mjs"), "utf8");
   const service = fs.readFileSync(path.join(ROOT, "scripts/lp-account-session-service.mjs"), "utf8");

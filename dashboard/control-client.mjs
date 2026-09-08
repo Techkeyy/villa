@@ -42,7 +42,10 @@ export function reconcileControlPayload(payload, previous = {}) {
     const candidate = String(value || "").toUpperCase();
     return CONTROL_STOP_TERMINAL_STATES.includes(candidate) ? candidate : null;
   };
-  const terminalState = terminalCandidate(payload?.state) ?? terminalCandidate(payload?.session?.state) ?? terminalCandidate(payload?.result?.status);
+  const outerState = String(payload?.state || "").toUpperCase();
+  const sessionState = String(payload?.session?.state || "").toUpperCase();
+  const activeStateReported = CONTROL_ACTIVE_STATES.includes(outerState) || CONTROL_ACTIVE_STATES.includes(sessionState);
+  const terminalState = terminalCandidate(payload?.session?.state) ?? terminalCandidate(payload?.state) ?? (activeStateReported ? null : terminalCandidate(payload?.result?.status));
   const rawState = terminalState ?? controlStateOf(payload);
   const state = normalizeControlState(rawState);
   const active = terminalState ? false : CONTROL_ACTIVE_STATES.includes(rawState);

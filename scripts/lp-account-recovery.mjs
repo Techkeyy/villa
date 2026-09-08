@@ -202,7 +202,7 @@ async function main() {
     journal = await reconcileDurableJournal({ journalPath, publicClient, config: { ...config, marketId } });
     if (journal.pending > 0 || journal.unknown > 0) fail("RECOVERY_TRANSACTION_UNKNOWN", "recovery journal is not authoritative after reconciliation");
     const onchainSettlement = await readSettlement(publicClient, accountMarket.market);
-    const settlement = assessSessionSettlement({ session, account: config.account, owner: config.owner, marketId, onchain: onchainSettlement, held: provenance.trackedInventory, owned: accountState.inventory, orders: accountState.orders, pendingTransactions: journal.pending, unknownTransactions: journal.unknown, payoutNumerators: onchainSettlement.payoutNumerators, outcomeIds: { yes: accountMarket.yesId, no: accountMarket.noId } });
+    const settlement = assessSessionSettlement({ session, account: config.account, owner: config.owner, marketId, onchain: onchainSettlement, held: provenance.trackedInventory, owned: accountState.inventory, orders: accountState.orders, capital: accountState.capital, pendingTransactions: journal.pending, unknownTransactions: journal.unknown, payoutNumerators: onchainSettlement.payoutNumerators, outcomeIds: { yes: accountMarket.yesId, no: accountMarket.noId } });
     if (settlement.state === "SETTLEMENT_BLOCKED") fail(settlement.reason, "recovery settlement state is blocked");
     const finalState = settlement.state === "SETTLED"
       ? "STOPPED_CLEAN"
@@ -213,6 +213,7 @@ async function main() {
     leaseStore.release(session, { reconciled: true });
     heartbeat.authority.held = false;
     heartbeat.stop();
+    if (signerGuard) { signerGuard.admissionStore.release({ admissionId: signerGuard.admission.admissionId, session: signerGuard.exactSession }); signerGuard = null; }
     released = true;
     const startingValueRaw = raw(stored.snapshot?.startingValueRaw ?? stored.snapshot?.collateralRaw, "starting value");
     const pendingValueRaw = finalState === "STOPPED_SETTLEMENT_PENDING" ? null : 0n;

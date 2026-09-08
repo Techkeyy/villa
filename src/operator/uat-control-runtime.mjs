@@ -376,7 +376,7 @@ export function createUatAccountControl({
     const deadline = Date.now() + readyTimeoutMs;
     while (Date.now() < deadline) {
       await syncExternal();
-      if (["SETTLED", "STOPPED_SETTLEMENT_PENDING"].includes(state)) return publicState();
+      if (["SETTLED", "STOPPED_CLEAN", "STOPPED_SETTLEMENT_PENDING"].includes(state)) return publicState();
       if (state === "ERROR") throw new AccountControlError(lastError?.code ?? "SETTLEMENT_FAILED", lastError?.message ?? "The private settlement worker failed.", 409);
       await delay(pollMs);
     }
@@ -406,6 +406,11 @@ export function createUatAccountControl({
     const unresolvedBinding = Boolean(child || activeSessionId || persistedBinding);
     if (state === "ERROR" && (!persistedBindingCheck.verified || unresolvedBinding)) {
       throw new AccountControlError("UAT_SESSION_RECONCILIATION_REQUIRED", "The existing UAT session is errored and requires owner/account-scoped reconciliation before Start can retry.", 409);
+    }
+    if (!child && !activeSessionId && ["STOPPED_CLEAN", "SETTLED", "WITHDRAWABLE"].includes(state)) {
+      state = "STOPPED";
+      if (session) session = { ...session, state: "STOPPED" };
+      lastError = null;
     }
     if (child || activeSessionId || (state !== "STOPPED" && state !== "ERROR")) throw new AccountControlError("SESSION_ALREADY_ACTIVE", "VILLA already has an active UAT session");
     const sessionId = `uat-${Date.now()}-${randomUUID().slice(0, 8)}`;

@@ -267,6 +267,37 @@ test("historical process ERROR with its binding cleared allows a fresh start", a
   assert.equal(restarted.session.sessionId, "uat-fresh");
   assert.equal(launches, 2);
 });
+test("completed SETTLED state is idle for a fresh Start", async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "villa-uat-settled-restart-"));
+  const commands = [];
+  let sessionId = null;
+  const control = createUatAccountControl({
+    env: env({ VILLA_UAT_LAUNCH_MODE: "systemd", VILLA_ACCOUNT_EXECUTION_ENABLED: "true", VILLA_UAT_STATE_DIRECTORY: directory }),
+    commandRunner: (_command, args, _options, callback) => {
+      commands.push(args);
+      sessionId = args[1];
+      const state = args[0] === "start"
+        ? { state: "RUNNING", session: { sessionId, account: ACCOUNT, owner: OWNER, operator: OPERATOR } }
+        : args[0] === "stop"
+          ? { state: "STOPPED_SETTLEMENT_PENDING", session: { sessionId, account: ACCOUNT, owner: OWNER, operator: OPERATOR } }
+          : { state: "SETTLED", session: { sessionId, account: ACCOUNT, owner: OWNER, operator: OPERATOR } };
+      void fs.writeFile(path.join(directory, sessionId + ".json"), JSON.stringify({ ...state, updatedAt: Date.now() })).then(() => callback(null));
+    },
+    pollMs: 1,
+    readyTimeoutMs: 500,
+  });
+  try {
+    await control.start({ caller: OWNER });
+    await control.stop({ caller: OWNER });
+    await control.settle({ caller: OWNER });
+    const restarted = await control.start({ caller: OWNER });
+    assert.equal(restarted.state, "RUNNING");
+    assert.equal(commands.filter((item) => item[0] === "start").length, 2);
+  } finally {
+    await fs.rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("systemd Start requires scoped reconciliation for an errored session and does not create a unit", async () => {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), "villa-uat-error-"));
   const sessionId = "uat-1234567894-abcdef12";

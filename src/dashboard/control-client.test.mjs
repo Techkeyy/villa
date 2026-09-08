@@ -190,6 +190,16 @@ test("authoritative nested ERROR overrides a stale STARTING outer state", () => 
   assert.equal(reconciled.active, false);
 });
 
+test("current active settlement state outranks an old terminal result", () => {
+  const reconciled = reconcileControlPayload(
+    { state: "SETTLING", session: { state: "SETTLING", sessionId: "uat-settling" }, result: { status: "SETTLED" } },
+    { state: "RUNNING", session: { sessionId: "uat-settling" }, result: { status: "SETTLED" } },
+  );
+  assert.equal(reconciled.state, "SETTLING");
+  assert.equal(reconciled.active, true);
+
+});
+
 test("authoritative nested result ERROR overrides a stale RECONNECTING outer state", () => {
   const reconciled = reconcileControlPayload(
     { state: "RECONNECTING", session: null, result: { status: "ERROR", code: "ACCOUNT_CAPITAL_CAP" } },

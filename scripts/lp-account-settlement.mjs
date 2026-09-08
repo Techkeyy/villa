@@ -153,6 +153,7 @@ async function main() {
     held: restored.tracked,
     owned: accountState.inventory,
     orders: accountState.orders,
+    capital: accountState.capital,
     payoutNumerators: settlementOnchain.payoutNumerators,
     outcomeIds: { yes: accountMarket.yesId, no: accountMarket.noId },
     alreadyRedeemed,
@@ -192,7 +193,7 @@ async function main() {
     writer = createAccountBoundPrivateWriter({ session: running, lease: heartbeat.authority, policy, signer: signerInfo.signer, publicClient, walletClient, executionEnabled: true, readLatestNonce: () => publicClient.getTransactionCount({ address: signerInfo.address, blockTag: "latest" }), readPendingNonce: () => publicClient.getTransactionCount({ address: signerInfo.address, blockTag: "pending" }), readReceipt: (hash) => publicClient.getTransactionReceipt({ hash }), journalPath, provenancePath: config.provenancePath, requireProvenance: true, executionAdmission: { store: signerGuard.admissionStore, admissionId: signerGuard.admission.admissionId, session: signerGuard.exactSession }, requireGlobalAdmission: true });
     send(env, { type: "state", state: "SETTLING", session: { ...restored.session, state: "SETTLING" }, snapshot: { marketId: restored.marketId, intervalSec: Number(String(restored.marketSeries).split(":").pop()), collateralRaw: accountState.capital.directCollateralRaw, yesRaw: accountState.inventory.yesRaw, noRaw: accountState.inventory.noRaw, trackedYesRaw: restored.tracked.yesRaw, trackedNoRaw: restored.tracked.noRaw, startingValueRaw: restored.startingValueRaw, pendingSettlement: null, settlement, lastAction: "settlement_submitting" } });
     let txIndex = 0;
-    for (const leg of settlement.plan.legs.filter((item) => item.action === "REDEEM")) {
+    for (const leg of (settlement.plan?.legs ?? []).filter((item) => item.action === "REDEEM")) {
       const plan = adapter.redeemResolved({ marketId: restored.marketId, outcomeIdx: leg.outcomeIdx, amountRaw: leg.amountRaw });
       const prepared = policy.prepare({ ...plan, accountCapitalRaw: accountState.capital.directCollateralRaw }, { txIndex, createdAt: Date.now() });
       const validation = policy.validate(prepared, { nowMs: Date.now() });
@@ -202,17 +203,31 @@ async function main() {
       if (record.state !== "CONFIRMED") fail("REDEEM_NOT_CONFIRMED", "settlement did not return an authoritative receipt");
       txIndex += 1;
     }
+    if ((settlement.claimVaultRaw ?? 0n) > 0n) {
+      const plan = adapter.claimVault({ marketId: restored.marketId, amountRaw: settlement.claimVaultRaw });
+      const prepared = policy.prepare({ ...plan, accountCapitalRaw: accountState.capital.directCollateralRaw }, { txIndex, createdAt: Date.now() });
+      const validation = policy.validate(prepared, { nowMs: Date.now() });
+      if (!validation.allowed) fail(validation.code ?? "POLICY_DENIED", validation.reason ?? "the vault claim was denied by policy");
+      heartbeat.renewNow();
+      const record = await writer.enqueue(prepared);
+      if (record.state !== "CONFIRMED") fail("CLAIM_NOT_CONFIRMED", "the vault claim did not return an authoritative receipt");
+      txIndex += 1;
+    }
     const after = await adapter.readAccountState({ marketId: restored.marketId });
-    settlement = assessSessionSettlement({ session: { ...restored.session, currentMarketId: restored.marketId }, account: config.account, owner: config.owner, marketId: restored.marketId, onchain: await readSettlement(publicClient, accountMarket.market), held: restored.tracked, owned: after.inventory, orders: after.orders, payoutNumerators: (await readSettlement(publicClient, accountMarket.market)).payoutNumerators, outcomeIds: { yes: accountMarket.yesId, no: accountMarket.noId }, alreadyRedeemed: { yes: true, no: true } });
-    if (settlement.state !== "SETTLED") fail("POST_SETTLEMENT_RECONCILIATION_FAILED", "settlement claims did not clear or account for the exact session inventory");
+    const afterSettlement = await readSettlement(publicClient, accountMarket.market);
+    settlement = assessSessionSettlement({ session: { ...restored.session, currentMarketId: restored.marketId }, account: config.account, owner: config.owner, marketId: restored.marketId, onchain: afterSettlement, held: restored.tracked, owned: after.inventory, orders: after.orders, capital: after.capital, payoutNumerators: afterSettlement.payoutNumerators, outcomeIds: { yes: accountMarket.yesId, no: accountMarket.noId }, alreadyRedeemed: { yes: true, no: true } });
+    if (!["SETTLED", "STOPPED_CLEAN", "STOPPED_SETTLEMENT_PENDING"].includes(settlement.state)) fail("POST_SETTLEMENT_RECONCILIATION_FAILED", "settlement claims did not clear or account for the exact session inventory");
     const finalValueRaw = after.capital.directCollateralRaw + (after.capital.vaultRaw ?? 0n);
     const pnl = classifySessionPnl({ startingValueRaw: restored.startingValueRaw, endingValueRaw: finalValueRaw });
-    const terminalSession = { ...restored.session, state: "SETTLED", stoppedAt: Date.now() };
-    leaseStore.release({ ...running, state: "SETTLED" }, { reconciled: true });
+    const terminalState = settlement.state === "SETTLED" ? "SETTLED" : settlement.state;
+    const terminalSession = { ...restored.session, state: terminalState, stoppedAt: Date.now() };
+    leaseStore.release({ ...running, state: terminalState }, { reconciled: true });
     heartbeat.authority.held = false;
     heartbeat.stop();
-    send(env, { type: "result", session: terminalSession, result: { status: "SETTLED", marketId: restored.marketId, settlement, startingValueRaw: restored.startingValueRaw, finalValueRaw, pendingValueRaw: 0n, pnl } });
-    send(env, { type: "state", state: "SETTLED", session: terminalSession, snapshot: { marketId: restored.marketId, intervalSec: Number(String(restored.marketSeries).split(":").pop()), collateralRaw: after.capital.directCollateralRaw, yesRaw: after.inventory.yesRaw, noRaw: after.inventory.noRaw, trackedYesRaw: restored.tracked.yesRaw, trackedNoRaw: restored.tracked.noRaw, startingValueRaw: restored.startingValueRaw, pendingSettlement: null, settlement, pnl, lastAction: "settlement_confirmed" } });
+    if (signerGuard) { signerGuard.admissionStore.release({ admissionId: signerGuard.admission.admissionId, session: signerGuard.exactSession }); signerGuard = null; }
+    const pendingSettlement = terminalState === "STOPPED_SETTLEMENT_PENDING" ? { status: "PENDING_UNRESOLVED_MARKET" } : null;
+    send(env, { type: "result", session: terminalSession, result: { status: terminalState, marketId: restored.marketId, settlement, startingValueRaw: restored.startingValueRaw, finalValueRaw, pendingValueRaw: terminalState === "SETTLED" || terminalState === "STOPPED_CLEAN" ? 0n : null, pnl, pendingSettlement: Boolean(pendingSettlement) } });
+    send(env, { type: "state", state: terminalState, session: terminalSession, snapshot: { marketId: restored.marketId, intervalSec: Number(String(restored.marketSeries).split(":").pop()), collateralRaw: after.capital.directCollateralRaw, vaultRaw: after.capital.vaultRaw, yesRaw: after.inventory.yesRaw, noRaw: after.inventory.noRaw, trackedYesRaw: restored.tracked.yesRaw, trackedNoRaw: restored.tracked.noRaw, startingValueRaw: restored.startingValueRaw, pendingSettlement, settlement, pnl, lastAction: terminalState === "SETTLED" ? "settlement_confirmed" : "vault_claim_confirmed" } });
   } finally {
     if (admissionHeartbeat) clearInterval(admissionHeartbeat);
     if (signerGuard && (!writer || writer.getState?.().writeAuthorityReached !== true)) { try { signerGuard.admissionStore.release({ admissionId: signerGuard.admission.admissionId, session: signerGuard.exactSession }); } catch { /* preserve claim when write authority is uncertain */ } }

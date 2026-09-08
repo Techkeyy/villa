@@ -815,9 +815,9 @@ async function main() {
       recordActivity("RECONCILIATION", "Inventory reconciled", { yesRaw: accountState.inventory.yesRaw, noRaw: accountState.inventory.noRaw });
       setRuntimeStage("CHECKING_SETTLEMENT", "Checking settlement", "STOPPING", session);
       const onchainSettlement = await readSettlement(accountMarket.market);
-      settlement = assessSessionSettlement({ session, account: config.account, owner: config.owner, marketId: selected.marketId, onchain: onchainSettlement, held: trackedInventory, owned: accountState.inventory, orders: accountState.orders, payoutNumerators: onchainSettlement.payoutNumerators, outcomeIds: { yes: accountMarket.yesId, no: accountMarket.noId } });
+      settlement = assessSessionSettlement({ session, account: config.account, owner: config.owner, marketId: selected.marketId, onchain: onchainSettlement, held: trackedInventory, owned: accountState.inventory, orders: accountState.orders, capital: accountState.capital, payoutNumerators: onchainSettlement.payoutNumerators, outcomeIds: { yes: accountMarket.yesId, no: accountMarket.noId } });
       if (settlement.state === "SETTLEMENT_BLOCKED") fail(settlement.reason, "settlement is blocked until account orders and transactions are authoritative");
-      const pendingValueRaw = settlement.state === "STOPPED_SETTLEMENT_PENDING" ? null : 0n;
+      const pendingValueRaw = ["STOPPED_CLEAN", "SETTLED"].includes(settlement.state) ? 0n : null;
       const finalValueRaw = accountState.capital.directCollateralRaw + (accountState.capital.vaultRaw ?? 0n);
       const pnl = classifySessionPnl({ startingValueRaw, endingValueRaw: finalValueRaw, pendingValueRaw });
       const pending = pendingValueRaw === null;

@@ -203,10 +203,10 @@ export function validateExpiredSessionRecovery({ session, stored, provenance = n
   }
   const mints = records.filter((record) => record.action === "MINT_COMPLETE_SET");
   const places = records.filter((record) => record.action === "PLACE_ORDER");
-  if (mints.length !== 1 || places.length !== 1) fail("RECOVERY_PROVENANCE_MISMATCH", "recovery requires exactly one confirmed mint and one confirmed placed order");
+  if (mints.length !== 1 || places.length > 1) fail("RECOVERY_PROVENANCE_MISMATCH", "recovery requires exactly one confirmed mint and no more than one confirmed placed order");
   const mintAmountRaw = raw(mints[0].amountRaw, "mint amount");
   if (mintAmountRaw === 0n || mintAmountRaw > DEFAULT_PHASE_3B1_CAPS.MAX_MINT_AMOUNT) fail("RECOVERY_PROVENANCE_MISMATCH", "confirmed mint is outside the bounded policy");
-  if (places[0].side !== "SELL_YES" || raw(places[0].amountRaw, "order quantity") > mintAmountRaw) fail("RECOVERY_PROVENANCE_MISMATCH", "confirmed order is not the bounded SELL_YES funded by this mint");
+  if (places[0] && (places[0].side !== "SELL_YES" || raw(places[0].amountRaw, "order quantity") > mintAmountRaw)) fail("RECOVERY_PROVENANCE_MISMATCH", "confirmed order is not the bounded SELL_YES funded by this mint");
 
   const snapshotOrders = Array.isArray(stored.snapshot?.openOrders) ? stored.snapshot.openOrders : [];
   const knownOrders = new Map(snapshotOrders.map((order) => [orderId(order.orderId), order]));

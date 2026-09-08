@@ -16,6 +16,9 @@ function state({ capitalRaw = 1_001_000n, yesRaw = 1_000n, noRaw = 1_000n } = {}
   return { capital: { directCollateralRaw: capitalRaw }, inventory: { yesRaw, noRaw } };
 }
 
+function confirmedPrepare() {
+  return { hash: "0x9999999999999999999999999999999999999999999999999999999999999999", action: "PREPARE_MARKET", account: ACCOUNT, marketId: MARKET, state: "CONFIRMED", functionName: "prepareMarket", amountRaw: null, receiptStatus: "success", receiptBlock: "6" };
+}
 function confirmedMint() {
   return { hash: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", action: "MINT_COMPLETE_SET", account: ACCOUNT, marketId: MARKET, state: "CONFIRMED", functionName: "operatorMintSet", amountRaw: "1000", receiptStatus: "success", receiptBlock: "7" };
 }
@@ -51,6 +54,11 @@ function chainProof() {
   };
 }
 
+test("confirmed market preparation is benign journal evidence for bounded recovery", () => {
+  const result = resolveMintRecovery({ config: CONFIG, journal: journal([confirmedPrepare(), confirmedMint()]), accountState: state() });
+  assert.equal(result.skipMint, true);
+  assert.equal(result.amountRaw, 1000n);
+});
 test("confirmed mint recovery adopts exact inventory and skips duplicate mint", () => {
   const result = resolveMintRecovery({ config: CONFIG, journal: journal([confirmedMint()]), accountState: state() });
   assert.equal(result.mint, "ALREADY_CONFIRMED");

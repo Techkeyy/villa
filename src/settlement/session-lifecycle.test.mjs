@@ -55,6 +55,13 @@ test("resolved YES winner creates only the winning claim", () => {
   assert.equal(result.plan.legs[1].skipReason, "LOSING_OUTCOME_ZERO_PAYOUT");
 });
 
+test("nonzero vault credit keeps the session settlement-ready until it is claimed", () => {
+  const result = assess({ owned: { yesRaw: 0n, noRaw: 0n }, held: { yesRaw: 0n, noRaw: 0n }, capital: { vaultRaw: 42n } });
+  assert.equal(result.state, "SETTLEMENT_READY");
+  assert.equal(result.reason, "VAULT_CLAIM_REQUIRED");
+  assert.equal(result.claimVaultRaw, 42n);
+});
+
 test("resolved NO winner creates only the NO claim", () => {
   const result = assess({ onchain: market(4), payoutNumerators: [0n, 10_000_000n] });
   assert.equal(result.state, "SETTLEMENT_READY");

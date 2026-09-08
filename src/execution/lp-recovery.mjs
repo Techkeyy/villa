@@ -14,6 +14,7 @@ import { receiptState } from "./lp-private-writer.mjs";
 
 const JOURNAL_VERSION = "villa-private-account-writer-v1";
 const ACTION_FUNCTIONS = Object.freeze({
+  PREPARE_MARKET: "prepareMarket",
   PLACE_ORDER: "operatorPlaceOrder",
   CANCEL_ORDER: "operatorCancelOrder",
   REDUCE_ORDER: "operatorReduceOrder",
@@ -147,7 +148,7 @@ export function resolveMintRecovery({ config, journal, accountState, caps = DEFA
   const placeRecords = records.filter((record) => record.action === "PLACE_ORDER");
   const cancelRecords = records.filter((record) => record.action === "CANCEL_ORDER");
   const burnRecords = records.filter((record) => record.action === "BURN_COMPLETE_SET");
-  const otherRecords = records.filter((record) => !["MINT_COMPLETE_SET", "PLACE_ORDER", "CANCEL_ORDER", "BURN_COMPLETE_SET"].includes(record.action));
+  const otherRecords = records.filter((record) => !["PREPARE_MARKET", "MINT_COMPLETE_SET", "PLACE_ORDER", "CANCEL_ORDER", "BURN_COMPLETE_SET"].includes(record.action));
   if (otherRecords.length > 0) fail("PRIOR_SESSION_WRITE", "a prior non-bounded write cannot be adopted automatically");
   if (mintRecords.length > 1 || placeRecords.length > 1 || cancelRecords.length > 1 || burnRecords.length > 1) fail("DUPLICATE_SESSION_WRITE", "more than one bounded action of the same type cannot be adopted automatically");
   if (mintRecords.length === 0) {

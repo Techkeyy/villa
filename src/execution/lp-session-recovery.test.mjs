@@ -84,6 +84,12 @@ test("legacy expired-session recovery accepts an absent stored lease id but reje
 });
 
 
+test("a confirmed mint without a confirmed order remains recoverable", () => {
+  const value = fixtures();
+  const provenance = validateExpiredSessionRecovery({ ...value, journal: { ...value.journal, records: [value.journal.records[0]] } });
+  const actions = recoveryActions({ session: value.session, provenance, accountState: { ...value.accountState, inventory: { yesRaw: 1000n, noRaw: 1000n }, orders: { status: "VERIFIED", orders: [] } } });
+  assert.equal(actions.burnAmountRaw, 1000n);
+});
 test("one-sided fills preserve the residual position and burn only a free pair", () => {
   const value = fixtures();
   const provenance = validateExpiredSessionRecovery(value);

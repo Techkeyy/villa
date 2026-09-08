@@ -78,6 +78,7 @@ export function assessSessionSettlement({
   payoutNumerators,
   outcomeIds = {},
   alreadyRedeemed = { yes: false, no: false },
+  capital = {},
   indexerStatus = null,
   indexerWinningOutcome = null,
 } = {}) {
@@ -88,6 +89,9 @@ export function assessSessionSettlement({
   // balances: any nonzero owned balance still fails the provenance check.
   const heldInventory = inventory(held ?? { yesRaw: 0n, noRaw: 0n }, "held");
   const ownedInventory = inventory(owned, "owned");
+  const vaultRaw = capital?.vaultRaw === undefined || capital?.vaultRaw === null
+    ? 0n
+    : nonNegative(capital.vaultRaw, "capital.vaultRaw");
   if (ownedInventory.yesRaw > heldInventory.yesRaw || ownedInventory.noRaw > heldInventory.noRaw) fail("OWNERSHIP_MISMATCH", "current market inventory exceeds the amount tracked by this session");
   const openOrders = Array.isArray(orders?.orders) ? orders.orders : [];
   if (pendingTransactions > 0 || unknownTransactions > 0) {
@@ -98,10 +102,16 @@ export function assessSessionSettlement({
   }
   const resolution = authoritativeResolution({ onchain: normalizedOnchain(onchain), indexerStatus, indexerWinningOutcome });
   if (sumInventory(ownedInventory) === 0n) {
-    return Object.freeze({ state: resolution.redeemable ? "SETTLED" : "STOPPED_CLEAN", reason: "NO_REMAINING_INVENTORY", resolution, held: heldInventory, owned: ownedInventory, openOrders, plan: null });
+    if (vaultRaw > 0n) {
+      return Object.freeze({ state: "SETTLEMENT_READY", reason: "VAULT_CLAIM_REQUIRED", resolution, held: heldInventory, owned: ownedInventory, openOrders, plan: null, claimVaultRaw: vaultRaw });
+    }
+    return Object.freeze({ state: resolution.redeemable ? "SETTLED" : "STOPPED_CLEAN", reason: "NO_REMAINING_INVENTORY", resolution, held: heldInventory, owned: ownedInventory, openOrders, plan: null, claimVaultRaw: 0n });
   }
   if (!resolution.redeemable) {
-    return Object.freeze({ state: "STOPPED_SETTLEMENT_PENDING", reason: "MARKET_NOT_REDEEMABLE", resolution, held: heldInventory, owned: ownedInventory, openOrders, plan: null });
+    if (vaultRaw > 0n) {
+      return Object.freeze({ state: "SETTLEMENT_READY", reason: "VAULT_CLAIM_REQUIRED", resolution, held: heldInventory, owned: ownedInventory, openOrders, plan: null, claimVaultRaw: vaultRaw });
+    }
+    return Object.freeze({ state: "STOPPED_SETTLEMENT_PENDING", reason: "MARKET_NOT_REDEEMABLE", resolution, held: heldInventory, owned: ownedInventory, openOrders, plan: null, claimVaultRaw: 0n });
   }
   const plan = buildRedemptionPlan({
     marketId,
@@ -115,13 +125,14 @@ export function assessSessionSettlement({
   });
   const claimable = plan.legs.filter((leg) => leg.action === "REDEEM");
   return Object.freeze({
-    state: claimable.length > 0 ? "SETTLEMENT_READY" : "SETTLED",
-    reason: claimable.length > 0 ? "REDEEMABLE_CLAIM" : "NO_REDEEMABLE_CLAIM",
+    state: claimable.length > 0 || vaultRaw > 0n ? "SETTLEMENT_READY" : "SETTLED",
+    reason: claimable.length > 0 ? "REDEEMABLE_CLAIM" : vaultRaw > 0n ? "VAULT_CLAIM_REQUIRED" : "NO_REDEEMABLE_CLAIM",
     resolution,
     held: heldInventory,
     owned: ownedInventory,
     openOrders,
     plan,
+    claimVaultRaw: vaultRaw,
   });
 }
 
