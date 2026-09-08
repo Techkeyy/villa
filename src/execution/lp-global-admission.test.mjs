@@ -40,7 +40,7 @@ test("reader distinguishes valid active, valid expired, and absent admission rec
   }
 });
 
-test("empty, truncated, and malformed-schema records are CORRUPT and fail closed", () => {
+test("empty, truncated, and malformed-schema records are CORRUPT_CONTENT and fail closed", () => {
   const cases = [
     { name: "empty", content: "" },
     { name: "truncated", content: '{"version":"villa-lp-global-admission-v1"' },
@@ -51,7 +51,7 @@ test("empty, truncated, and malformed-schema records are CORRUPT and fail closed
     try {
       fs.writeFileSync(value.filePath, item.content, { mode: 0o600 });
       const store = createFileGlobalExecutionAdmission({ filePath: value.filePath, now: () => 1_000 });
-      assert.equal(store.inspect().status, "CORRUPT", item.name);
+      assert.equal(store.inspect().status, "CORRUPT_CONTENT", item.name);
       assert.throws(() => store.get(), { code: "GLOBAL_ADMISSION_CORRUPT" }, item.name);
     } finally {
       cleanup(value);
@@ -115,7 +115,7 @@ test("corrupt admission with uncertain or live execution remains blocked", () =>
         isActive: evidence.isActive,
         isZeroWrite: evidence.isZeroWrite,
       }), { code: evidence.code });
-      assert.equal(store.inspect().status, "CORRUPT");
+      assert.equal(store.inspect().status, "CORRUPT_CONTENT");
     } finally {
       cleanup(value);
     }
@@ -133,9 +133,40 @@ test("corrupt record with the wrong owner or account cannot be reclaimed", () =>
       isActive: () => false,
       isZeroWrite: () => true,
     }), { code: "GLOBAL_ADMISSION_SCOPE_MISMATCH" });
-    assert.equal(store.inspect().status, "CORRUPT");
+    assert.equal(store.inspect().status, "CORRUPT_CONTENT");
   } finally {
     cleanup(value);
   }
 });
 
+
+
+test("atomic records are created with restrictive final permissions and support every worker role", () => {
+  const value = tempScope();
+  try {
+    const store = createFileGlobalExecutionAdmission({ filePath: value.filePath, now: () => 1_000, durationMs: 30 });
+    const claim = store.claim({ session: session(), role: "strategy", pid: 1234 });
+    if (process.platform !== "win32") assert.equal(fs.statSync(value.filePath).mode & 0o777, 0o600);
+    assert.equal(store.adopt({ admissionId: claim.admissionId, session: session(), role: "recovery", pid: 1235 }).role, "recovery");
+    assert.equal(store.heartbeat({ admissionId: claim.admissionId, session: session(), pid: 1236 }).state, "ACTIVE");
+    assert.equal(store.adopt({ admissionId: claim.admissionId, session: session(), role: "settlement", pid: 1237 }).role, "settlement");
+    if (process.platform !== "win32") assert.equal(fs.statSync(value.filePath).mode & 0o777, 0o600);
+  } finally {
+    cleanup(value);
+  }
+});
+
+test("permission denial is ACCESS_DENIED rather than content corruption", (t) => {
+  if (process.platform === "win32") { t.skip("POSIX permission semantics required"); return; }
+  const value = tempScope();
+  try {
+    const store = createFileGlobalExecutionAdmission({ filePath: value.filePath, now: () => 1_000 });
+    fs.writeFileSync(value.filePath, JSON.stringify({ version: "villa-lp-global-admission-v1" }), { mode: 0o600 });
+    fs.chmodSync(value.filePath, 0o000);
+    assert.equal(store.inspect().status, "ACCESS_DENIED");
+    assert.throws(() => store.get(), { code: "GLOBAL_ADMISSION_ACCESS_DENIED" });
+  } finally {
+    try { fs.chmodSync(value.filePath, 0o600); } catch { /* cleanup may still remove it */ }
+    cleanup(value);
+  }
+});
