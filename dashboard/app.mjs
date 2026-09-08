@@ -433,8 +433,12 @@ function showControlTerminalError(payload) {
 
 async function refreshControlState() {
   if (!provider || !appState.owner || !appState.currentAccountAddress || !controlClient) return;
+  const owner = appState.owner;
+  const account = appState.currentAccountAddress;
+  const generation = refreshGeneration;
   try {
-    const payload = await controlClient.state();
+    const payload = await controlClient.state(account);
+    if (!walletContextIsCurrent(owner, generation) || appState.currentAccountAddress !== account) return;
     const reconciled = reconcileControlPayload(payload, { session: appState.controlSession, snapshot: appState.controlSnapshot, result: appState.controlResult });
     const { state, session, snapshot, result } = reconciled;
     appState = { ...appState, controlState: state, controlSession: session, controlSnapshot: snapshot, controlResult: result, controlBusy: false };
@@ -960,6 +964,7 @@ function handleSelectAccount(event) {
   const selectedAddress = normalizeAddress(event?.target?.value);
   const selected = currentAccounts().find((candidate) => normalizeAddress(candidate?.address) === selectedAddress);
   if (!selected) return;
+  refreshGeneration += 1;
   clearControlPoll();
   controlClient?.clear();
   setAppState({ account: selected, currentAccountAddress: selected.address, controlState: "STOPPED", controlBusy: false, controlSession: null, controlSnapshot: null, controlResult: null, error: null });

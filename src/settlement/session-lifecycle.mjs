@@ -59,6 +59,33 @@ function sumInventory(value) {
 }
 
 /**
+ * Account-wide value/execution completeness. Terminal status, zero exposure,
+ * or an empty free balance is not sufficient evidence on its own.
+ */
+export function assessSessionValueCompleteness({
+  orders = { status: "VERIFIED", orders: [] },
+  inventory: inventoryState = { yesRaw: 0n, noRaw: 0n },
+  capital = {},
+  pendingTransactions = 0,
+  unknownTransactions = 0,
+  settlement = null,
+} = {}) {
+  if (pendingTransactions > 0 || unknownTransactions > 0) return Object.freeze({ state: "UNKNOWN", reason: "UNKNOWN_TRANSACTION" });
+  if (orders?.status !== "VERIFIED") return Object.freeze({ state: "UNKNOWN", reason: "OPEN_ORDER_STATE_UNKNOWN" });
+  const openOrders = Array.isArray(orders.orders) ? orders.orders : [];
+  if (openOrders.length > 0) return Object.freeze({ state: "OPEN_EXECUTION", reason: "OPEN_ORDERS", openOrders: openOrders.length });
+  const owned = sumInventory(inventory(inventoryState, "inventory"));
+  const vaultRaw = capital?.vaultRaw === undefined || capital?.vaultRaw === null ? 0n : nonNegative(capital.vaultRaw, "capital.vaultRaw");
+  const redeemable = settlement?.resolution?.redeemable === true;
+  if (owned > 0n && !redeemable) return Object.freeze({ state: "SETTLEMENT_REQUIRED", reason: "MARKET_NOT_REDEEMABLE", inventoryRaw: owned });
+  if (owned > 0n && redeemable) return Object.freeze({ state: "CLAIM_REQUIRED", reason: "REDEEMABLE_INVENTORY", inventoryRaw: owned });
+  if (vaultRaw > 0n) return Object.freeze({ state: "CLAIM_REQUIRED", reason: "VAULT_CLAIM_REQUIRED", vaultRaw });
+  const directRaw = capital?.directCollateralRaw === undefined || capital?.directCollateralRaw === null ? 0n : nonNegative(capital.directCollateralRaw, "capital.directCollateralRaw");
+  if (directRaw > 0n) return Object.freeze({ state: "WITHDRAWABLE", reason: "ACCOUNT_COLLATERAL", directCollateralRaw: directRaw });
+  return Object.freeze({ state: "COMPLETE", reason: "NO_REMAINING_VALUE" });
+}
+
+/**
  * Determine the next truthful account-session settlement state from fresh
  * chain observations. Held is the inventory recorded by this session; the
  * current owned balance must never exceed it, preventing cross-session

@@ -1,22 +1,27 @@
 /** Private one-shot recovery for one authenticated, expired UAT session. */
 
 import fs from "node:fs";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { createPublicClient, createWalletClient, http } from "viem";
 import { SomniaMarkets, SOMNIA_TESTNET_ADDRESSES, SOMNIA_TESTNET_PRICE_FEED } from "@somnia-chain/markets-sdk";
 import { somniaShannon } from "@somnia-chain/markets-sdk/chains";
 import { VILLA_ACCOUNT_CONFIG } from "../dashboard/account-config.mjs";
 import { normalizeJsonBoundary, persistPrivateUatState, persistUatState } from "../src/operator/uat-state.mjs";
+import { readExecutionProvenance } from "../src/execution/lp-execution-provenance.mjs";
 import { createLpExecutionAdapter, createViemLpAccountReader, VILLA_ACCOUNT_READ_ABI } from "../src/execution/lp-adapter.mjs";
 import { createAccountBoundPrivateWriter } from "../src/execution/lp-private-writer.mjs";
 import { createFileAccountLeaseStore, createLpExecutionSession, transitionLpSession, attachLease } from "../src/execution/lp-session.mjs";
 import { createLeaseHeartbeat, LP_LEASE_DURATION_MS, LP_LEASE_HEARTBEAT_INTERVAL_MS } from "../src/execution/lp-lease-heartbeat.mjs";
-import { isPreMarketFailureCode, validateExpiredSessionRecovery, validatePreflightFailureRecovery, validateSignerFreePreMarketEvidence, recoveryActions } from "../src/execution/lp-session-recovery.mjs";
+import { classifyFactBasedRecovery, isPreMarketFailureCode, validateExpiredSessionRecovery, validatePreflightFailureRecovery, validateSignerFreePreMarketEvidence, recoveryActions } from "../src/execution/lp-session-recovery.mjs";
 import { reconcileDurableJournal } from "../src/execution/lp-recovery.mjs";
 import { DEFAULT_PHASE_3B1_CAPS, createLpTransactionPolicy } from "../src/execution/lp-transaction-policy.mjs";
 import { loadPrivateSigner } from "../src/execution/lp-private-runtime.mjs";
 import { prepareSignerExecution } from "../src/execution/lp-signer-execution-guard.mjs";
-import { assessSessionSettlement, classifySessionPnl } from "../src/settlement/session-lifecycle.mjs";
+import { createFileGlobalExecutionAdmission } from "../src/execution/lp-global-admission.mjs";
+import { assessSessionSettlement, assessSessionValueCompleteness, classifySessionPnl } from "../src/settlement/session-lifecycle.mjs";
 
+const execFileAsync = promisify(execFile);
 const ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
 const SESSION_RE = /^uat-\d+-[0-9a-f]{8}$/;
 const BYTES32_RE = /^0x[0-9a-fA-F]{64}$/;
@@ -71,6 +76,17 @@ async function readSettlement(publicClient, market) {
   return { status: Number(status), isResolved: Boolean(isResolved), isVoided: Boolean(isVoided), payoutNumerators: payoutNumerators.map((value) => raw(value, "payout numerator")) };
 }
 
+async function originalWorkerInactive(sessionId) {
+  if (process.platform !== "linux") return null;
+  try {
+    await execFileAsync("/usr/bin/systemctl", ["is-active", "--quiet", "villa-engine-uat@" + sessionId + ".service"], { windowsHide: true });
+    return false;
+  } catch (error) {
+    if (Number(error?.code) === 3) return true;
+    return null;
+  }
+}
+
 async function main() {
   const env = process.env;
   const config = configFromEnv(env);
@@ -78,8 +94,15 @@ async function main() {
   const storedMarketId = stored?.session?.currentMarketId;
   const marketId = storedMarketId === null || storedMarketId === undefined ? null : String(storedMarketId).toLowerCase();
   const preMarketFailure = marketId === null && isPreMarketFailureCode(stored?.error?.code, stored?.error?.message);
-  const storedProvenance = fs.existsSync(config.provenancePath) ? readJson(config.provenancePath, "execution provenance") : null;
-  if (preMarketFailure && !storedProvenance) fail("LEGACY_AMBIGUOUS", "historical pre-market records without immutable provenance cannot be recovered automatically");
+  let storedProvenance = fs.existsSync(config.provenancePath) ? readJson(config.provenancePath, "execution provenance") : null;
+  if (storedProvenance) {
+    storedProvenance = readExecutionProvenance(config.provenancePath, { session: { ...stored.session, currentMarketId: marketId } });
+  }
+  const legacyMarketPreflight = !preMarketFailure && marketId !== null && stored?.error?.code === "ACCOUNT_CAPITAL_CAP";
+  if (!storedProvenance && !legacyMarketPreflight) {
+    if (preMarketFailure) fail("LEGACY_AMBIGUOUS", "historical pre-market records without immutable provenance cannot be recovered automatically");
+    fail("LEGACY_AMBIGUOUS", "historical market-bound records without immutable provenance cannot be recovered automatically");
+  }
   if ((marketId !== null && !BYTES32_RE.test(marketId)) || (!preMarketFailure && marketId === null)
     || stored?.session?.sessionId !== config.sessionId || !same(stored?.session?.owner, config.owner) || !same(stored?.session?.account, config.account) || !same(stored?.session?.operator, config.operator)) {
     fail("RECOVERY_SCOPE_MISMATCH", "private state is not bound to this exact owner/account/session");
@@ -134,6 +157,95 @@ async function main() {
     const accountMarket = await adapter.readMarket({ marketId, identity });
     let accountState = await adapter.readAccountState({ marketId });
     let journal = await reconcileDurableJournal({ journalPath, publicClient, config: { ...config, marketId } });
+
+    const settlementOnchain = await readSettlement(publicClient, accountMarket.market);
+    const settlementFacts = assessSessionSettlement({
+      session: { ...stored.session, currentMarketId: marketId },
+      account: config.account,
+      owner: config.owner,
+      marketId,
+      onchain: settlementOnchain,
+      held: stored.snapshot?.trackedYesRaw === null || stored.snapshot?.trackedYesRaw === undefined || stored.snapshot?.trackedNoRaw === null || stored.snapshot?.trackedNoRaw === undefined
+        ? { yesRaw: 0n, noRaw: 0n }
+        : { yesRaw: raw(stored.snapshot.trackedYesRaw, "tracked YES inventory"), noRaw: raw(stored.snapshot.trackedNoRaw, "tracked NO inventory") },
+      owned: accountState.inventory,
+      orders: accountState.orders,
+      capital: accountState.capital,
+      payoutNumerators: settlementOnchain.payoutNumerators,
+      outcomeIds: { yes: accountMarket.yesId, no: accountMarket.noId },
+    });
+    const unitInactive = await originalWorkerInactive(config.sessionId);
+    const vaultRaw = accountState.capital?.vaultRaw;
+    const redeemableValueRaw = (settlementFacts.plan?.legs ?? [])
+      .filter((leg) => leg.action === "REDEEM")
+      .reduce((total, leg) => total + raw(leg.amountRaw, "redeemable amount"), 0n);
+    const inventoryRaw = accountState.inventory
+      ? raw(accountState.inventory.yesRaw, "YES inventory") + raw(accountState.inventory.noRaw, "NO inventory")
+      : "UNKNOWN";
+    const facts = {
+      activeUnit: unitInactive === null ? "UNKNOWN" : !unitInactive,
+      activeLease: expiredLease ? Number(expiredLease.expiresAt) > Date.now() : false,
+      activeSignerWorker: unitInactive === null ? "UNKNOWN" : !unitInactive,
+      openOrders: accountState.orders?.status === "VERIFIED" ? accountState.orders.orders.length : "UNKNOWN",
+      outcomeInventory: inventoryRaw,
+      aggregateExposure: accountState.identity?.aggregateExposure ?? "UNKNOWN",
+      mintExposure: accountState.identity?.mintExposure ?? "UNKNOWN",
+      vault: vaultRaw === null || vaultRaw === undefined ? "UNKNOWN" : raw(vaultRaw, "vault credit"),
+      claimableValue: vaultRaw === null || vaultRaw === undefined ? "UNKNOWN" : raw(vaultRaw, "vault credit") + redeemableValueRaw,
+      pendingSettlement: settlementFacts.state === "SETTLEMENT_BLOCKED"
+        ? "UNKNOWN"
+        : settlementFacts.state === "STOPPED_SETTLEMENT_PENDING",
+      redeemableValue: redeemableValueRaw,
+      unknownTransactions: journal.unknown,
+    };
+    const factRecovery = storedProvenance
+      ? classifyFactBasedRecovery({ provenance: storedProvenance, journal, facts })
+      : { classification: "LEGACY_AMBIGUOUS", safeToRetry: false, reason: "NO_PROVENANCE" };
+    if (factRecovery.classification === "LEGACY_AMBIGUOUS" && !legacyMarketPreflight) fail("LEGACY_AMBIGUOUS", "the recovery record lacks immutable provenance");
+    if (factRecovery.classification === "UNKNOWN" && !legacyMarketPreflight) fail("RECOVERY_FACTS_UNKNOWN", factRecovery.reason || "authoritative recovery facts are unavailable");
+    if (factRecovery.classification === "CLEAN") {
+      if (!factRecovery.safeToRetry || unitInactive !== true) fail("RECOVERY_FACTS_UNKNOWN", "clean recovery requires authoritative inactive-worker evidence");
+      if (expiredLease && Number(expiredLease.expiresAt) > Date.now()) fail("RECOVERY_ACTIVE_LEASE", "the exact account lease is still active");
+      if (!expiredLease && String(stored.session?.leaseId ?? "")) fail("RECOVERY_LEASE_STATE_UNKNOWN", "the stored session claims a lease that is not present");
+      if (!config.globalAdmissionId) fail("GLOBAL_ADMISSION_REQUIRED", "clean recovery requires the exact broker execution admission");
+      const valueCompleteness = assessSessionValueCompleteness({
+        orders: accountState.orders,
+        inventory: accountState.inventory,
+        capital: accountState.capital,
+        pendingTransactions: journal.pending,
+        unknownTransactions: journal.unknown,
+        settlement: settlementFacts,
+      });
+      if (!["WITHDRAWABLE", "COMPLETE"].includes(valueCompleteness.state)) fail("RECOVERY_VALUE_REMAINS", "fact-based recovery found remaining account value or execution state");
+      if (expiredLease) {
+        leaseStore.release({ ...stored.session, leaseId: expiredLease.leaseId, currentMarketId: marketId, state: "STOPPED_CLEAN" }, { reconciled: true });
+      }
+      const admissionStore = createFileGlobalExecutionAdmission({ filePath: config.globalAdmissionFile });
+      admissionStore.release({
+        admissionId: config.globalAdmissionId,
+        session: { sessionId: config.sessionId, owner: config.owner, account: config.account, operator: config.operator },
+      });
+      const finalValueRaw = accountState.capital.directCollateralRaw + (accountState.capital.vaultRaw ?? 0n);
+      const startingValueRaw = raw(stored.snapshot?.startingValueRaw ?? stored.snapshot?.collateralRaw ?? finalValueRaw, "starting value");
+      const cleanSession = { ...stored.session, state: "STOPPED_CLEAN", leaseId: null, currentMarketId: marketId };
+      const snapshot = {
+        ...stored.snapshot,
+        marketId,
+        collateralRaw: accountState.capital.directCollateralRaw,
+        vaultRaw: accountState.capital.vaultRaw ?? 0n,
+        yesRaw: accountState.inventory.yesRaw,
+        noRaw: accountState.inventory.noRaw,
+        openOrders: [],
+        pendingSettlement: null,
+        valueCompleteness,
+        lastAction: "fact_based_recovery",
+      };
+      send(env, { type: "snapshot", snapshot });
+      send(env, { type: "result", session: cleanSession, result: { status: "STOPPED_CLEAN", reason: "FACT_BASED_RECOVERY", classification: factRecovery.classification, writes: [], finalValueRaw, pendingSettlement: false, valueCompleteness } });
+      send(env, { type: "state", state: "STOPPED_CLEAN", session: cleanSession });
+      return;
+    }
+
     const base = createLpExecutionSession({ sessionId: config.sessionId, account: config.account, owner: config.owner, operator: config.operator, chainId: config.chainId, marketSeries: String(stored.session.marketSeries || "BINARY:BTC:UAT"), currentMarketId: marketId, riskPolicyVersion: "villa-expired-session-recovery-v1", executionMode: "WET", createdAt: Date.now(), maxSessionDurationSec: DEFAULT_PHASE_3B1_CAPS.MAX_SESSION_DURATION_SEC });
     if (stored.error?.code === "ACCOUNT_CAPITAL_CAP") {
       const preflight = validatePreflightFailureRecovery({ session: base, stored, expiredLease, journal, accountState });

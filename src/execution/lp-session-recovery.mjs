@@ -237,6 +237,9 @@ export function classifyFactBasedRecovery({ provenance, journal, facts = {} } = 
   if (!journal || journal.initializedBeforeWrite !== true || !Array.isArray(journal.records)) return Object.freeze({ classification: "UNKNOWN", safeToRetry: false, reason: "JOURNAL_UNAVAILABLE" });
   const required = ["activeUnit", "activeLease", "activeSignerWorker", "openOrders", "outcomeInventory", "aggregateExposure", "mintExposure", "vault", "claimableValue", "pendingSettlement", "redeemableValue", "unknownTransactions"];
   if (required.some((key) => facts[key] === undefined || facts[key] === null || facts[key] === "UNKNOWN")) return Object.freeze({ classification: "UNKNOWN", safeToRetry: false, reason: "AUTHORITATIVE_FACT_MISSING" });
+  if (journal.records.some((record) => record?.state !== "CONFIRMED" || !ALLOWED_ACTIONS.has(record?.action))) {
+    return Object.freeze({ classification: "UNKNOWN", safeToRetry: false, reason: "JOURNAL_RECORD_UNRESOLVED" });
+  }
   const clean = facts.activeUnit === false && facts.activeLease === false && facts.activeSignerWorker === false && facts.openOrders === 0 && facts.outcomeInventory === 0 && facts.aggregateExposure === 0 && facts.mintExposure === 0 && facts.vault === 0 && facts.claimableValue === 0 && facts.pendingSettlement === false && facts.redeemableValue === 0 && facts.unknownTransactions === 0;
   const positive = (value) => {
     try { return BigInt(String(value)) > 0n; } catch { return false; }
@@ -253,8 +256,8 @@ export function classifyFactBasedRecovery({ provenance, journal, facts = {} } = 
   if (positive(facts.vault) || positive(facts.claimableValue) || positive(facts.redeemableValue)) { reasons.push("VALUE_REMAINS"); requiredActions.push("CLAIM_REDEEM_VALUE"); }
   if (positive(facts.aggregateExposure) || positive(facts.mintExposure)) { reasons.push("EXPOSURE_REMAINS"); requiredActions.push("RECONCILE_EXPOSURE"); }
   if (!clean) return Object.freeze({ classification: "DIRTY", safeToRetry: false, reason: reasons.join("+") || "ACCOUNT_STATE_PRESENT", requiredActions: Object.freeze([...new Set(requiredActions)]) });
-  if (journal.records.length === 0 && journal.writeAuthorityReached !== true) return Object.freeze({ classification: "CLEAN", safeToRetry: true, reason: "PRE_WRITE" });
-  return Object.freeze({ classification: "DIRTY", safeToRetry: false, reason: "WRITE_EVIDENCE_PRESENT" });
+  if (journal.records.length === 0 && journal.writeAuthorityReached === true) return Object.freeze({ classification: "DIRTY", safeToRetry: false, reason: "WRITE_EVIDENCE_PRESENT" });
+  return Object.freeze({ classification: "CLEAN", safeToRetry: true, reason: journal.records.length === 0 && journal.writeAuthorityReached !== true ? "PRE_WRITE" : "NO_REMAINING_VALUE" });
 }
 
 export function recoveryActions({ session, provenance, accountState } = {}) {

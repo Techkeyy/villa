@@ -292,7 +292,7 @@ async function readPreflightReconciledStatus(sessionId, owner, account) {
     const document = JSON.parse(await fs.readFile(statusPath(sessionId), "utf8"));
     const session = document?.session;
     return document?.state === "STOPPED_CLEAN"
-      && document?.result?.reason === "PREFLIGHT_FAILURE_RECONCILED"
+      && ["PREFLIGHT_FAILURE_RECONCILED", "FACT_BASED_RECOVERY"].includes(document?.result?.reason)
       && session?.sessionId === sessionId
       && validAddress(session?.owner)
       && validAddress(session?.account)

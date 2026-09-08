@@ -86,7 +86,7 @@ function transactionFacts(record, transaction, config) {
 /** Reconcile every pending/unknown record from chain truth before a session. */
 export async function reconcileDurableJournal({ journalPath, publicClient, config, now = () => Date.now() } = {}) {
   const source = readJournal(journalPath);
-  if (!source.payload) return { records: [], pending: 0, unknown: 0, reverted: 0, changed: false };
+  if (!source.payload) return { initializedBeforeWrite: false, writeAuthorityReached: false, records: [], pending: 0, unknown: 0, reverted: 0, changed: false };
   const records = [];
   let changed = false;
   let unresolved = 0;
@@ -127,7 +127,15 @@ export async function reconcileDurableJournal({ journalPath, publicClient, confi
   const unknown = unresolved;
   const halted = unknown > 0;
   if (changed || source.payload.halted !== halted) persistJournal(journalPath, { ...source.payload, halted, records });
-  return { records, pending, unknown, reverted, changed: changed || source.payload.halted !== halted };
+  return {
+    initializedBeforeWrite: source.payload.initializedBeforeWrite === true,
+    writeAuthorityReached: source.payload.writeAuthorityReached === true,
+    records,
+    pending,
+    unknown,
+    reverted,
+    changed: changed || source.payload.halted !== halted,
+  };
 }
 
 /**
