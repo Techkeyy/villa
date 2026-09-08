@@ -788,6 +788,8 @@ async function runAccountRefresh(owner, generation) {
     const accounts = Array.isArray(result.accounts) ? result.accounts : [result.account];
     setAppState({ account: result.account, accounts, walletBalance, currentAccountAddress: result.account.address, discoveryStatus: "DISCOVERED", error: null });
     updateWorkspace(result.account, walletBalance);
+    controlClient ??= createAccountControlClient({ provider, ownerProvider: () => appState.owner, accountProvider: () => appState.currentAccountAddress });
+    void refreshControlState();
     setMessage("capital-message", "");
     setMessage("withdraw-message", "");
     setMessage("authorization-message", "");
@@ -969,6 +971,7 @@ function handleSelectAccount(event) {
   controlClient?.clear();
   setAppState({ account: selected, currentAccountAddress: selected.address, controlState: "STOPPED", controlBusy: false, controlSession: null, controlSnapshot: null, controlResult: null, error: null });
   updateWorkspace(selected, appState.walletBalance ?? 0n);
+  void refreshControlState();
 }
 
 function showLiquidityStage(stage, amount = 0n, hash = "") {
