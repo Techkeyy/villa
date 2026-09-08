@@ -32,6 +32,7 @@ import { reconcileLpSession } from "../src/execution/lp-reconciliation.mjs";
 import { attachLease, createFileAccountLeaseStore, createLpExecutionSession, transitionLpSession } from "../src/execution/lp-session.mjs";
 import { createLeaseHeartbeat, LP_LEASE_DURATION_MS, LP_LEASE_HEARTBEAT_INTERVAL_MS } from "../src/execution/lp-lease-heartbeat.mjs";
 import { assessProjectedQuote, buildPriceFreshnessTelemetry } from "../src/execution/lp-quote-gate.mjs";
+import { decideRunningQuote } from "../src/execution/lp-running-quote.mjs";
 import { readQuoteBook, planAvailableBook } from "../src/execution/lp-book-readiness.mjs";
 import { readUntilAvailable } from "../src/execution/lp-transient-read.mjs";
 import { DEFAULT_PHASE_3B1_CAPS, createLpTransactionPolicy, evaluateStrategyCapital } from "../src/execution/lp-transaction-policy.mjs";
@@ -561,7 +562,7 @@ async function main() {
     };
     const walletClient = (await import("viem")).createWalletClient({ account: signerInfo.signer, chain: somniaShannon, transport: http(env.RPC_URL || VILLA_ACCOUNT_CONFIG.rpcUrl, { timeout: 15_000 }) });
     session = transitionLpSession(session, "RUNNING");
-    writer = createAccountBoundPrivateWriter({ session, lease: leaseHeartbeat.authority, policy, signer: signerInfo.signer, publicClient, walletClient, executionEnabled: true, readLatestNonce: () => publicClient.getTransactionCount({ address: signerInfo.address, blockTag: "latest" }), readPendingNonce: () => publicClient.getTransactionCount({ address: signerInfo.address, blockTag: "pending" }), readReceipt: (hash) => publicClient.getTransactionReceipt({ hash }), journalPath, provenancePath: config.provenancePath, requireProvenance: true });
+    writer = createAccountBoundPrivateWriter({ session, lease: leaseHeartbeat.authority, policy, signer: signerInfo.signer, publicClient, walletClient, executionEnabled: true, readLatestNonce: () => publicClient.getTransactionCount({ address: signerInfo.address, blockTag: "latest" }), readPendingNonce: () => publicClient.getTransactionCount({ address: signerInfo.address, blockTag: "pending" }), readReceipt: (hash) => publicClient.getTransactionReceipt({ hash }), journalPath, provenancePath: config.provenancePath, requireProvenance: true, executionAdmission: { store: admissionStore, admissionId: admissionClaim?.admissionId, session: bootSession }, requireGlobalAdmission: config.requireGlobalAdmission });
     send({ type: "ready", session: { sessionId: session.sessionId, account: session.account, owner: session.owner, operator: session.operator, marketSeries: session.marketSeries, currentMarketId: session.currentMarketId } });
     setRuntimeStage("RUNNING", "Strategy running", "RUNNING", session);
     recordActivity("SESSION", "Session started", { sessionId: session.sessionId });
@@ -684,6 +685,111 @@ async function main() {
       quoteReady = await executeQuote(ask);
     };
 
+    const reevaluateRunningQuote = async () => {
+      if (!quoteReady || stopSignal.requested || stopSignal.paused) return;
+      const nextChain = await readChainTime(exchange);
+      latestChainTime = nextChain;
+      const nextRead = await readLive({
+        owner: config.account,
+        gasAddress: config.operator,
+        deferSourceFreshnessToGovernor: true,
+        market: { market: marketInfo, onchain: live.context.onchain },
+      });
+      if (nextRead.stopped || stopSignal.requested) return;
+      const nextLive = nextRead.value;
+      if (!same(nextLive.context.marketId, selected.marketId)) fail("MARKET_CHANGED", "the selected market changed while monitoring a quote");
+      latestFairValue = nextLive.snapshot.fairValue ?? null;
+      latestDecision = evaluateRisk(nextLive.snapshot, DEFAULT_RISK_CONFIG);
+      accountState = await readAccount(selected.marketId);
+      if (accountState.orders.status !== "VERIFIED" || accountState.orders.orders.length > 1) fail("ACCOUNT_STATE_CHANGED", "the account order state is not authoritatively bounded to this session");
+      selected.book = await readQuoteBook(() => exchange.fetchOrderBook(yesSymbol, 5));
+      const nextInput = plannerInput({ snapshot: nextLive.snapshot, decision: latestDecision, market: selected, accountState, params, decimals });
+      quotePlan = planAvailableBook(nextInput, selected.book, planQuotes);
+      ask = quotePlan.ask;
+      quoteReadiness = assessProjectedQuote({ projectedDecision: latestDecision, quotePlan });
+      const nextPriceFreshness = buildPriceFreshnessTelemetry({
+        snapshot: nextLive.snapshot,
+        decision: latestDecision,
+        lastFreshPriceTimestampSec,
+        maxPriceAgeSec: DEFAULT_RISK_CONFIG.maxPriceAgeSec,
+        maxSourceAgeSec: DEFAULT_RISK_CONFIG.maxSourceAgeSec,
+      });
+      lastFreshPriceTimestampSec = nextPriceFreshness.lastFreshPriceTimestampSec;
+      strategyTelemetry = {
+        ...strategyTelemetry,
+        fairValue: latestFairValue,
+        bestBidRaw: nextInput.book.bestBidRaw,
+        bestAskRaw: nextInput.book.bestAskRaw,
+        priceRaw: ask?.targetPriceRaw ?? null,
+        sizeRaw: ask?.targetQuantityRaw ?? null,
+        plannedPriceRaw: ask?.targetPriceRaw ?? null,
+        plannedQuantityRaw: ask?.targetQuantityRaw ?? null,
+        projectedDecisionState: latestDecision.state ?? null,
+        quotePlan: quotePlan.plan ?? null,
+        askEnabled: ask?.enabled ?? null,
+        askAction: ask?.action ?? null,
+        reasonCode: quoteReadiness.reasonCode,
+        priceFreshness: nextPriceFreshness,
+        status: quoteReadiness.disposition,
+      };
+      const currentOrder = accountState.orders.orders[0] ?? null;
+      const cycle = decideRunningQuote({ readiness: quoteReadiness, currentOrder, desiredAsk: ask });
+      recordActivity("MONITORING", "Reevaluated market, risk, inventory, and quote", {
+        projectedDecisionState: latestDecision.state ?? null,
+        quotePlan: quotePlan.plan ?? null,
+        askEnabled: ask?.enabled ?? null,
+        askAction: ask?.action ?? null,
+        reasonCode: cycle.reasonCode,
+        decision: cycle.action,
+      });
+      if (cycle.action === "HALT" || cycle.action === "HALT_CANCEL") {
+        requestStop(quoteReadiness.reasonCode || cycle.reasonCode);
+        return;
+      }
+      if (cycle.action === "CANCEL" || cycle.action === "WAIT") {
+        if (currentOrder) {
+          const cancelResult = await enqueue(adapter.cancelOrder({ marketId: selected.marketId, orderId: currentOrder.orderId }), { openOrderCount: 1, pendingExposureRaw: currentOrder.quantityRemainingRaw });
+          rememberWrite("cancelOrder", cancelResult);
+          recordActivity("CHAIN_WRITE", "Protective quote cancellation", { txHash: cancelResult?.hash ?? cancelResult?.transactionHash ?? null, orderId: currentOrder.orderId, reasonCode: cycle.reasonCode });
+          accountState = await readAccount(selected.marketId);
+          if (accountState.orders.status !== "VERIFIED" || accountState.orders.orders.length !== 0) fail("CANCEL_RECONCILIATION_FAILED", "protective quote cancellation did not reconcile empty");
+        }
+        const waiting = waitingQuoteState(cycle.state);
+        setRuntimeStage(waiting.stageCode, waiting.label, "RUNNING", session);
+        emitSnapshot(waiting.snapshotAction);
+        return;
+      }
+      if (cycle.action === "KEEP") {
+        setRuntimeStage("RUNNING", "Strategy running", "RUNNING", session);
+        emitSnapshot("quote_kept");
+        return;
+      }
+      if (cycle.action === "REPLACE") {
+        const cancelResult = await enqueue(adapter.cancelOrder({ marketId: selected.marketId, orderId: currentOrder.orderId }), { openOrderCount: 1, pendingExposureRaw: currentOrder.quantityRemainingRaw });
+        rememberWrite("cancelOrder", cancelResult);
+        recordActivity("CHAIN_WRITE", "Quote cancelled for reprice", { txHash: cancelResult?.hash ?? cancelResult?.transactionHash ?? null, orderId: currentOrder.orderId });
+        accountState = await readAccount(selected.marketId);
+        if (accountState.orders.status !== "VERIFIED" || accountState.orders.orders.length !== 0) fail("CANCEL_RECONCILIATION_FAILED", "quote reprice cancellation did not reconcile empty");
+      }
+      if (cycle.action === "PLACE" || cycle.action === "REPLACE") {
+        if (stopSignal.requested || stopSignal.paused) return;
+        if (!ask || ask.enabled !== true || ask.action !== "SELL_YES") fail("QUOTE_ACTION_MISMATCH", "the running quote action is not SELL_YES");
+        if (raw(ask.targetQuantityRaw, "quote quantity") > DEFAULT_PHASE_3B1_CAPS.MAX_ORDER_NOTIONAL || raw(ask.targetQuantityRaw, "quote quantity") > identity.maxOrderQuantity) fail("ORDER_CAP", "the live quote exceeds the account or policy cap");
+        const quantityRaw = raw(ask.targetQuantityRaw, "quote quantity");
+        const priceRaw = raw(ask.targetPriceRaw, "quote price");
+        const expiryNs = raw(Math.max(1, Math.floor(selected.expirySec - 2)), "order expiry") * 1_000_000_000n;
+        const placeResult = await enqueue(adapter.placeOrder({ marketId: selected.marketId, action: "SELL_YES", priceRaw, quantityRaw, expireTimestampNs: expiryNs, orderType: 3, userData: 0n }), { openOrderCount: 0, pendingExposureRaw: quantityRaw });
+        rememberWrite("placeOrder", placeResult);
+        ordersPlaced += 1;
+        recordActivity("CHAIN_WRITE", "Quote placed after reevaluation", { txHash: placeResult?.hash ?? placeResult?.transactionHash ?? null, side: "SELL_YES", reasonCode: cycle.reasonCode });
+        accountState = await readAccount(selected.marketId);
+        if (accountState.orders.status !== "VERIFIED" || accountState.orders.orders.length !== 1) fail("PLACE_RECONCILIATION_FAILED", "the reevaluated SELL_YES order did not reconcile");
+        strategyTelemetry = { ...strategyTelemetry, status: "POSTED" };
+        emitSnapshot(cycle.action === "REPLACE" ? "quote_replaced" : "quote_placed");
+      }
+    };
+
+
     const cleanup = async (reason) => {
       session = transitionLpSession(session, "STOPPING");
       setRuntimeStage("BLOCKING_NEW_RISK", "Blocking new risk", "STOPPING", session);
@@ -732,7 +838,8 @@ async function main() {
       const chain = await readChainTime(exchange);
       latestChainTime = chain;
       accountState = await readAccount(selected.marketId);
-      await reevaluateWaitingQuote();
+      if (quoteReady) await reevaluateRunningQuote();
+      else await reevaluateWaitingQuote();
       const timeRemainingSec = selected.expirySec - chain.chainNowSec;
       if (!runtimeTelemetry.activity.some((item) => item.type === "MONITORING")) recordActivity("MONITORING", "Monitoring live order book and account state", { timeRemainingSec });
       emitSnapshot(stopSignal.paused ? "paused" : "monitoring");

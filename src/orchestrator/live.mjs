@@ -73,7 +73,7 @@ function sleep(ms) {
 
 export function createOrchestratorExchange({ dryRun = false, env = process.env } = {}) {
   if (dryRun) return createReadOnlyRiskExchange(env);
-  if (!env.OPERATOR_PRIVATE_KEY) throw new OrchestratorError("ENVIRONMENT", "OPERATOR_PRIVATE_KEY is unset; preserve the existing .env");
+  throw new OrchestratorError("LEGACY_RUNNER_DISABLED", "the historical signer-owned orchestrator is disabled; use an account-bound execution worker");
   const exchange = new SomniaMarkets({
     indexerUrl: env.INDEXER_URL || "https://dev.smk.somnia.host/v1/graphql",
     chain: somniaShannon,

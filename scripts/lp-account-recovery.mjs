@@ -10,10 +10,11 @@ import { createLpExecutionAdapter, createViemLpAccountReader, VILLA_ACCOUNT_READ
 import { createAccountBoundPrivateWriter } from "../src/execution/lp-private-writer.mjs";
 import { createFileAccountLeaseStore, createLpExecutionSession, transitionLpSession, attachLease } from "../src/execution/lp-session.mjs";
 import { createLeaseHeartbeat, LP_LEASE_DURATION_MS, LP_LEASE_HEARTBEAT_INTERVAL_MS } from "../src/execution/lp-lease-heartbeat.mjs";
-import { isPreMarketFailureCode, validateExpiredSessionRecovery, validatePreflightFailureRecovery, recoveryActions } from "../src/execution/lp-session-recovery.mjs";
+import { isPreMarketFailureCode, validateExpiredSessionRecovery, validatePreflightFailureRecovery, validateSignerFreePreMarketEvidence, recoveryActions } from "../src/execution/lp-session-recovery.mjs";
 import { reconcileDurableJournal } from "../src/execution/lp-recovery.mjs";
 import { DEFAULT_PHASE_3B1_CAPS, createLpTransactionPolicy } from "../src/execution/lp-transaction-policy.mjs";
 import { loadPrivateSigner } from "../src/execution/lp-private-runtime.mjs";
+import { prepareSignerExecution } from "../src/execution/lp-signer-execution-guard.mjs";
 import { assessSessionSettlement, classifySessionPnl } from "../src/settlement/session-lifecycle.mjs";
 
 const ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
@@ -47,6 +48,10 @@ function configFromEnv(env) {
     account: address(env.VILLA_ENGINE_ACCOUNT, "VillaAccount"),
     operator: address(env.VILLA_ENGINE_OPERATOR, "operator"),
     sessionId: String(env.VILLA_ENGINE_SESSION_ID),
+    stateDir: String(env.VILLA_STATE_DIR || "/var/lib/villa-engine/uat-" + env.VILLA_ENGINE_SESSION_ID),
+    provenancePath: String(env.VILLA_EXECUTION_PROVENANCE_FILE || (env.VILLA_STATE_DIR || "/var/lib/villa-engine/uat-" + env.VILLA_ENGINE_SESSION_ID) + "/provenance.json"),
+    globalAdmissionFile: String(env.VILLA_GLOBAL_EXECUTION_ADMISSION_FILE || "/var/lib/villa-engine/global-execution-admission.json"),
+    globalAdmissionId: String(env.VILLA_EXECUTION_ADMISSION_ID || ""),
     chainId: 50312,
   });
 }
@@ -73,6 +78,8 @@ async function main() {
   const storedMarketId = stored?.session?.currentMarketId;
   const marketId = storedMarketId === null || storedMarketId === undefined ? null : String(storedMarketId).toLowerCase();
   const preMarketFailure = marketId === null && isPreMarketFailureCode(stored?.error?.code, stored?.error?.message);
+  const storedProvenance = fs.existsSync(config.provenancePath) ? readJson(config.provenancePath, "execution provenance") : null;
+  if (preMarketFailure && !storedProvenance) fail("LEGACY_AMBIGUOUS", "historical pre-market records without immutable provenance cannot be recovered automatically");
   if ((marketId !== null && !BYTES32_RE.test(marketId)) || (!preMarketFailure && marketId === null)
     || stored?.session?.sessionId !== config.sessionId || !same(stored?.session?.owner, config.owner) || !same(stored?.session?.account, config.account) || !same(stored?.session?.operator, config.operator)) {
     fail("RECOVERY_SCOPE_MISMATCH", "private state is not bound to this exact owner/account/session");
@@ -80,13 +87,15 @@ async function main() {
   const publicClient = createPublicClient({ chain: somniaShannon, transport: http(env.RPC_URL || VILLA_ACCOUNT_CONFIG.rpcUrl, { timeout: 15_000 }) });
   const exchange = new SomniaMarkets({ account: config.account, indexerUrl: env.INDEXER_URL || "https://dev.smk.somnia.host/v1/graphql", chain: somniaShannon, wsRpcUrl: env.WS_RPC_URL || "wss://api.infra.testnet.somnia.network/ws", addresses: SOMNIA_TESTNET_ADDRESSES, priceFeed: SOMNIA_TESTNET_PRICE_FEED });
   const leaseStore = createFileAccountLeaseStore({ directory: env.VILLA_LEASE_DIR || env.VILLA_STATE_DIR, leaseDurationMs: LP_LEASE_DURATION_MS });
-  const journalPath = env.VILLA_WRITER_JOURNAL;
+  const journalPath = env.VILLA_WRITER_JOURNAL || (config.stateDir + "/transactions.json");
   const reader = createViemLpAccountReader({ publicClient, listOpenOrderIds: async ({ pool }) => publicClient.readContract({ address: pool, abi: OWN_ORDERS_ABI, functionName: "getOwnOpenOrders", account: config.account }) });
   const adapter = createLpExecutionAdapter({ account: config.account, owner: config.owner, operator: config.operator, reader, sessionId: config.sessionId });
   let session = null;
   let heartbeat = null;
   let writer = null;
   let released = false;
+  let signerGuard = null;
+  let admissionHeartbeat = null;
   try {
     const identity = await adapter.readAccountIdentity();
     if (identity.accountVersion !== 2 || !same(identity.owner, config.owner) || !same(identity.operator, config.operator)
@@ -96,6 +105,7 @@ async function main() {
     if (preMarketFailure) {
       const accountState = await adapter.readAccountState({ marketId: null });
       const journal = await reconcileDurableJournal({ journalPath, publicClient, config: { ...config, marketId: null } });
+      const status = readJson(env.VILLA_UAT_STATUS_FILE ?? env.VILLA_UAT_STATE_FILE, "public status");
       const sessionScope = {
         sessionId: config.sessionId,
         account: config.account,
@@ -103,7 +113,7 @@ async function main() {
         operator: config.operator,
         currentMarketId: null,
       };
-      const preflight = validatePreflightFailureRecovery({ session: sessionScope, stored, expiredLease, journal, accountState, activeUnit: false });
+      const preflight = validateSignerFreePreMarketEvidence({ session: sessionScope, stored, status, provenance: storedProvenance, expiredLease, journal, accountState, activeUnit: false });
       const session = { ...stored.session, state: "STOPPED_CLEAN", leaseId: null, currentMarketId: null };
       const snapshot = {
         ...stored.snapshot,
@@ -150,11 +160,17 @@ async function main() {
     session = attachLease(session, lease);
     heartbeat = createLeaseHeartbeat({ leaseStore, session, lease, leaseDurationMs: LP_LEASE_DURATION_MS, intervalMs: LP_LEASE_HEARTBEAT_INTERVAL_MS, onFailure: (error) => send(env, { type: "error", code: "ACCOUNT_LEASE_LOST", message: `Recovery lease heartbeat failed; no further writes are allowed. ${error.message}` }) });
     heartbeat.start();
+    signerGuard = prepareSignerExecution({ session, journalPath, provenancePath: config.provenancePath, globalAdmissionFile: config.globalAdmissionFile, admissionId: config.globalAdmissionId, role: "recovery" });
+    admissionHeartbeat = setInterval(() => {
+      try { signerGuard.admissionStore.heartbeat({ admissionId: signerGuard.admission.admissionId, session: signerGuard.exactSession }); }
+      catch (error) { fail(error?.code || "GLOBAL_ADMISSION_LOST", "the recovery execution admission was lost"); }
+    }, 10_000);
+    admissionHeartbeat.unref?.();
     const policy = createLpTransactionPolicy({ session, caps: DEFAULT_PHASE_3B1_CAPS });
     const walletClient = createWalletClient({ account: loadPrivateSigner({ credentialsDirectory: env.CREDENTIALS_DIRECTORY, expectedOperator: config.operator }).signer, chain: somniaShannon, transport: http(env.RPC_URL || VILLA_ACCOUNT_CONFIG.rpcUrl, { timeout: 15_000 }) });
     const signer = walletClient.account;
     session = transitionLpSession(session, "RUNNING");
-    writer = createAccountBoundPrivateWriter({ session, lease: heartbeat.authority, policy, signer, publicClient, walletClient, executionEnabled: true, readLatestNonce: () => publicClient.getTransactionCount({ address: signer.address, blockTag: "latest" }), readPendingNonce: () => publicClient.getTransactionCount({ address: signer.address, blockTag: "pending" }), readReceipt: (hash) => publicClient.getTransactionReceipt({ hash }), journalPath });
+    writer = createAccountBoundPrivateWriter({ session, lease: heartbeat.authority, policy, signer, publicClient, walletClient, executionEnabled: true, readLatestNonce: () => publicClient.getTransactionCount({ address: signer.address, blockTag: "latest" }), readPendingNonce: () => publicClient.getTransactionCount({ address: signer.address, blockTag: "pending" }), readReceipt: (hash) => publicClient.getTransactionReceipt({ hash }), journalPath, provenancePath: config.provenancePath, requireProvenance: true, executionAdmission: { store: signerGuard.admissionStore, admissionId: signerGuard.admission.admissionId, session: signerGuard.exactSession }, requireGlobalAdmission: true });
     let txIndex = provenance.nextTxIndex;
     const writes = [];
     const enqueue = async (plan, context = {}) => {
@@ -210,6 +226,8 @@ async function main() {
     send(env, { type: "error", code: error?.code ?? "SESSION_RECOVERY_FAILED", message: error?.message ?? "The scoped session recovery failed." });
     process.exitCode = 1;
   } finally {
+    if (admissionHeartbeat) clearInterval(admissionHeartbeat);
+    if (signerGuard && (!writer || writer.getState?.().writeAuthorityReached !== true)) { try { signerGuard.admissionStore.release({ admissionId: signerGuard.admission.admissionId, session: signerGuard.exactSession }); } catch { /* preserve claim when write authority is uncertain */ } }
     heartbeat?.stop?.();
     writer?.close?.();
     await closeExchange(exchange);

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { classifyRecoveryRoute, recoveryActions, SIGNER_FREE_PREMARKET_ROUTE, validateExpiredSessionRecovery, validatePreflightFailureRecovery, validateSignerFreePreMarketEvidence } from "./lp-session-recovery.mjs";
+import { classifyFactBasedRecovery, classifyRecoveryRoute, recoveryActions, SIGNER_FREE_PREMARKET_ROUTE, validateExpiredSessionRecovery, validatePreflightFailureRecovery, validateSignerFreePreMarketEvidence } from "./lp-session-recovery.mjs";
 
 const ACCOUNT = "0x1111111111111111111111111111111111111111";
 const OWNER = "0x2222222222222222222222222222222222222222";
@@ -271,4 +271,29 @@ test("preflight-only recovery fails closed on a lease, chain activity, inventory
   assert.throws(() => validatePreflightFailureRecovery({ ...args, journal: { ...args.journal, records: [{ action: "PLACE_ORDER" }] } }), { code: "RECOVERY_CHAIN_ACTIVITY_PRESENT" });
   assert.throws(() => validatePreflightFailureRecovery({ ...args, accountState: { ...args.accountState, inventory: { yesRaw: 1n, noRaw: 0n } } }), { code: "RECOVERY_INVENTORY_PRESENT" });
   assert.throws(() => validatePreflightFailureRecovery({ ...args, accountState: { ...args.accountState, capital: { directCollateralRaw: 2_001_000n, vaultRaw: 1n } } }), { code: "RECOVERY_SETTLEMENT_PRESENT" });
+});
+
+test("new-session recovery classifies concrete dirty facts into required actions", () => {
+  const value = preMarketFixtures();
+  const provenance = { schemaVersion: "villa-lp-execution-provenance-v1" };
+  const journal = { initializedBeforeWrite: true, records: [], writeAuthorityReached: false };
+  const facts = {
+    activeUnit: false,
+    activeLease: false,
+    activeSignerWorker: false,
+    openOrders: 1,
+    outcomeInventory: 1000,
+    aggregateExposure: 0,
+    mintExposure: 0,
+    vault: 0,
+    claimableValue: 0,
+    pendingSettlement: false,
+    redeemableValue: 0,
+    unknownTransactions: 0,
+  };
+  const result = classifyFactBasedRecovery({ provenance, journal, facts });
+  assert.equal(result.classification, "DIRTY");
+  assert.equal(result.safeToRetry, false);
+  assert.match(result.reason, /OPEN_ORDERS/);
+  assert.deepEqual(result.requiredActions, ["CANCEL_ORDERS", "RECONCILE_INVENTORY"]);
 });

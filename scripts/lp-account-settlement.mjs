@@ -18,6 +18,7 @@ import { createFileAccountLeaseStore, createLpExecutionSession, transitionLpSess
 import { createLeaseHeartbeat, LP_LEASE_DURATION_MS, LP_LEASE_HEARTBEAT_INTERVAL_MS } from "../src/execution/lp-lease-heartbeat.mjs";
 import { DEFAULT_PHASE_3B1_CAPS, createLpTransactionPolicy } from "../src/execution/lp-transaction-policy.mjs";
 import { loadPrivateSigner } from "../src/execution/lp-private-runtime.mjs";
+import { prepareSignerExecution } from "../src/execution/lp-signer-execution-guard.mjs";
 import { assessSessionSettlement, classifySessionPnl } from "../src/settlement/session-lifecycle.mjs";
 import { persistPrivateUatState, persistUatState } from "../src/operator/uat-state.mjs";
 
@@ -78,6 +79,10 @@ function configFromEnv(env) {
     operator: address(env.VILLA_ENGINE_OPERATOR ?? env.OPERATOR_ADDRESS, "VILLA operator"),
     sessionId: String(env.VILLA_ENGINE_SESSION_ID ?? ""),
     stateFile: String(env.VILLA_UAT_PRIVATE_STATE_FILE ?? env.VILLA_UAT_STATE_FILE ?? ""),
+    stateDir: String(env.VILLA_STATE_DIR || "/var/lib/villa-engine/uat-" + env.VILLA_ENGINE_SESSION_ID),
+    provenancePath: String(env.VILLA_EXECUTION_PROVENANCE_FILE || (env.VILLA_STATE_DIR || "/var/lib/villa-engine/uat-" + env.VILLA_ENGINE_SESSION_ID) + "/provenance.json"),
+    globalAdmissionFile: String(env.VILLA_GLOBAL_EXECUTION_ADMISSION_FILE || "/var/lib/villa-engine/global-execution-admission.json"),
+    globalAdmissionId: String(env.VILLA_EXECUTION_ADMISSION_ID || ""),
   });
 }
 
@@ -131,6 +136,8 @@ async function main() {
   const settlementOnchain = await readSettlement(publicClient, accountMarket.market);
   const journalPath = env.VILLA_WRITER_JOURNAL || `${env.VILLA_STATE_DIR || "/var/lib/villa-engine"}/transactions.json`;
   const journal = await reconcileDurableJournal({ journalPath, publicClient, config: { account: config.account, operator: config.operator, marketId: restored.marketId, chainId: 50312 } });
+  let signerGuard = null;
+  let admissionHeartbeat = null;
   if (journal.pending > 0 || journal.unknown > 0) fail("RESTART_RECONCILIATION_REQUIRED", "an unknown or pending transaction must be reconciled before settlement");
   if (journal.reverted > 0) fail("REVERTED_TRANSACTION", "a prior transaction reverted and requires director review");
   const alreadyRedeemed = {
@@ -169,6 +176,12 @@ async function main() {
   preflightSession = attachLease(preflightSession, lease);
   const heartbeat = createLeaseHeartbeat({ leaseStore, session: preflightSession, lease, leaseDurationMs: LP_LEASE_DURATION_MS, intervalMs: LP_LEASE_HEARTBEAT_INTERVAL_MS, onFailure: (error) => send(env, { type: "error", code: "ACCOUNT_LEASE_LOST", message: `Settlement lease heartbeat failed; no further writes are allowed. ${error.message}` }) });
   heartbeat.start();
+  signerGuard = prepareSignerExecution({ session: { ...restored.session, currentMarketId: restored.marketId }, journalPath, provenancePath: config.provenancePath, globalAdmissionFile: config.globalAdmissionFile, admissionId: config.globalAdmissionId, role: "settlement" });
+  admissionHeartbeat = setInterval(() => {
+    try { signerGuard.admissionStore.heartbeat({ admissionId: signerGuard.admission.admissionId, session: signerGuard.exactSession }); }
+    catch (error) { fail(error?.code || "GLOBAL_ADMISSION_LOST", "the settlement execution admission was lost"); }
+  }, 10_000);
+  admissionHeartbeat.unref?.();
   let writer = null;
   try {
     const signerInfo = loadPrivateSigner({ credentialsDirectory: env.CREDENTIALS_DIRECTORY, expectedOperator: config.operator });
@@ -176,7 +189,7 @@ async function main() {
     const readySession = transitionLpSession(preflightSession, "SETTLEMENT_READY");
     const running = transitionLpSession(readySession, "SETTLING");
     const walletClient = createWalletClient({ account: signerInfo.signer, chain: somniaShannon, transport: http(env.RPC_URL || VILLA_ACCOUNT_CONFIG.rpcUrl, { timeout: 15_000 }) });
-    writer = createAccountBoundPrivateWriter({ session: running, lease: heartbeat.authority, policy, signer: signerInfo.signer, publicClient, walletClient, executionEnabled: true, readLatestNonce: () => publicClient.getTransactionCount({ address: signerInfo.address, blockTag: "latest" }), readPendingNonce: () => publicClient.getTransactionCount({ address: signerInfo.address, blockTag: "pending" }), readReceipt: (hash) => publicClient.getTransactionReceipt({ hash }), journalPath });
+    writer = createAccountBoundPrivateWriter({ session: running, lease: heartbeat.authority, policy, signer: signerInfo.signer, publicClient, walletClient, executionEnabled: true, readLatestNonce: () => publicClient.getTransactionCount({ address: signerInfo.address, blockTag: "latest" }), readPendingNonce: () => publicClient.getTransactionCount({ address: signerInfo.address, blockTag: "pending" }), readReceipt: (hash) => publicClient.getTransactionReceipt({ hash }), journalPath, provenancePath: config.provenancePath, requireProvenance: true, executionAdmission: { store: signerGuard.admissionStore, admissionId: signerGuard.admission.admissionId, session: signerGuard.exactSession }, requireGlobalAdmission: true });
     send(env, { type: "state", state: "SETTLING", session: { ...restored.session, state: "SETTLING" }, snapshot: { marketId: restored.marketId, intervalSec: Number(String(restored.marketSeries).split(":").pop()), collateralRaw: accountState.capital.directCollateralRaw, yesRaw: accountState.inventory.yesRaw, noRaw: accountState.inventory.noRaw, trackedYesRaw: restored.tracked.yesRaw, trackedNoRaw: restored.tracked.noRaw, startingValueRaw: restored.startingValueRaw, pendingSettlement: null, settlement, lastAction: "settlement_submitting" } });
     let txIndex = 0;
     for (const leg of settlement.plan.legs.filter((item) => item.action === "REDEEM")) {
@@ -201,6 +214,8 @@ async function main() {
     send(env, { type: "result", session: terminalSession, result: { status: "SETTLED", marketId: restored.marketId, settlement, startingValueRaw: restored.startingValueRaw, finalValueRaw, pendingValueRaw: 0n, pnl } });
     send(env, { type: "state", state: "SETTLED", session: terminalSession, snapshot: { marketId: restored.marketId, intervalSec: Number(String(restored.marketSeries).split(":").pop()), collateralRaw: after.capital.directCollateralRaw, yesRaw: after.inventory.yesRaw, noRaw: after.inventory.noRaw, trackedYesRaw: restored.tracked.yesRaw, trackedNoRaw: restored.tracked.noRaw, startingValueRaw: restored.startingValueRaw, pendingSettlement: null, settlement, pnl, lastAction: "settlement_confirmed" } });
   } finally {
+    if (admissionHeartbeat) clearInterval(admissionHeartbeat);
+    if (signerGuard && (!writer || writer.getState?.().writeAuthorityReached !== true)) { try { signerGuard.admissionStore.release({ admissionId: signerGuard.admission.admissionId, session: signerGuard.exactSession }); } catch { /* preserve claim when write authority is uncertain */ } }
     heartbeat.stop();
     writer?.close?.();
     if (writer === null) {

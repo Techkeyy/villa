@@ -30,6 +30,7 @@ import { evaluateWetExecutionPreflight } from "./lp-preflight.mjs";
 import { reconcileLpSession } from "./lp-reconciliation.mjs";
 import { attachLease, createFileAccountLeaseStore, createLpExecutionSession, transitionLpSession } from "./lp-session.mjs";
 import { DEFAULT_PHASE_3B1_CAPS, createLpTransactionPolicy } from "./lp-transaction-policy.mjs";
+import { prepareSignerExecution } from "./lp-signer-execution-guard.mjs";
 
 const execFileAsync = promisify(execFile);
 const ROOT = fileURLToPath(new URL("../..", import.meta.url));
@@ -158,7 +159,8 @@ function runtimeConfig(env, args) {
   if (args.account && !sameAddress(args.account, account)) fail("ACCOUNT_SCOPE_MISMATCH", "CLI account does not match the immutable runtime account");
   if (args.sessionId && args.sessionId !== sessionId) fail("SESSION_SCOPE_MISMATCH", "CLI session does not match the immutable runtime session");
   if (args.marketId && bytes32(args.marketId, "CLI marketId") !== marketId) fail("MARKET_SCOPE_MISMATCH", "CLI market does not match the immutable runtime market");
-  return Object.freeze({ account, owner, operator, chainId, marketId, marketSeries, intervalSec, sessionId });
+  const stateDir = String(env.VILLA_STATE_DIR || "/var/lib/villa-engine/uat-" + sessionId);
+  return Object.freeze({ account, owner, operator, chainId, marketId, marketSeries, intervalSec, sessionId, stateDir, provenancePath: String(env.VILLA_EXECUTION_PROVENANCE_FILE || stateDir + "/provenance.json"), globalAdmissionFile: String(env.VILLA_GLOBAL_EXECUTION_ADMISSION_FILE || "/var/lib/villa-engine/global-execution-admission.json"), globalAdmissionId: String(env.VILLA_EXECUTION_ADMISSION_ID || "") });
 }
 
 function withoutSignerEnvironment(env) {
@@ -357,9 +359,10 @@ export async function runPrivateLpOneShot({ env = process.env, args = {}, depend
       if (!executionEnabled) return baseResult;
       if (recovery.complete) return { ...baseResult, result: "COMPLETED", code: "WET_ONE_SHOT_ALREADY_COMPLETE", broadcast: false, writes: 0, broadcastAttempts: 0 };
 
+      const signerGuard = prepareSignerExecution({ session: activeSession, journalPath, provenancePath: config.provenancePath, globalAdmissionFile: config.globalAdmissionFile, admissionId: config.globalAdmissionId, role: "strategy" });
       const walletClient = createWalletClient({ account: signerInfo.signer, chain: somniaShannon, transport: http(rpcUrl, { timeout: 15_000 }) });
       activeSession = transitionLpSession(activeSession, "RUNNING");
-      const writer = createAccountBoundPrivateWriter({ session: activeSession, lease: { ...lease, held: true }, policy, signer: signerInfo.signer, publicClient, walletClient, executionEnabled: true, readLatestNonce: async () => publicClient.getTransactionCount({ address: signerInfo.address, blockTag: "latest" }), readPendingNonce: async () => publicClient.getTransactionCount({ address: signerInfo.address, blockTag: "pending" }), readReceipt: async (hash) => publicClient.getTransactionReceipt({ hash }), journalPath });
+      const writer = createAccountBoundPrivateWriter({ session: activeSession, lease: { ...lease, held: true }, policy, signer: signerInfo.signer, publicClient, walletClient, executionEnabled: true, readLatestNonce: async () => publicClient.getTransactionCount({ address: signerInfo.address, blockTag: "latest" }), readPendingNonce: async () => publicClient.getTransactionCount({ address: signerInfo.address, blockTag: "pending" }), readReceipt: async (hash) => publicClient.getTransactionReceipt({ hash }), journalPath, provenancePath: config.provenancePath, requireProvenance: true, executionAdmission: { store: signerGuard.admissionStore, admissionId: signerGuard.admission.admissionId, session: signerGuard.exactSession }, requireGlobalAdmission: true });
       const records = [];
       const mintPlan = plans.find((plan) => plan.functionName === "operatorMintSet") ?? null;
       const place = plans.find((plan) => plan.functionName === "operatorPlaceOrder") ?? null;

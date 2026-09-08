@@ -238,7 +238,21 @@ export function classifyFactBasedRecovery({ provenance, journal, facts = {} } = 
   const required = ["activeUnit", "activeLease", "activeSignerWorker", "openOrders", "outcomeInventory", "aggregateExposure", "mintExposure", "vault", "claimableValue", "pendingSettlement", "redeemableValue", "unknownTransactions"];
   if (required.some((key) => facts[key] === undefined || facts[key] === null || facts[key] === "UNKNOWN")) return Object.freeze({ classification: "UNKNOWN", safeToRetry: false, reason: "AUTHORITATIVE_FACT_MISSING" });
   const clean = facts.activeUnit === false && facts.activeLease === false && facts.activeSignerWorker === false && facts.openOrders === 0 && facts.outcomeInventory === 0 && facts.aggregateExposure === 0 && facts.mintExposure === 0 && facts.vault === 0 && facts.claimableValue === 0 && facts.pendingSettlement === false && facts.redeemableValue === 0 && facts.unknownTransactions === 0;
-  if (!clean) return Object.freeze({ classification: "DIRTY", safeToRetry: false, reason: "ACCOUNT_STATE_PRESENT" });
+  const positive = (value) => {
+    try { return BigInt(String(value)) > 0n; } catch { return false; }
+  };
+  const reasons = [];
+  const requiredActions = [];
+  if (facts.activeUnit === true) { reasons.push("ACTIVE_UNIT"); requiredActions.push("WAIT_FOR_WORKER"); }
+  if (facts.activeLease === true) { reasons.push("ACTIVE_LEASE"); requiredActions.push("WAIT_FOR_WORKER"); }
+  if (facts.activeSignerWorker === true) { reasons.push("ACTIVE_SIGNER_WORKER"); requiredActions.push("WAIT_FOR_WORKER"); }
+  if (positive(facts.unknownTransactions)) { reasons.push("UNKNOWN_TRANSACTIONS"); requiredActions.push("RECONCILE_TRANSACTIONS"); }
+  if (positive(facts.openOrders)) { reasons.push("OPEN_ORDERS"); requiredActions.push("CANCEL_ORDERS"); }
+  if (positive(facts.outcomeInventory)) { reasons.push("OUTCOME_INVENTORY"); requiredActions.push("RECONCILE_INVENTORY"); }
+  if (facts.pendingSettlement === true) { reasons.push("PENDING_SETTLEMENT"); requiredActions.push("WAIT_FOR_SETTLEMENT"); }
+  if (positive(facts.vault) || positive(facts.claimableValue) || positive(facts.redeemableValue)) { reasons.push("VALUE_REMAINS"); requiredActions.push("CLAIM_REDEEM_VALUE"); }
+  if (positive(facts.aggregateExposure) || positive(facts.mintExposure)) { reasons.push("EXPOSURE_REMAINS"); requiredActions.push("RECONCILE_EXPOSURE"); }
+  if (!clean) return Object.freeze({ classification: "DIRTY", safeToRetry: false, reason: reasons.join("+") || "ACCOUNT_STATE_PRESENT", requiredActions: Object.freeze([...new Set(requiredActions)]) });
   if (journal.records.length === 0 && journal.writeAuthorityReached !== true) return Object.freeze({ classification: "CLEAN", safeToRetry: true, reason: "PRE_WRITE" });
   return Object.freeze({ classification: "DIRTY", safeToRetry: false, reason: "WRITE_EVIDENCE_PRESENT" });
 }

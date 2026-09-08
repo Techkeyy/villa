@@ -91,6 +91,8 @@ export function createAccountBoundPrivateWriter({
   journalPath = null,
   provenancePath = null,
   requireProvenance = false,
+  executionAdmission = null,
+  requireGlobalAdmission = false,
   now = () => Date.now(),
   receiptRecoveryAttempts = LP_RECEIPT_RECOVERY_ATTEMPTS,
   receiptRecoveryDelayMs = LP_RECEIPT_RECOVERY_DELAY_MS,
@@ -117,6 +119,21 @@ export function createAccountBoundPrivateWriter({
     try { readExecutionProvenance(provenancePath, { session }); } catch (error) { throw new LpPrivateWriterError(error?.code ?? "PROVENANCE_INVALID", error?.message ?? "execution provenance is invalid"); }
   }
 
+  const admissionIsHeld = () => {
+    if (requireGlobalAdmission !== true) return true;
+    const current = executionAdmission?.store?.get?.();
+    return Boolean(current
+      && String(current.admissionId ?? "") === String(executionAdmission.admissionId ?? "")
+      && String(current.session?.sessionId ?? "") === String(session.sessionId ?? "")
+      && String(current.session?.owner ?? "").toLowerCase() === String(session.owner ?? "").toLowerCase()
+      && String(current.session?.account ?? "").toLowerCase() === String(session.account ?? "").toLowerCase()
+      && String(current.session?.operator ?? "").toLowerCase() === String(session.operator ?? "").toLowerCase()
+      && ["ADMITTED", "ACTIVE"].includes(String(current.state ?? ""))
+      && Number(current.expiresAt) > Number(now()));
+  };
+  if (requireGlobalAdmission === true && (!executionAdmission?.store || !executionAdmission.admissionId || !admissionIsHeld())) {
+    throw new LpPrivateWriterError("GLOBAL_ADMISSION_REQUIRED", "a live exact global execution admission is required before private writes");
+  }
   const recoveryAttempts = positiveInteger(receiptRecoveryAttempts, LP_RECEIPT_RECOVERY_ATTEMPTS);
   const recoveryDelayMs = Math.max(0, Number.isFinite(Number(receiptRecoveryDelayMs)) ? Number(receiptRecoveryDelayMs) : LP_RECEIPT_RECOVERY_DELAY_MS);
   const readTimeoutMs = positiveInteger(receiptReadTimeoutMs, LP_RECEIPT_READ_TIMEOUT_MS);
@@ -226,6 +243,7 @@ export function createAccountBoundPrivateWriter({
 
   async function execute(plan) {
     if (halted) throw new LpPrivateWriterError("WRITER_HALTED", "private writer is halted until unknown state is reconciled");
+    if (!admissionIsHeld()) throw new LpPrivateWriterError("GLOBAL_ADMISSION_LOST", "the global execution admission is no longer held for this session");
     if (!leaseIsHeld()) throw new LpPrivateWriterError("ACCOUNT_LEASE_REQUIRED", "the account lease is no longer held for this session");
     if (!validPlan(plan)) throw new LpPrivateWriterError("INTENT_REQUIRED", "writer accepts only a policy-prepared VILLA intent");
     const validation = policy.validate(plan, { nowMs: now() });
@@ -245,6 +263,7 @@ export function createAccountBoundPrivateWriter({
       // allowlisted function and typed arguments. No caller-supplied target,
       // selector, calldata, or native value reaches this closure.
       const simulation = await publicClient.simulateContract({ account: signer, address: session.account, abi: VILLA_ACCOUNT_OPERATOR_ABI, functionName: plan.functionName, args: plan.args, value: 0n });
+      if (!admissionIsHeld()) throw new LpPrivateWriterError("GLOBAL_ADMISSION_LOST", "the global execution admission was lost before broadcast");
       if (!leaseIsHeld()) throw new LpPrivateWriterError("ACCOUNT_LEASE_REQUIRED", "the account lease was lost before broadcast");
       txHash = await walletClient.writeContract({ ...(simulation.request ?? { address: session.account, abi: VILLA_ACCOUNT_OPERATOR_ABI, functionName: plan.functionName, args: plan.args, value: 0n }), account: signer, chain: walletClient.chain, nonce: txNonce });
       if (!txHash || typeof txHash !== "string") throw Object.assign(new Error("private wallet returned no transaction hash"), { uncertain: true, code: "UNKNOWN" });
