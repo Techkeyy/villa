@@ -61,18 +61,76 @@ export function createFileGlobalExecutionAdmission({ filePath, now = () => Date.
   if (!filePath || typeof filePath !== "string") fail("GLOBAL_ADMISSION_REQUIRED", "a durable global admission path is required");
   if (!Number.isInteger(durationMs) || durationMs < 1) fail("GLOBAL_ADMISSION_INVALID", "global admission duration must be positive");
 
-  function read() {
-    if (!fs.existsSync(filePath)) return null;
+  function classifyValue(value, at) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return { status: "CORRUPT", record: null, reason: "SCHEMA" };
+    try {
+      if (value.version !== LP_GLOBAL_ADMISSION_VERSION || !value.admissionId || !value.session) return { status: "CORRUPT", record: value, reason: "SCHEMA" };
+      normalizedSession(value.session);
+      scope(value.role, "admission role");
+      if (!["ADMITTED", "ACTIVE"].includes(String(value.state))) return { status: "CORRUPT", record: value, reason: "SCHEMA" };
+      if (value.pid !== null && (!Number.isInteger(Number(value.pid)) || Number(value.pid) < 1)) return { status: "CORRUPT", record: value, reason: "SCHEMA" };
+      const acquiredAt = timestamp(value.acquiredAt);
+      const heartbeatAt = timestamp(value.heartbeatAt);
+      const expiresAt = timestamp(value.expiresAt);
+      if (heartbeatAt < acquiredAt || expiresAt < heartbeatAt) return { status: "CORRUPT", record: value, reason: "SCHEMA" };
+      return { status: expiresAt > at ? "VALID_ACTIVE" : "VALID_EXPIRED", record: value, reason: null };
+    } catch {
+      return { status: "CORRUPT", record: value, reason: "SCHEMA" };
+    }
+  }
+
+  function inspect() {
+    try {
+      const stat = fs.statSync(filePath);
+      if (!stat.isFile()) return { status: "CORRUPT", record: null, reason: "UNREADABLE" };
+    } catch (error) {
+      if (error?.code === "ENOENT") return { status: "ABSENT", record: null, reason: null };
+      return { status: "CORRUPT", record: null, reason: "UNREADABLE" };
+    }
     let value;
-    try { value = JSON.parse(fs.readFileSync(filePath, "utf8")); } catch { fail("GLOBAL_ADMISSION_CORRUPT", "the durable global admission is unreadable"); }
-    if (value?.version !== LP_GLOBAL_ADMISSION_VERSION || !value.admissionId || !value.session) fail("GLOBAL_ADMISSION_CORRUPT", "the durable global admission schema is unsupported");
-    return value;
+    try {
+      const raw = fs.readFileSync(filePath, "utf8");
+      if (!raw.trim()) return { status: "CORRUPT", record: null, reason: "EMPTY" };
+      value = JSON.parse(raw);
+    } catch {
+      return { status: "CORRUPT", record: null, reason: "JSON" };
+    }
+    return classifyValue(value, timestamp(now()));
   }
-  function write(value) {
-    const temporary = `${filePath}.tmp-${process.pid}-${randomUUID()}`;
-    fs.writeFileSync(temporary, serialize(value), { encoding: "utf8", mode: 0o600, flag: "wx" });
-    fs.renameSync(temporary, filePath);
+
+  function read() {
+    const inspected = inspect();
+    if (inspected.status === "ABSENT") return null;
+    if (inspected.status === "CORRUPT") fail("GLOBAL_ADMISSION_CORRUPT", inspected.reason === "SCHEMA" ? "the durable global admission schema is unsupported" : "the durable global admission is unreadable");
+    return inspected.record;
   }
+
+  function atomicWrite(value, { exclusive = false } = {}) {
+    const directory = path.dirname(filePath);
+    fs.mkdirSync(directory, { recursive: true });
+    const temporary = path.join(directory, "." + path.basename(filePath) + ".tmp-" + process.pid + "-" + randomUUID());
+    let handle;
+    try {
+      handle = fs.openSync(temporary, "wx", 0o600);
+      fs.writeFileSync(handle, serialize(value), { encoding: "utf8" });
+      fs.fsyncSync(handle);
+      fs.closeSync(handle);
+      handle = undefined;
+      if (exclusive) {
+        fs.linkSync(temporary, filePath);
+        fs.unlinkSync(temporary);
+      } else {
+        fs.renameSync(temporary, filePath);
+      }
+    } catch (error) {
+      if (handle !== undefined) {
+        try { fs.closeSync(handle); } catch { /* preserve the original failure */ }
+      }
+      try { fs.unlinkSync(temporary); } catch { /* preserve the original failure */ }
+      throw error;
+    }
+  }
+
   function claim({ session, role = "strategy", pid = null } = {}) {
     const normalized = normalizedSession(session);
     const at = timestamp(now());
@@ -93,15 +151,11 @@ export function createFileGlobalExecutionAdmission({ filePath, now = () => Date.
       heartbeatAt: at,
       expiresAt: at + durationMs,
     };
-    let handle;
     try {
-      handle = fs.openSync(filePath, "wx", 0o600);
-      fs.writeFileSync(handle, serialize(admission));
+      atomicWrite(admission, { exclusive: true });
     } catch (error) {
       if (error?.code === "EEXIST") fail("GLOBAL_EXECUTION_BUSY", "VILLA is currently running another strategy. Try again shortly.");
       throw error;
-    } finally {
-      if (handle !== undefined) fs.closeSync(handle);
     }
     return clone(admission);
   }
@@ -117,7 +171,7 @@ export function createFileGlobalExecutionAdmission({ filePath, now = () => Date.
     const at = timestamp(now());
     if (Number(existing.expiresAt) <= at) fail("GLOBAL_ADMISSION_EXPIRED", "global execution admission expired before worker adoption");
     const updated = { ...existing, role: role ?? existing.role, pid: Number(pid), state: "ACTIVE", heartbeatAt: at, expiresAt: at + durationMs };
-    write(updated);
+    atomicWrite(updated);
     return clone(updated);
   }
   function heartbeat({ admissionId, session, pid = process.pid } = {}) {
@@ -125,7 +179,7 @@ export function createFileGlobalExecutionAdmission({ filePath, now = () => Date.
     const at = timestamp(now());
     if (Number(existing.expiresAt) <= at) fail("GLOBAL_ADMISSION_EXPIRED", "global execution admission expired");
     const updated = { ...existing, pid: Number(pid), state: "ACTIVE", heartbeatAt: at, expiresAt: at + durationMs };
-    write(updated);
+    atomicWrite(updated);
     return clone(updated);
   }
   function release({ admissionId, session } = {}) {
@@ -140,6 +194,22 @@ export function createFileGlobalExecutionAdmission({ filePath, now = () => Date.
     fs.unlinkSync(filePath);
     return { released: true, admissionId: existing.admissionId, sessionId: existing.session.sessionId, reason: "STALE_SCOPED_ADMISSION_RECONCILED" };
   }
-  return Object.freeze({ claim, adopt, heartbeat, release, reconcileStale, get: () => clone(read()), filePath });
+  function reconcileCorrupt({ admissionId, session, isActive, isZeroWrite } = {}) {
+    const exactSession = normalizedSession(session);
+    const inspected = inspect();
+    if (inspected.status !== "CORRUPT") fail("GLOBAL_ADMISSION_NOT_CORRUPT", "the durable global admission is not corrupt");
+    const record = inspected.record;
+    if (!record?.admissionId || !record.session) fail("GLOBAL_ADMISSION_SCOPE_UNKNOWN", "the corrupt admission has no independently verifiable session scope");
+    let corruptSession;
+    try { corruptSession = normalizedSession(record.session); } catch { fail("GLOBAL_ADMISSION_SCOPE_UNKNOWN", "the corrupt admission has no independently verifiable session scope"); }
+    if (record.admissionId !== String(admissionId ?? "") || !sameSession(corruptSession, exactSession)) fail("GLOBAL_ADMISSION_SCOPE_MISMATCH", "the corrupt global execution admission does not belong to this session");
+    if (typeof isActive !== "function" || isActive(record) !== false) fail("GLOBAL_ADMISSION_LIVENESS_UNKNOWN", "corrupt admission liveness is not authoritatively clear");
+    if (typeof isZeroWrite !== "function" || isZeroWrite(record) !== true) fail("GLOBAL_ADMISSION_ZERO_WRITE_UNKNOWN", "corrupt admission zero-write evidence is not authoritative");
+    fs.unlinkSync(filePath);
+    return { released: true, admissionId: record.admissionId, sessionId: record.session.sessionId, reason: "CORRUPT_SCOPED_ADMISSION_RECONCILED" };
+  }
+
+  return Object.freeze({ claim, adopt, heartbeat, release, reconcileStale, reconcileCorrupt, inspect, get: () => clone(read()), filePath });
+
 }
 
