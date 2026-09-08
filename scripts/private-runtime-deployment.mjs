@@ -214,7 +214,7 @@ CapabilityBoundingSet=CAP_CHOWN CAP_DAC_OVERRIDE CAP_FOWNER CAP_SETGID CAP_SETUI
 AmbientCapabilities=CAP_CHOWN CAP_DAC_OVERRIDE CAP_FOWNER CAP_SETGID CAP_SETUID CAP_KILL
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 InaccessiblePaths=/etc/villa-engine.env
-ReadWritePaths=/run/villa-uat-broker /run/villa-uat-bindings /var/lib/villa-engine/global-execution-admission.json
+ReadWritePaths=/run/villa-uat-broker /run/villa-uat-bindings /var/lib/villa-engine
 Restart=no
 
 [Install]
@@ -233,7 +233,7 @@ export const PRIVATE_DEPLOYMENT_FILES = Object.freeze({
   "etc/systemd/system/villa-engine-uat-settle@.service": SETTLEMENT_UNIT,
   "etc/systemd/system/villa-engine-uat-recover@.service": RECOVERY_UNIT,
   "etc/systemd/system/villa-uat-broker.service": BROKER_UNIT,
-  "etc/tmpfiles.d/villa-uat.conf": "d /run/villa-uat-status 2750 villa-engine villa -\nd /run/villa-uat-bindings 2750 root root -\nd /run/villa-uat-broker 2750 root villa -\n",
+  "etc/tmpfiles.d/villa-uat.conf": "d /run/villa-uat-status 2750 villa-engine villa -\nd /run/villa-uat-bindings 2750 root root -\nd /run/villa-uat-broker 2750 root villa -\nd /var/lib/villa-engine 0750 villa-engine villa-engine -\n",
 });
 
 export const PRIVATE_DEPLOYMENT_MODES = Object.freeze({

@@ -70,7 +70,7 @@ test("root broker is the only dynamic identity boundary", () => {
   assert.match(brokerUnit, /User=root/);
   assert.match(brokerUnit, /Group=villa/);
   assert.match(brokerUnit, /villa-uat-broker\.mjs/);
-  assert.match(brokerUnit, /ReadWritePaths=\/run\/villa-uat-broker \/run\/villa-uat-bindings \/var\/lib\/villa-engine\/global-execution-admission\.json/);
+  assert.match(brokerUnit, /ReadWritePaths=\/run\/villa-uat-broker \/run\/villa-uat-bindings \/var\/lib\/villa-engine/);
   assert.match(brokerUnit, /InaccessiblePaths=\/etc\/villa-engine\.env/);
   assert.match(brokerUnit, /UnsetEnvironment=OPERATOR_PRIVATE_KEY TAKER_PRIVATE_KEY PRIVATE_KEY WALLET_SEED MNEMONIC CREDENTIALS_DIRECTORY/);
   assert.match(brokerUnit, /VILLA_ENGINE_OPERATOR=0xaf4ee6/);
@@ -78,6 +78,13 @@ test("root broker is the only dynamic identity boundary", () => {
   assert.doesNotMatch(brokerUnit, /LoadCredential=|(?:^|\n)Environment=.*CREDENTIALS_DIRECTORY/);
 });
 
+test("global admission namespace uses its existing parent directory", () => {
+  const readWrite = brokerUnit.match(/^ReadWritePaths=.*$/m)?.[0];
+  const tmpfiles = PRIVATE_DEPLOYMENT_FILES["etc/tmpfiles.d/villa-uat.conf"];
+  assert.equal(readWrite, "ReadWritePaths=/run/villa-uat-broker /run/villa-uat-bindings /var/lib/villa-engine");
+  assert.doesNotMatch(readWrite, /global-execution-admission\.json/);
+  assert.match(tmpfiles, /^d \/var\/lib\/villa-engine 0750 villa-engine villa-engine -$/m);
+});
 test("pre-market recovery waits for the exact unit and clears only its reconciled binding", () => {
   const broker = fs.readFileSync(path.join(ROOT, "scripts/villa-uat-broker.mjs"), "utf8");
   assert.match(broker, /\["start", "--wait", unit\]/);
