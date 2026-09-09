@@ -215,7 +215,7 @@ async function main() {
         : "OTHER";
     const recoverySession = { ...stored.session, sessionId: config.sessionId, account: config.account, owner: config.owner, operator: config.operator, currentMarketId: marketId };
     const scopedCancellation = factRecovery.classification === "UNKNOWN"
-      ? classifyScopedOpenOrderCancellation({ session: recoverySession, stored, expiredLease, journal, accountState, settlementFacts, facts, globalAdmissionState })
+      ? classifyScopedOpenOrderCancellation({ session: recoverySession, stored, expiredLease, journal, accountState, settlementFacts, facts, provenance: storedProvenance, filledPlacements: accountState.fills ?? stored.snapshot?.fills ?? [], globalAdmissionState })
       : { allowed: false, reason: "FACTS_NOT_UNKNOWN" };
     if (factRecovery.classification === "LEGACY_AMBIGUOUS" && !legacyMarketPreflight) fail("LEGACY_AMBIGUOUS", "the recovery record lacks immutable provenance");
     if (factRecovery.classification === "UNKNOWN" && !scopedCancellation.allowed && !legacyMarketPreflight) fail("RECOVERY_FACTS_UNKNOWN", factRecovery.reason || "authoritative recovery facts are unavailable");
@@ -283,7 +283,9 @@ async function main() {
       return;
     }
     session = transitionLpSession(base, "PREFLIGHT");
-    const provenance = validateExpiredSessionRecovery({ session, stored, expiredLease, journal, accountState });
+    const provenance = scopedCancellation.allowed
+      ? scopedCancellation.provenance
+      : validateExpiredSessionRecovery({ session, stored, expiredLease, journal, accountState });
     const lease = leaseStore.recoverExpired(session, { expectedLeaseId: expiredLease.leaseId });
     session = attachLease(session, lease);
     heartbeat = createLeaseHeartbeat({ leaseStore, session, lease, leaseDurationMs: LP_LEASE_DURATION_MS, intervalMs: LP_LEASE_HEARTBEAT_INTERVAL_MS, onFailure: (error) => send(env, { type: "error", code: "ACCOUNT_LEASE_LOST", message: `Recovery lease heartbeat failed; no further writes are allowed. ${error.message}` }) });

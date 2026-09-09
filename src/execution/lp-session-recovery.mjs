@@ -261,12 +261,110 @@ export function classifyFactBasedRecovery({ provenance, journal, facts = {} } = 
   return Object.freeze({ classification: "CLEAN", safeToRetry: true, reason: journal.records.length === 0 && journal.writeAuthorityReached !== true ? "PRE_WRITE" : "NO_REMAINING_VALUE" });
 }
 
+/** Prove every confirmed placement has an authoritative lifecycle outcome. */
+export function validateOrderLifecycleProof({ session, stored, provenance = null, expiredLease = null, journal, accountState, filledPlacements = [] } = {}) {
+  if (!session || !stored?.session || !provenance || provenance.schemaVersion !== "villa-lp-execution-provenance-v1") {
+    fail("RECOVERY_PROVENANCE_MISMATCH", "immutable execution provenance is required");
+  }
+  for (const [field, exact = false] of [["owner"], ["account"], ["operator"], ["currentMarketId"], ["sessionId", true]]) {
+    const matches = exact ? String(stored.session[field] ?? "") === String(session[field] ?? "") : same(stored.session[field], session[field]);
+    const provenanceField = field === "currentMarketId" ? "marketId" : field;
+    const provenanceMatches = provenance[provenanceField] !== undefined && (exact ? String(provenance[provenanceField]) === String(session[field]) : same(provenance[provenanceField], session[field]));
+    if (!matches || !provenanceMatches) fail("RECOVERY_SCOPE_MISMATCH", "execution provenance does not match the exact recovery session");
+  }
+  if (!expiredLease) fail("RECOVERY_STATE_REQUIRED", "the exact expired lease is required for scoped lifecycle recovery");
+  const storedLeaseId = stored.session.leaseId;
+  const storedLeaseConflicts = storedLeaseId !== null && storedLeaseId !== undefined && String(storedLeaseId) !== "" && String(storedLeaseId) !== String(expiredLease.leaseId ?? "");
+  if (!same(expiredLease.owner, session.owner) || !same(expiredLease.account, session.account) || !same(expiredLease.operator, session.operator) || String(expiredLease.sessionId ?? "") !== session.sessionId || storedLeaseConflicts) {
+    fail("RECOVERY_SCOPE_MISMATCH", "expired lease does not match the exact stored owner/account/operator/session authority");
+  }
+  if ((journal?.pending ?? 0) > 0 || (journal?.unknown ?? 0) > 0) fail("RECOVERY_TRANSACTION_UNKNOWN", "pending or unknown transaction truth blocks recovery");
+  if ((journal?.reverted ?? 0) > 0) fail("RECOVERY_TRANSACTION_REVERTED", "a reverted session transaction requires manual review");
+  const records = journal?.records;
+  if (!Array.isArray(records)) fail("RECOVERY_TRANSACTION_UNKNOWN", "durable lifecycle journal is unavailable");
+  const unique = new Map();
+  for (const record of records) {
+    if (!record?.hash) fail("RECOVERY_PROVENANCE_MISMATCH", "confirmed lifecycle record is missing its transaction hash");
+    const key = String(record.hash).toLowerCase();
+    const prior = unique.get(key);
+    if (prior) {
+      const shape = (item) => JSON.stringify({ action: item.action, state: item.state, amountRaw: item.amountRaw, priceRaw: item.priceRaw, side: item.side });
+      if (shape(prior) !== shape(record)) fail("RECOVERY_PROVENANCE_MISMATCH", "duplicate journal hash has conflicting lifecycle fields");
+      continue;
+    }
+    unique.set(key, record);
+  }
+  const ordered = [...unique.values()];
+  for (const record of ordered) {
+    if (record.state !== "CONFIRMED" || !ALLOWED_ACTIONS.has(record.action)
+      || !same(record.account, session.account) || !same(record.marketId, session.currentMarketId)
+      || String(record.sessionId ?? "") !== session.sessionId) {
+      fail("RECOVERY_JOURNAL_SCOPE_MISMATCH", "journal contains a non-confirmed or out-of-scope lifecycle action");
+    }
+  }
+  const mints = ordered.filter((record) => record.action === "MINT_COMPLETE_SET");
+  const places = ordered.filter((record) => record.action === "PLACE_ORDER");
+  if (mints.length !== 1 || places.length === 0) fail("RECOVERY_PROVENANCE_MISMATCH", "recovery requires one confirmed mint and at least one confirmed placement");
+  const mintAmountRaw = raw(mints[0].amountRaw, "mint amount");
+  if (mintAmountRaw === 0n || mintAmountRaw > DEFAULT_PHASE_3B1_CAPS.MAX_MINT_AMOUNT) fail("RECOVERY_PROVENANCE_MISMATCH", "confirmed mint is outside the bounded policy");
+  for (const place of places) {
+    if (place.side !== "SELL_YES" || raw(place.amountRaw, "order quantity") > mintAmountRaw || raw(place.priceRaw, "order price") === 0n) {
+      fail("RECOVERY_PROVENANCE_MISMATCH", "confirmed placement is not a bounded SELL_YES funded by this mint");
+    }
+  }
+  const unmatched = [];
+  const cancelledOrderIds = new Set();
+  for (const record of ordered) {
+    if (record.action === "PLACE_ORDER") unmatched.push(record);
+    if (record.action === "CANCEL_ORDER") {
+      if (unmatched.length === 0) fail("RECOVERY_PROVENANCE_MISMATCH", "confirmed cancellation has no preceding unmatched placement");
+      const id = orderId(record.amountRaw);
+      if (cancelledOrderIds.has(id)) fail("RECOVERY_PROVENANCE_MISMATCH", "the same order was cancelled more than once");
+      cancelledOrderIds.add(id);
+      unmatched.pop();
+    }
+  }
+  if (accountState?.orders?.status !== "VERIFIED" || !Array.isArray(accountState.orders.orders)) fail("RECOVERY_ORDER_STATE_UNKNOWN", "authoritative account order state is unavailable");
+  const snapshotOrders = Array.isArray(stored.snapshot?.openOrders) ? stored.snapshot.openOrders : [];
+  const knownOrders = new Map(snapshotOrders.map((order) => [orderId(order.orderId), order]));
+  const live = [];
+  for (const order of accountState.orders.orders) {
+    const id = orderId(order.orderId);
+    const known = knownOrders.get(id);
+    if (!known || !same(order.owner, session.account) || !same(order.marketId, session.currentMarketId)
+      || raw(order.quantityRemainingRaw, "remaining quantity") > raw(known.quantityRemainingRaw, "stored remaining quantity")
+      || raw(order.priceRaw, "order price") !== raw(known.priceRaw, "stored order price") || order.isBid !== false) {
+      fail("RECOVERY_ORDER_SCOPE_MISMATCH", "a live order is not proven to belong to this exact failed session");
+    }
+    const matchIndex = unmatched.findIndex((place) => same(place.side, "SELL_YES") && raw(place.priceRaw, "placement price") === raw(order.priceRaw, "order price") && raw(place.amountRaw, "placement quantity") >= raw(order.quantityRemainingRaw, "remaining quantity"));
+    if (matchIndex < 0) fail("RECOVERY_ORDER_SCOPE_MISMATCH", "a live order has no matching confirmed placement");
+    unmatched.splice(matchIndex, 1);
+    live.push(id);
+  }
+  const filledByHash = new Map();
+  for (const fill of filledPlacements ?? []) {
+    const key = String(fill?.placementHash ?? "").toLowerCase();
+    if (!key || filledByHash.has(key)) fail("RECOVERY_PROVENANCE_MISMATCH", "filled placement evidence is missing or duplicated");
+    filledByHash.set(key, fill);
+  }
+  const filled = [];
+  for (const place of unmatched) {
+    const evidence = filledByHash.get(String(place.hash).toLowerCase());
+    if (!evidence || evidence.state !== "CONFIRMED" || evidence.accounted !== true || raw(evidence.amountRaw, "filled quantity") !== raw(place.amountRaw, "placement quantity")) {
+      fail("ORDER_LIFECYCLE_UNKNOWN", "a confirmed placement has no authoritative cancelled, filled, or live outcome");
+    }
+    filled.push(place.hash);
+  }
+  const nextProvenance = Object.freeze({ ...provenance, trackedInventory: Object.freeze({ yesRaw: mintAmountRaw, noRaw: mintAmountRaw }), knownOrderIds: Object.freeze([...knownOrders.keys()]), nextTxIndex: ordered.length });
+  return Object.freeze({ placements: places.length, cancelled: cancelledOrderIds.size, filled: filled.length, live: Object.freeze(live), cancelledOrderIds: Object.freeze([...cancelledOrderIds]), provenance: nextProvenance });
+}
+
 /**
  * The only recovery exception to an unknown settlement fact is a verified,
- * strictly risk-reducing cancellation. The order proof is re-derived through
- * validateExpiredSessionRecovery, so callers cannot authorize a guessed order.
+ * strictly risk-reducing cancellation. The proof is the complete order
+ * lifecycle, not a legacy limit on the number of quote placements.
  */
-export function classifyScopedOpenOrderCancellation({ session, stored, expiredLease, journal, accountState, settlementFacts, facts, globalAdmissionState = "UNKNOWN" } = {}) {
+export function classifyScopedOpenOrderCancellation({ session, stored, expiredLease, journal, accountState, settlementFacts, facts, provenance = null, filledPlacements = [], globalAdmissionState = "UNKNOWN" } = {}) {
   if (settlementFacts?.state !== "SETTLEMENT_BLOCKED" || settlementFacts?.reason !== "OPEN_ORDER_STATE_UNKNOWN" || facts?.pendingSettlement !== "UNKNOWN") {
     return Object.freeze({ allowed: false, reason: "SETTLEMENT_UNKNOWN_FOR_OTHER_REASON" });
   }
@@ -282,12 +380,13 @@ export function classifyScopedOpenOrderCancellation({ session, stored, expiredLe
     return Object.freeze({ allowed: false, reason: "ORDER_STATE_UNVERIFIED" });
   }
   try {
-    const provenance = validateExpiredSessionRecovery({ session, stored, expiredLease, journal, accountState });
-    const actions = recoveryActions({ session, provenance, accountState });
+    const lifecycle = validateOrderLifecycleProof({ session, stored, provenance, expiredLease, journal, accountState, filledPlacements });
+    if (lifecycle.live.length !== 1) return Object.freeze({ allowed: false, reason: "ORDER_SCOPE_AMBIGUOUS" });
+    const actions = recoveryActions({ session, provenance: lifecycle.provenance, accountState });
     if (actions.cancelOrderIds.length !== accountState.orders.orders.length || actions.cancelOrderIds.length !== 1) {
       return Object.freeze({ allowed: false, reason: "ORDER_SCOPE_AMBIGUOUS" });
     }
-    return Object.freeze({ allowed: true, reason: "SETTLEMENT_BLOCKED_BY_OPEN_ORDER", provenance, actions });
+    return Object.freeze({ allowed: true, reason: "SETTLEMENT_BLOCKED_BY_OPEN_ORDER", provenance: lifecycle.provenance, lifecycle, actions });
   } catch (error) {
     return Object.freeze({ allowed: false, reason: error?.code ?? "ORDER_SCOPE_INVALID" });
   }
