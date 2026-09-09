@@ -272,6 +272,16 @@ test("authoritative control state replaces the local transaction lifecycle", () 
 });
 
 
+test("WAITING_FOR_RPC is active and truthful in the control view", () => {
+  assert.ok(CONTROL_ACTIVE_STATES.includes("WAITING_FOR_RPC"));
+  const view = controlTransactionView({ state: "RUNNING", snapshot: { stage: { code: "WAITING_FOR_RPC" } } });
+  assert.equal(view.status, "WAITING");
+  assert.equal(view.title, "Waiting for network connection");
+  assert.match(view.copy, /No new risk is being added/);
+  const reconciled = reconcileControlPayload({ state: "RUNNING", session: { state: "RUNNING" }, snapshot: { stage: { code: "WAITING_FOR_RPC" } } });
+  assert.equal(reconciled.active, true);
+});
+
 test("a completed transaction safety cap is rendered as a safe stop", () => {
   const view = controlTransactionView({ state: "STOPPED_CLEAN", result: { status: "STOPPED_CLEAN", reason: "TX_COUNT_CAP" } });
   assert.equal(view.status, "SUCCESS");

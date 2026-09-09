@@ -28,9 +28,10 @@ export const CONTROL_ACTIVE_STATES = Object.freeze([
   "SETTLING",
   "WAITING_FOR_QUOTE",
   "WAITING_FOR_FRESH_PRICE",
+  "WAITING_FOR_RPC",
 ]);
 
-const WAITING_CONTROL_STAGES = new Set(["WAITING_FOR_QUOTE", "WAITING_FOR_FRESH_PRICE"]);
+const WAITING_CONTROL_STAGES = new Set(["WAITING_FOR_QUOTE", "WAITING_FOR_FRESH_PRICE", "WAITING_FOR_RPC"]);
 
 export function controlTransactionView({ state = "STOPPED", payload = null, session = null, snapshot = null, result = null } = {}) {
   const rawState = String(state || payload?.state || session?.state || "STOPPED").toUpperCase();
@@ -42,6 +43,7 @@ export function controlTransactionView({ state = "STOPPED", payload = null, sess
   if (effective === "RUNNING") return { status: "RUNNING", title: "Strategy active", copy: "The account-bound engine is evaluating market, risk, inventory, and quotes.", detail: "No transaction hash is required for the control state." };
   if (effective === "WAITING_FOR_QUOTE") return { status: "WAITING", title: "Waiting for a safe quote", copy: "No new risk is being added while the planner waits for a safe quote.", detail: "The engine will reevaluate on its normal cycle." };
   if (effective === "WAITING_FOR_FRESH_PRICE") return { status: "WAITING", title: "Waiting for fresh market data", copy: "No new risk is being added while price freshness is unavailable.", detail: "The engine will reevaluate when fresh data returns." };
+  if (effective === "WAITING_FOR_RPC") return { status: "WAITING", title: "Waiting for network connection", copy: "VILLA is waiting for the network connection to recover. No new risk is being added.", detail: "Authoritative account and market reads will complete before quoting resumes." };
   if (effective === "STOPPING") return { status: "STOPPING", title: "Stopping strategy", copy: "New risk is stopped while the account-bound cleanup completes.", detail: "Cleanup remains account-scoped." };
   if (effective === "SETTLING") return { status: "SETTLING", title: "Settling strategy", copy: "The account-bound settlement path is reconciling the exact market.", detail: "No browser transaction is being requested." };
   if (effective === "STOPPED_SETTLEMENT_PENDING" || effective === "SETTLEMENT_READY") return { status: effective, title: "Settlement pending", copy: "The session is waiting for the market settlement lifecycle to complete.", detail: "No withdrawal was attempted." };

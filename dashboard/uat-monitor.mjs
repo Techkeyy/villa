@@ -1,7 +1,7 @@
 import { formatRawExact } from "./account-client.mjs";
 
 const UNAVAILABLE = "Not available yet — the engine has not produced this observation.";
-const ACTIVE_STATES = new Set(["STARTING", "RUNNING", "REDUCE_ONLY", "STOPPING", "PAUSED", "SETTLEMENT_READY", "SETTLING", "WAITING_FOR_QUOTE", "WAITING_FOR_FRESH_PRICE"]);
+const ACTIVE_STATES = new Set(["STARTING", "RUNNING", "REDUCE_ONLY", "STOPPING", "PAUSED", "SETTLEMENT_READY", "SETTLING", "WAITING_FOR_QUOTE", "WAITING_FOR_FRESH_PRICE", "WAITING_FOR_RPC"]);
 
 function node(id) {
   return document.getElementById(id);
@@ -138,7 +138,9 @@ export function telemetryView({ state = "STOPPED", session = null, snapshot = nu
     advancedBlock: display(snapshot?.advanced?.chainBlockNumber, "Not available yet"),
     advancedTx: Array.isArray(snapshot?.advanced?.transactionHashes) ? snapshot.advanced.transactionHashes : [],
     activity,
-    copy: normalized === "RECONNECTING"
+    copy: normalized === "WAITING_FOR_RPC"
+      ? "VILLA is waiting for the network connection to recover. No new risk is being added."
+      : normalized === "RECONNECTING"
       ? "Live session status is temporarily unavailable. Reconnecting…"
       : ACTIVE_STATES.has(normalized)
       ? "Live values are read from the account-bound engine. Stop blocks new risk before scoped cleanup."

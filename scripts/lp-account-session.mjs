@@ -34,7 +34,7 @@ import { createLeaseHeartbeat, LP_LEASE_DURATION_MS, LP_LEASE_HEARTBEAT_INTERVAL
 import { assessProjectedQuote, buildPriceFreshnessTelemetry } from "../src/execution/lp-quote-gate.mjs";
 import { decideRunningQuote } from "../src/execution/lp-running-quote.mjs";
 import { readQuoteBook, planAvailableBook } from "../src/execution/lp-book-readiness.mjs";
-import { readUntilAvailable } from "../src/execution/lp-transient-read.mjs";
+import { DEFAULT_RPC_WAIT_MAX_MS, readUntilAvailable } from "../src/execution/lp-transient-read.mjs";
 import { DEFAULT_PHASE_3B1_CAPS, createLpTransactionPolicy, evaluateStrategyCapital } from "../src/execution/lp-transaction-policy.mjs";
 import { loadPrivateSigner } from "../src/execution/lp-private-runtime.mjs";
 import { assessSessionSettlement, classifySessionPnl } from "../src/settlement/session-lifecycle.mjs";
@@ -48,6 +48,7 @@ const EXCHANGE_CLOSE_TIMEOUT_MS = 2_000;
 // Manual-UAT safety boundary only. The persistent production orchestrator must
 // roll markets without requiring an owner restart and does not inherit this cap.
 const MAX_SESSION_SEC = 900;
+const RPC_WAIT_MAX_MS = DEFAULT_RPC_WAIT_MAX_MS;
 const OPERATOR_ABI = Object.freeze([{ type: "function", name: "isOperator", stateMutability: "view", inputs: [{ name: "owner", type: "address" }, { name: "spender", type: "address" }], outputs: [{ type: "bool" }] }]);
 const ALLOWANCE_ABI = Object.freeze([{ type: "function", name: "allowance", stateMutability: "view", inputs: [{ name: "owner", type: "address" }, { name: "spender", type: "address" }], outputs: [{ type: "uint256" }] }]);
 const OWN_ORDERS_ABI = Object.freeze([{ type: "function", name: "getOwnOpenOrders", stateMutability: "view", inputs: [], outputs: [{ type: "uint128[]" }] }]);
@@ -246,6 +247,14 @@ function publicAccountSnapshot(accountState, marketId, intervalSec, lastAction, 
 }
 
 function waitingQuoteState(disposition) {
+  if (disposition === "WAITING_FOR_RPC") {
+    return {
+      stageCode: "WAITING_FOR_RPC",
+      label: "Waiting for network connection",
+      message: "VILLA is waiting for the network connection to recover. No new risk is being added.",
+      snapshotAction: "waiting_for_rpc",
+    };
+  }
   if (disposition === "WAITING_FOR_FRESH_PRICE") {
     return {
       stageCode: "WAITING_FOR_FRESH_PRICE",
@@ -379,18 +388,33 @@ async function main() {
     }
   };
   const readAccount = (marketId) => adapter.readAccountState({ marketId });
-  const readLive = (options) => readUntilAvailable({
-    read: () => collectRiskSnapshot(exchange, { ...options, deferSourceFreshnessToGovernor: true }),
-    stopped: () => stopSignal.requested,
-    onWait: (state, reasonCode) => {
-      const waiting = waitingQuoteState(state);
-      strategyTelemetry = { ...strategyTelemetry, status: state, reasonCode };
-      setRuntimeStage(state, waiting.label, "RUNNING", session ?? bootSession);
-      emitSnapshot(waiting.snapshotAction);
-      if (session && Date.now() - session.createdAt >= MAX_SESSION_SEC * 1000) requestStop("SESSION_DURATION_CAP");
-    },
-    delay: () => sleep(POLL_MS),
-  });
+  const publishRpcWait = (processState, reasonCode, metadata = {}) => {
+    const waiting = waitingQuoteState("WAITING_FOR_RPC");
+    strategyTelemetry = { ...strategyTelemetry, status: "WAITING_FOR_RPC", reasonCode, rpcRetryAttempt: metadata.attempt ?? null };
+    setRuntimeStage(waiting.stageCode, waiting.label, processState, session ?? bootSession);
+    recordActivity("RPC", waiting.message, { reasonCode, retryAttempt: metadata.attempt ?? null });
+    emitSnapshot(waiting.snapshotAction, null, processState);
+  };
+  const readLive = (options = {}) => {
+    const { transportState, maxWaitMs, ...snapshotOptions } = options;
+    return readUntilAvailable({
+      read: () => collectRiskSnapshot(exchange, { ...snapshotOptions, deferSourceFreshnessToGovernor: true }),
+      stopped: () => stopSignal.requested,
+      onWait: (state, reasonCode, metadata) => {
+        if (state === "WAITING_FOR_RPC") publishRpcWait("RUNNING", reasonCode, metadata);
+        else {
+          const waiting = waitingQuoteState(state);
+          strategyTelemetry = { ...strategyTelemetry, status: state, reasonCode };
+          setRuntimeStage(state, waiting.label, "RUNNING", session ?? bootSession);
+          emitSnapshot(waiting.snapshotAction);
+        }
+        if (session && Date.now() - session.createdAt >= MAX_SESSION_SEC * 1000) requestStop("SESSION_DURATION_CAP");
+      },
+      delay: () => sleep(POLL_MS),
+      transportState,
+      maxWaitMs,
+    });
+  };
   const readProtocol = async (marketId, pool, identity) => {
     let marketPrepared = false;
     try {
@@ -642,14 +666,13 @@ async function main() {
       if (quoteReady || stopSignal.requested || stopSignal.paused) return;
       const nextChain = await readChainTime(exchange);
       latestChainTime = nextChain;
-      const nextRead = await readLive({
+      const nextLive = await collectRiskSnapshot(exchange, {
         owner: config.account,
         gasAddress: config.operator,
         deferSourceFreshnessToGovernor: true,
         market: { market: marketInfo, onchain: live.context.onchain },
       });
-      if (nextRead.stopped || stopSignal.requested) return;
-      const nextLive = nextRead.value;
+      if (stopSignal.requested) return;
       if (!same(nextLive.context.marketId, selected.marketId)) fail("MARKET_CHANGED", "the selected market changed while waiting for a quote");
       latestFairValue = nextLive.snapshot.fairValue ?? null;
       latestDecision = evaluateRisk(nextLive.snapshot, DEFAULT_RISK_CONFIG);
@@ -708,14 +731,13 @@ async function main() {
       if (!quoteReady || stopSignal.requested || stopSignal.paused) return;
       const nextChain = await readChainTime(exchange);
       latestChainTime = nextChain;
-      const nextRead = await readLive({
+      const nextLive = await collectRiskSnapshot(exchange, {
         owner: config.account,
         gasAddress: config.operator,
         deferSourceFreshnessToGovernor: true,
         market: { market: marketInfo, onchain: live.context.onchain },
       });
-      if (nextRead.stopped || stopSignal.requested) return;
-      const nextLive = nextRead.value;
+      if (stopSignal.requested) return;
       if (!same(nextLive.context.marketId, selected.marketId)) fail("MARKET_CHANGED", "the selected market changed while monitoring a quote");
       latestFairValue = nextLive.snapshot.fairValue ?? null;
       latestDecision = evaluateRisk(nextLive.snapshot, DEFAULT_RISK_CONFIG);
@@ -809,11 +831,38 @@ async function main() {
     };
 
 
+    const readCleanupAccount = async () => {
+      const result = await readUntilAvailable({
+        read: () => readAccount(selected.marketId),
+        stopped: () => false,
+        onWait: (state, reasonCode, metadata) => {
+          if (state === "WAITING_FOR_RPC") publishRpcWait("STOPPING", reasonCode, metadata);
+        },
+        delay: () => sleep(POLL_MS),
+        transportState: "WAITING_FOR_RPC",
+        maxWaitMs: RPC_WAIT_MAX_MS,
+      });
+      return result.value;
+    };
+    const readCleanupSettlement = async () => {
+      const result = await readUntilAvailable({
+        read: () => readSettlement(accountMarket.market),
+        stopped: () => false,
+        onWait: (state, reasonCode, metadata) => {
+          if (state === "WAITING_FOR_RPC") publishRpcWait("STOPPING", reasonCode, metadata);
+        },
+        delay: () => sleep(POLL_MS),
+        transportState: "WAITING_FOR_RPC",
+        maxWaitMs: RPC_WAIT_MAX_MS,
+      });
+      return result.value;
+    };
+
     const cleanup = async (reason) => {
       cleanupTxIndex = 0;
       session = transitionLpSession(session, "STOPPING");
       setRuntimeStage("BLOCKING_NEW_RISK", "Blocking new risk", "STOPPING", session);
-      accountState = await readAccount(selected.marketId);
+      accountState = await readCleanupAccount();
       recordActivity("CLEANUP", "Cancelling open orders", { count: accountState.orders.orders.length });
       for (const order of accountState.orders.orders) {
         if (!same(order.owner, config.account) || !same(order.marketId, selected.marketId)) fail("ORDER_SCOPE_MISMATCH", "cleanup encountered an order outside the session scope");
@@ -821,7 +870,7 @@ async function main() {
         rememberWrite("cancelOrder", cancelResult);
         recordActivity("CHAIN_WRITE", "Order cancelled", { txHash: cancelResult?.hash ?? cancelResult?.transactionHash ?? null, orderId: order.orderId });
       }
-      accountState = await readAccount(selected.marketId);
+      accountState = await readCleanupAccount();
       if (accountState.orders.orders.length !== 0) fail("CANCEL_RECONCILIATION_FAILED", "account orders did not reconcile empty");
       recordActivity("RECONCILIATION", "Orders reconciled empty", { liveOrders: 0 });
       const burnAmountRaw = accountState.inventory.yesRaw < accountState.inventory.noRaw ? accountState.inventory.yesRaw : accountState.inventory.noRaw;
@@ -831,10 +880,10 @@ async function main() {
         rememberWrite("burnCompleteSet", burnResult);
         recordActivity("CHAIN_WRITE", "Paired inventory burned", { txHash: burnResult?.hash ?? burnResult?.transactionHash ?? null, amountRaw: burnAmountRaw });
       }
-      accountState = await readAccount(selected.marketId);
+      accountState = await readCleanupAccount();
       recordActivity("RECONCILIATION", "Inventory reconciled", { yesRaw: accountState.inventory.yesRaw, noRaw: accountState.inventory.noRaw });
       setRuntimeStage("CHECKING_SETTLEMENT", "Checking settlement", "STOPPING", session);
-      const onchainSettlement = await readSettlement(accountMarket.market);
+      const onchainSettlement = await readCleanupSettlement();
       settlement = assessSessionSettlement({ session, account: config.account, owner: config.owner, marketId: selected.marketId, onchain: onchainSettlement, held: trackedInventory, owned: accountState.inventory, orders: accountState.orders, capital: accountState.capital, payoutNumerators: onchainSettlement.payoutNumerators, outcomeIds: { yes: accountMarket.yesId, no: accountMarket.noId } });
       if (settlement.state === "SETTLEMENT_BLOCKED") fail(settlement.reason, "settlement is blocked until account orders and transactions are authoritative");
       const pendingValueRaw = ["STOPPED_CLEAN", "SETTLED"].includes(settlement.state) ? 0n : null;
@@ -856,15 +905,40 @@ async function main() {
 
     while (!stopSignal.requested) {
       cycleTxIndex = 0;
-      const chain = await readChainTime(exchange);
-      latestChainTime = chain;
-      accountState = await readAccount(selected.marketId);
+      let chain = null;
       try {
-        if (quoteReady) await reevaluateRunningQuote();
-        else await reevaluateWaitingQuote();
+        const cycle = await readUntilAvailable({
+          read: async () => {
+            const nextChain = await readChainTime(exchange);
+            latestChainTime = nextChain;
+            accountState = await readAccount(selected.marketId);
+            if (quoteReady) await reevaluateRunningQuote();
+            else await reevaluateWaitingQuote();
+            return nextChain;
+          },
+          stopped: () => stopSignal.requested,
+          onWait: (state, reasonCode, metadata) => {
+            if (state === "WAITING_FOR_RPC") publishRpcWait("RUNNING", reasonCode, metadata);
+          },
+          delay: () => sleep(POLL_MS),
+          transportState: "WAITING_FOR_RPC",
+          maxWaitMs: RPC_WAIT_MAX_MS,
+        });
+        if (cycle.stopped) break;
+        chain = cycle.value;
       } catch (error) {
+        if (error?.code === "RPC_SAFETY_TIMEOUT") {
+          stopSignal.requested = true;
+          stopSignal.reason = "RPC_SAFETY_TIMEOUT";
+          setRuntimeStage("STOPPING", "Stopping safely after RPC outage", "STOPPING", session);
+          strategyTelemetry = { ...strategyTelemetry, status: "STOPPING", reasonCode: "RPC_SAFETY_TIMEOUT" };
+          recordActivity("SAFETY", "RPC outage exceeded the bounded wait; stopping new risk", { reasonCode: "RPC_SAFETY_TIMEOUT" });
+          emitSnapshot("rpc_safety_stop", null, "STOPPING");
+          break;
+        }
         if (!handleCycleCap(error)) throw error;
       }
+      if (stopSignal.requested || !chain) break;
       const timeRemainingSec = selected.expirySec - chain.chainNowSec;
       if (!runtimeTelemetry.activity.some((item) => item.type === "MONITORING")) recordActivity("MONITORING", "Monitoring live order book and account state", { timeRemainingSec });
       emitSnapshot(stopSignal.paused ? "paused" : "monitoring");
@@ -878,6 +952,14 @@ async function main() {
     if (leaseFailure) fail("ACCOUNT_LEASE_LOST", "lease renewal failed; the worker stopped all new writes and requires scoped recovery");
     await cleanup(stopSignal.reason || "OWNER_STOP");
   } catch (error) {
+    if (error?.code === "RPC_SAFETY_TIMEOUT" && stopSignal.reason === "RPC_SAFETY_TIMEOUT") {
+      setRuntimeStage("WAITING_FOR_RPC", "Waiting for network connection", "STOPPING", session);
+      strategyTelemetry = { ...strategyTelemetry, status: "STOPPING", reasonCode: "RPC_SAFETY_TIMEOUT" };
+      recordActivity("SAFETY", "RPC remained unavailable during bounded cleanup; scoped recovery is required", { reasonCode: "RPC_SAFETY_TIMEOUT" });
+      send({ type: "state", state: "STOPPING", session });
+      process.exitCode = 0;
+      return;
+    }
     const lostLease = leaseHeartbeat?.getState?.().healthy === false;
     send({ type: "error", code: lostLease ? "ACCOUNT_LEASE_LOST" : (error?.code ?? "UAT_SESSION_FAILED"), message: lostLease ? "Lease authority was lost; no further writes are allowed and owner/account-scoped recovery is required." : (error?.message ?? "The private UAT session failed.") });
     process.exitCode = 1;

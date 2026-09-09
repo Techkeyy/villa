@@ -47,6 +47,14 @@ test("reconnecting telemetry is non-terminal and does not present stale live val
   assert.match(view.copy, /Reconnecting/);
 });
 
+test("WAITING_FOR_RPC is restored as a live waiting state", () => {
+  const waiting = telemetryView({ state: "RUNNING", snapshot: { stage: { code: "WAITING_FOR_RPC", label: "Waiting for network connection" } } });
+  assert.equal(waiting.state, "WAITING_FOR_RPC");
+  assert.equal(waiting.active, true);
+  assert.equal(waiting.panelLabel, "LIVE SESSION");
+  assert.equal(waiting.copy, "VILLA is waiting for the network connection to recover. No new risk is being added.");
+});
+
 test("waiting stages become live waiting states and telemetry stays honest", () => {
   const waiting = telemetryView({ state: "RUNNING", snapshot: { stage: { code: "WAITING_FOR_QUOTE", label: "Waiting for quote" }, activity: [{ atMs: 20, message: "second" }, { atMs: 10, message: "first" }] } });
   assert.equal(waiting.state, "WAITING_FOR_QUOTE");
