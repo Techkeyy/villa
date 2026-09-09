@@ -99,6 +99,16 @@ test("10. exact authenticated recovery can replace only its expired lease", () =
   assert.throws(() => value.store.recoverExpired(recovery, { expectedLeaseId: "wrong" }), { code: "LEASE_SCOPE_MISMATCH" });
   const recovered = value.store.recoverExpired(recovery, { expectedLeaseId: value.lease.leaseId });
   assert.equal(recovered.recoveredLeaseId, value.lease.leaseId);
+  assert.deepEqual(recovered.leaseLineage[0], {
+    previousLeaseId: value.lease.leaseId,
+    replacementLeaseId: recovered.leaseId,
+    account: value.lease.account,
+    owner: value.lease.owner,
+    operator: value.lease.operator,
+    sessionId: value.lease.sessionId,
+    reason: "EXPIRED_LEASE_RECOVERY",
+    timestamp: 1200,
+  });
 });
 
 test("11. two recovery workers cannot race into authority", () => {

@@ -94,9 +94,30 @@ function sameIdentity(lease, session) {
 }
 
 function recoveredLease(session, existing, at, leaseDurationMs) {
+  const leaseId = `lease-${randomUUID()}`;
+  const inheritedLineage = existing.leaseLineage === undefined
+    ? (existing.recoveredExpiredLease === true && existing.recoveredLeaseId
+      ? [{
+        previousLeaseId: String(existing.recoveredLeaseId),
+        replacementLeaseId: String(existing.leaseId),
+        account: existing.account,
+        owner: existing.owner,
+        operator: existing.operator,
+        sessionId: existing.sessionId,
+        reason: "EXPIRED_LEASE_RECOVERY",
+        timestamp: Number(existing.acquiredAt),
+      }]
+      : [])
+    : existing.leaseLineage;
+  if (!Array.isArray(inheritedLineage) || inheritedLineage.some((entry) => !entry || !entry.previousLeaseId || !entry.replacementLeaseId
+    || entry.account !== existing.account || entry.owner !== existing.owner || entry.operator !== existing.operator
+    || entry.sessionId !== existing.sessionId || entry.reason !== "EXPIRED_LEASE_RECOVERY"
+    || !Number.isFinite(Number(entry.timestamp)))) {
+    throw new LpSessionError("LEASE_LINEAGE_INVALID", "the expired lease lineage is malformed");
+  }
   return {
     version: "villa-account-lease-v1",
-    leaseId: `lease-${randomUUID()}`,
+    leaseId,
     account: session.account,
     sessionId: session.sessionId,
     owner: session.owner,
@@ -106,6 +127,16 @@ function recoveredLease(session, existing, at, leaseDurationMs) {
     expiresAt: at + leaseDurationMs,
     recoveredExpiredLease: true,
     recoveredLeaseId: existing.leaseId,
+    leaseLineage: [...inheritedLineage, {
+      previousLeaseId: existing.leaseId,
+      replacementLeaseId: leaseId,
+      account: session.account,
+      owner: session.owner,
+      operator: session.operator,
+      sessionId: session.sessionId,
+      reason: "EXPIRED_LEASE_RECOVERY",
+      timestamp: at,
+    }],
     state: "HELD",
   };
 }

@@ -55,6 +55,36 @@ function orderId(value) {
   return raw(value, "order id").toString();
 }
 
+function validateLeaseAuthority({ session, storedLeaseId, expiredLease }) {
+  if (!storedLeaseId || String(storedLeaseId) === String(expiredLease.leaseId ?? "")) return;
+  if (expiredLease.recoveredExpiredLease !== true) {
+    fail("RECOVERY_SCOPE_MISMATCH", "expired lease is not an original or authoritatively linked replacement for this session");
+  }
+  const lineage = expiredLease.leaseLineage;
+  if (lineage === undefined) {
+    if (String(expiredLease.recoveredLeaseId ?? "") === String(storedLeaseId)) return;
+    fail("RECOVERY_SCOPE_MISMATCH", "expired lease replacement has no exact predecessor lineage");
+  }
+  if (!Array.isArray(lineage) || lineage.length === 0) {
+    fail("RECOVERY_SCOPE_MISMATCH", "expired lease replacement lineage is malformed");
+  }
+  let predecessor = String(storedLeaseId);
+  for (const entry of lineage) {
+    if (!entry || !entry.previousLeaseId || !entry.replacementLeaseId
+      || !same(entry.account, session.account) || !same(entry.owner, session.owner)
+      || !same(entry.operator, session.operator) || String(entry.sessionId ?? "") !== String(session.sessionId)
+      || entry.reason !== "EXPIRED_LEASE_RECOVERY" || !Number.isFinite(Number(entry.timestamp))
+      || String(entry.previousLeaseId) !== predecessor) {
+      fail("RECOVERY_SCOPE_MISMATCH", "expired lease replacement lineage is not exact for this session");
+    }
+    predecessor = String(entry.replacementLeaseId);
+  }
+  if (predecessor !== String(expiredLease.leaseId ?? "")
+    || String(expiredLease.recoveredLeaseId ?? "") !== String(lineage[lineage.length - 1].previousLeaseId)) {
+    fail("RECOVERY_SCOPE_MISMATCH", "expired lease replacement lineage does not terminate at the current lease");
+  }
+}
+
 function emptyRaw(value, label) {
   if (value === undefined || value === null) return;
   if (raw(value, label) !== 0n) fail("RECOVERY_MARKET_STATE_PRESENT", `pre-market recovery requires zero ${label}`);
@@ -274,10 +304,10 @@ export function validateOrderLifecycleProof({ session, stored, provenance = null
   }
   if (!expiredLease) fail("RECOVERY_STATE_REQUIRED", "the exact expired lease is required for scoped lifecycle recovery");
   const storedLeaseId = stored.session.leaseId;
-  const storedLeaseConflicts = storedLeaseId !== null && storedLeaseId !== undefined && String(storedLeaseId) !== "" && String(storedLeaseId) !== String(expiredLease.leaseId ?? "");
-  if (!same(expiredLease.owner, session.owner) || !same(expiredLease.account, session.account) || !same(expiredLease.operator, session.operator) || String(expiredLease.sessionId ?? "") !== session.sessionId || storedLeaseConflicts) {
+  if (!same(expiredLease.owner, session.owner) || !same(expiredLease.account, session.account) || !same(expiredLease.operator, session.operator) || String(expiredLease.sessionId ?? "") !== session.sessionId) {
     fail("RECOVERY_SCOPE_MISMATCH", "expired lease does not match the exact stored owner/account/operator/session authority");
   }
+  validateLeaseAuthority({ session, storedLeaseId, expiredLease });
   if ((journal?.pending ?? 0) > 0 || (journal?.unknown ?? 0) > 0) fail("RECOVERY_TRANSACTION_UNKNOWN", "pending or unknown transaction truth blocks recovery");
   if ((journal?.reverted ?? 0) > 0) fail("RECOVERY_TRANSACTION_REVERTED", "a reverted session transaction requires manual review");
   const records = journal?.records;

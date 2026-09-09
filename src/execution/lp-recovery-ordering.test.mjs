@@ -156,3 +156,65 @@ test("paired inventory is only burned after the staged order is gone", () => {
   const actions = recoveryActions({ session: fixture().session, provenance: result.provenance, accountState: afterCancel });
   assert.equal(actions.burnAmountRaw, 1000n);
 });
+
+
+test("the exact original lease remains valid for lifecycle proof", () => {
+  assert.equal(proof(fixture()).live[0], "7");
+});
+
+test("an exact one-hop rotated lease with authoritative predecessor is valid", () => {
+  const value = fixture();
+  value.expiredLease = { ...value.expiredLease, leaseId: "lease-new", recoveredExpiredLease: true, recoveredLeaseId: "lease-old" };
+  assert.equal(proof(value).live[0], "7");
+});
+
+test("multiple exact lease replacements must form one scoped lineage", () => {
+  const value = fixture();
+  value.expiredLease = {
+    ...value.expiredLease,
+    leaseId: "lease-new-2",
+    recoveredExpiredLease: true,
+    recoveredLeaseId: "lease-new-1",
+    leaseLineage: [
+      { previousLeaseId: "lease-old", replacementLeaseId: "lease-new-1", account: ACCOUNT, owner: OWNER, operator: OPERATOR, sessionId: SESSION, reason: "EXPIRED_LEASE_RECOVERY", timestamp: 1000 },
+      { previousLeaseId: "lease-new-1", replacementLeaseId: "lease-new-2", account: ACCOUNT, owner: OWNER, operator: OPERATOR, sessionId: SESSION, reason: "EXPIRED_LEASE_RECOVERY", timestamp: 1100 },
+    ],
+  };
+  assert.equal(proof(value).live[0], "7");
+});
+
+test("an unrelated replacement lease is rejected", () => {
+  const value = fixture();
+  value.expiredLease = { ...value.expiredLease, leaseId: "lease-new", recoveredExpiredLease: true, recoveredLeaseId: "lease-other" };
+  assert.throws(() => proof(value), hasCode("RECOVERY_SCOPE_MISMATCH"));
+});
+
+test("replacement lineage with the wrong session or owner is rejected", () => {
+  for (const patch of [{ sessionId: "uat-other-session" }, { owner: "0x9999999999999999999999999999999999999999" }]) {
+    const value = fixture();
+    value.expiredLease = {
+      ...value.expiredLease,
+      leaseId: "lease-new",
+      recoveredExpiredLease: true,
+      recoveredLeaseId: "lease-old",
+      leaseLineage: [{ previousLeaseId: "lease-old", replacementLeaseId: "lease-new", account: ACCOUNT, owner: patch.owner ?? OWNER, operator: OPERATOR, sessionId: patch.sessionId ?? SESSION, reason: "EXPIRED_LEASE_RECOVERY", timestamp: 1000 }],
+    };
+    assert.throws(() => proof(value), hasCode("RECOVERY_SCOPE_MISMATCH"));
+  }
+});
+
+test("missing or malformed replacement lineage is rejected", () => {
+  const missing = fixture();
+  missing.expiredLease = { ...missing.expiredLease, leaseId: "lease-new", recoveredExpiredLease: true };
+  assert.throws(() => proof(missing), hasCode("RECOVERY_SCOPE_MISMATCH"));
+  const malformed = fixture();
+  malformed.expiredLease = { ...malformed.expiredLease, leaseId: "lease-new", recoveredExpiredLease: true, recoveredLeaseId: "lease-old", leaseLineage: {} };
+  assert.throws(() => proof(malformed), hasCode("RECOVERY_SCOPE_MISMATCH"));
+});
+
+test("lease rotation authorizes only cleanup of the uniquely verified live order", () => {
+  const value = fixture();
+  value.expiredLease = { ...value.expiredLease, leaseId: "lease-new", recoveredExpiredLease: true, recoveredLeaseId: "lease-old" };
+  const result = classifyScopedOpenOrderCancellation(value);
+  assert.deepEqual(result.actions, { cancelOrderIds: [7n], burnAmountRaw: 0n, claimVaultRaw: 0n });
+});
