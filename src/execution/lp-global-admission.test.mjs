@@ -146,10 +146,15 @@ test("atomic records are created with restrictive final permissions and support 
   try {
     const store = createFileGlobalExecutionAdmission({ filePath: value.filePath, now: () => 1_000, durationMs: 30 });
     const claim = store.claim({ session: session(), role: "strategy", pid: 1234 });
+    assert.equal(claim.path, value.filePath);
     if (process.platform !== "win32") assert.equal(fs.statSync(value.filePath).mode & 0o777, 0o600);
-    assert.equal(store.adopt({ admissionId: claim.admissionId, session: session(), role: "recovery", pid: 1235 }).role, "recovery");
+    const recovery = store.adopt({ admissionId: claim.admissionId, session: session(), role: "recovery", pid: 1235 });
+    assert.equal(recovery.role, "recovery");
+    assert.equal(recovery.path, value.filePath);
     assert.equal(store.heartbeat({ admissionId: claim.admissionId, session: session(), pid: 1236 }).state, "ACTIVE");
-    assert.equal(store.adopt({ admissionId: claim.admissionId, session: session(), role: "settlement", pid: 1237 }).role, "settlement");
+    const settlement = store.adopt({ admissionId: claim.admissionId, session: session(), role: "settlement", pid: 1237 });
+    assert.equal(settlement.role, "settlement");
+    assert.equal(settlement.path, value.filePath);
     if (process.platform !== "win32") assert.equal(fs.statSync(value.filePath).mode & 0o777, 0o600);
   } finally {
     cleanup(value);

@@ -57,6 +57,7 @@ function sameSession(left, right) {
     && left?.operator === right?.operator;
 }
 function clone(value) { return value ? structuredClone(value) : null; }
+function withPath(value, filePath) { return value ? { ...value, path: filePath } : value; }
 function serialize(value) { return JSON.stringify(value, null, 2); }
 function isAccessError(error) { return error?.code === "EACCES" || error?.code === "EPERM"; }
 function accessFailure(error) { return isAccessError(error) ? "ACCESS_DENIED" : "IO_FAILURE"; }
@@ -190,7 +191,7 @@ export function createFileGlobalExecutionAdmission({ filePath, now = () => Date.
       if (error?.code === "EEXIST") fail("GLOBAL_EXECUTION_BUSY", "VILLA is currently running another strategy. Try again shortly.");
       throw error;
     }
-    return clone(admission);
+    return clone(withPath(admission, filePath));
   }
   function assertClaim(admissionId, session) {
     const existing = read();
@@ -205,7 +206,7 @@ export function createFileGlobalExecutionAdmission({ filePath, now = () => Date.
     if (Number(existing.expiresAt) <= at) fail("GLOBAL_ADMISSION_EXPIRED", "global execution admission expired before worker adoption");
     const updated = { ...existing, role: role ?? existing.role, pid: Number(pid), state: "ACTIVE", heartbeatAt: at, expiresAt: at + durationMs };
     atomicWrite(updated);
-    return clone(updated);
+    return clone(withPath(updated, filePath));
   }
   function heartbeat({ admissionId, session, pid = process.pid } = {}) {
     const existing = assertClaim(admissionId, session);
@@ -213,7 +214,7 @@ export function createFileGlobalExecutionAdmission({ filePath, now = () => Date.
     if (Number(existing.expiresAt) <= at) fail("GLOBAL_ADMISSION_EXPIRED", "global execution admission expired");
     const updated = { ...existing, pid: Number(pid), state: "ACTIVE", heartbeatAt: at, expiresAt: at + durationMs };
     atomicWrite(updated);
-    return clone(updated);
+    return clone(withPath(updated, filePath));
   }
   function release({ admissionId, session } = {}) {
     assertClaim(admissionId, session);

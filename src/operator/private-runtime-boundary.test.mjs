@@ -127,6 +127,23 @@ test("private bundle entrypoints and specs contain no public-writable runtime pa
   assert.match(broker, /VILLA_EXECUTION_ADMISSION_ID/);
 });
 
+test("one canonical admission path propagates through broker bindings and every signer worker", () => {
+  const canonical = "/var/lib/villa-engine/global-execution-admission.json";
+  const broker = fs.readFileSync(path.join(ROOT, "scripts/villa-uat-broker.mjs"), "utf8");
+  assert.match(broker, /VILLA_GLOBAL_EXECUTION_ADMISSION_FILE=\$\{GLOBAL_ADMISSION_FILE\}/);
+  assert.match(broker, /const GLOBAL_ADMISSION_FILE = String\(process\.env\.VILLA_GLOBAL_EXECUTION_ADMISSION_FILE/);
+  for (const unit of [sessionUnit, recoveryUnit, settlementUnit, brokerUnit]) {
+    assert.match(unit, new RegExp("VILLA_GLOBAL_EXECUTION_ADMISSION_FILE=" + canonical.replaceAll("/", "\\/")));
+  }
+  for (const entry of ["scripts/lp-account-session.mjs", "scripts/lp-account-recovery.mjs", "scripts/lp-account-settlement.mjs"]) {
+    const source = fs.readFileSync(path.join(ROOT, entry), "utf8");
+    assert.match(source, /VILLA_GLOBAL_EXECUTION_ADMISSION_FILE/);
+  }
+  const admission = fs.readFileSync(path.join(ROOT, "src/execution/lp-global-admission.mjs"), "utf8");
+  assert.match(admission, /withPath\(admission, filePath\)/);
+  assert.match(admission, /withPath\(updated, filePath\)/);
+});
+
 test("every production signer worker is provenance, journal, admission, and policy gated", () => {
   const workers = [
     ["scripts/lp-account-session.mjs", /createExecutionProvenance/, /initializeDurableJournal/],
