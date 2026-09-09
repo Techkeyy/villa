@@ -270,3 +270,12 @@ test("authoritative control state replaces the local transaction lifecycle", () 
   assert.equal(controlTransactionView({ state: "ERROR", payload: { error: { code: "HALT", message: "risk halted" } } }).copy, "risk halted");
   assert.ok(CONTROL_ACTIVE_STATES.includes("WAITING_FOR_QUOTE"));
 });
+
+
+test("a completed transaction safety cap is rendered as a safe stop", () => {
+  const view = controlTransactionView({ state: "STOPPED_CLEAN", result: { status: "STOPPED_CLEAN", reason: "TX_COUNT_CAP" } });
+  assert.equal(view.status, "SUCCESS");
+  assert.equal(view.title, "Strategy stopped safely");
+  assert.equal(view.copy, "Transaction safety limit reached.");
+  assert.notEqual(view.status, "FAILED");
+});

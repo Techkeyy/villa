@@ -46,6 +46,9 @@ export const DEFAULT_PHASE_3B1_CAPS = Object.freeze({
   MAX_PENDING_EXPOSURE: 250_000n,
   MAX_MINT_AMOUNT: 250_000n,
   MAX_SESSION_DURATION_SEC: 900,
+  // MAX_TX_COUNT is the per-bounded-cycle transaction budget. A session-wide
+  // transaction count is intentionally not used; the session duration cap and
+  // account risk limits remain the independent safety boundaries.
   MAX_TX_COUNT: 12,
 });
 
@@ -194,6 +197,7 @@ export function createTransactionIntent({
   expirationNs = null,
   destination,
   txIndex,
+  cycleTxIndex = undefined,
   createdAt,
 } = {}) {
   if (!session || session.version !== LP_SESSION_VERSION) throw new LpTransactionPolicyError("SESSION_INVALID", "a Phase 3 session is required");
@@ -202,6 +206,7 @@ export function createTransactionIntent({
   const destinationAddress = normalizedAddress(destination, "intent destination");
   if (!sameAddress(destinationAddress, session.account)) throw new LpTransactionPolicyError("DESTINATION_DENIED", "intent destination must be the VillaAccount");
   const index = integer(txIndex, "intent txIndex");
+  const cycleIndex = integer(cycleTxIndex ?? txIndex, "intent cycleTxIndex");
   return Object.freeze({
     version: LP_INTENT_VERSION,
     sessionId: session.sessionId,
@@ -218,11 +223,12 @@ export function createTransactionIntent({
     destination: destinationAddress,
     policyVersion: LP_TRANSACTION_POLICY_VERSION,
     txIndex: index,
+    cycleTxIndex: cycleIndex,
     createdAt: finite(createdAt, "intent createdAt"),
   });
 }
 
-export function createIntentFromPlan(plan, { session, txIndex, createdAt } = {}) {
+export function createIntentFromPlan(plan, { session, txIndex, cycleTxIndex, createdAt } = {}) {
   const facts = planFacts(plan);
   return createTransactionIntent({
     session,
@@ -234,6 +240,7 @@ export function createIntentFromPlan(plan, { session, txIndex, createdAt } = {})
     expirationNs: facts.expirationNs ?? null,
     destination: plan.destination ?? plan.to,
     txIndex,
+    cycleTxIndex,
     createdAt,
   });
 }
@@ -267,7 +274,7 @@ export function validateTransactionPlan(plan, { session, caps = DEFAULT_PHASE_3B
   const now = finite(nowMs, "nowMs");
   const ageMs = now - finite(intent.createdAt, "intent.createdAt");
   if (ageMs < 0 || ageMs > maxIntentAgeMs) return reject("INTENT_STALE", `intent age ${ageMs}ms exceeds ${maxIntentAgeMs}ms`, { ageMs });
-  if (integer(intent.txIndex, "intent txIndex") >= effectiveCaps.MAX_TX_COUNT) return reject("TX_COUNT_CAP", "transaction count exceeds the bounded cycle cap");
+  if (integer(intent.cycleTxIndex ?? intent.txIndex, "intent cycleTxIndex") >= effectiveCaps.MAX_TX_COUNT) return reject("TX_COUNT_CAP", "transaction count exceeds the bounded cycle cap");
 
   if (intent.amountRaw !== null && raw(intent.amountRaw, "intent amount") !== (facts.amountRaw ?? 0n)) return reject("INTENT_AMOUNT_MISMATCH", "intent amount differs from calldata");
   if (intent.priceRaw !== null && raw(intent.priceRaw, "intent price") !== (facts.priceRaw ?? 0n)) return reject("INTENT_PRICE_MISMATCH", "intent price differs from calldata");
@@ -290,10 +297,10 @@ export function validateTransactionPlan(plan, { session, caps = DEFAULT_PHASE_3B
 export function createLpTransactionPolicy({ session, caps = DEFAULT_PHASE_3B1_CAPS, now = () => Date.now(), maxIntentAgeMs = 30_000 } = {}) {
   if (!session || session.version !== LP_SESSION_VERSION) throw new LpTransactionPolicyError("SESSION_INVALID", "a Phase 3 session is required");
   const effectiveCaps = normalizedCaps(caps);
-  function prepare(plan, { txIndex, createdAt = now() } = {}) {
+  function prepare(plan, { txIndex, cycleTxIndex, createdAt = now() } = {}) {
     const policyVersion = LP_TRANSACTION_POLICY_VERSION;
     const destination = plan.destination ?? plan.to;
-    const intent = plan.intent ?? createIntentFromPlan({ ...plan, destination }, { session, txIndex, createdAt });
+    const intent = plan.intent ?? createIntentFromPlan({ ...plan, destination }, { session, txIndex, cycleTxIndex, createdAt });
     return Object.freeze({ ...plan, policyVersion, chainId: session.chainId, sessionId: session.sessionId, destination, intent });
   }
   function validate(plan, { nowMs = now() } = {}) {

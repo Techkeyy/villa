@@ -45,7 +45,12 @@ export function controlTransactionView({ state = "STOPPED", payload = null, sess
   if (effective === "STOPPING") return { status: "STOPPING", title: "Stopping strategy", copy: "New risk is stopped while the account-bound cleanup completes.", detail: "Cleanup remains account-scoped." };
   if (effective === "SETTLING") return { status: "SETTLING", title: "Settling strategy", copy: "The account-bound settlement path is reconciling the exact market.", detail: "No browser transaction is being requested." };
   if (effective === "STOPPED_SETTLEMENT_PENDING" || effective === "SETTLEMENT_READY") return { status: effective, title: "Settlement pending", copy: "The session is waiting for the market settlement lifecycle to complete.", detail: "No withdrawal was attempted." };
-  if (effective === "STOPPED_CLEAN" || (effective === "STOPPED" && (result || session?.stoppedAt))) return { status: "SUCCESS", title: "Strategy stopped cleanly", copy: "The account-bound session completed its cleanup path.", detail: "No transaction hash is required for the terminal control state." };
+  if (effective === "STOPPED_CLEAN" || (effective === "STOPPED" && (result || session?.stoppedAt))) {
+    const safetyLimited = String(result?.reason ?? payload?.reason ?? "").toUpperCase() === "TX_COUNT_CAP";
+    return safetyLimited
+      ? { status: "SUCCESS", title: "Strategy stopped safely", copy: "Transaction safety limit reached.", detail: "The account-bound cleanup completed; no new risk was added." }
+      : { status: "SUCCESS", title: "Strategy stopped cleanly", copy: "The account-bound session completed its cleanup path.", detail: "No transaction hash is required for the terminal control state." };
+  }
   if (effective === "SETTLED" || effective === "WITHDRAWABLE") return { status: "SUCCESS", title: effective === "SETTLED" ? "Settlement complete" : "Strategy withdrawable", copy: "The account-bound value lifecycle is complete.", detail: "Withdrawal remains a separate owner action." };
   if (effective === "ERROR") return { status: "FAILED", title: "Strategy failed", copy: String(error?.message ?? result?.reason ?? "The private UAT session failed."), detail: String(error?.code ?? result?.code ?? "UAT_SESSION_FAILED") };
   return null;

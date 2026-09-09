@@ -165,3 +165,34 @@ test("autonomous V2 prepare path accepts the 1,001,000-raw clean baseline", () =
   assert.equal(preparedPlan.account, ACCOUNT);
   assert.equal(preparedPlan.destination, ACCOUNT);
 });
+
+
+test("cycle transaction budget resets while the session intent sequence stays unique", () => {
+  const policy = createLpTransactionPolicy({ session: session(), now: () => 1000 });
+  let sessionTxIndex = 0;
+  for (let cycle = 0; cycle < 3; cycle += 1) {
+    for (let cycleTxIndex = 0; cycleTxIndex < DEFAULT_PHASE_3B1_CAPS.MAX_TX_COUNT; cycleTxIndex += 1) {
+      const plan = policy.prepare(adapter().cancelOrder({ marketId: MARKET, orderId: 7n }), { txIndex: sessionTxIndex, cycleTxIndex, createdAt: 1000 });
+      assert.equal(policy.validate(plan).allowed, true);
+      assert.equal(plan.intent.txIndex, sessionTxIndex);
+      assert.equal(plan.intent.cycleTxIndex, cycleTxIndex);
+      sessionTxIndex += 1;
+    }
+  }
+  const cleanupPlan = policy.prepare(adapter().cancelOrder({ marketId: MARKET, orderId: 7n }), { txIndex: sessionTxIndex, cycleTxIndex: 0, createdAt: 1000 });
+  assert.equal(policy.validate(cleanupPlan).allowed, true);
+  const exhausted = policy.prepare(adapter().cancelOrder({ marketId: MARKET, orderId: 7n }), { txIndex: sessionTxIndex + 1, cycleTxIndex: DEFAULT_PHASE_3B1_CAPS.MAX_TX_COUNT, createdAt: 1000 });
+  assert.equal(policy.validate(exhausted).code, "TX_COUNT_CAP");
+});
+
+
+test("repeated place/cancel reevaluations get a fresh cycle budget", () => {
+  const policy = createLpTransactionPolicy({ session: session(), now: () => 1000 });
+  let sessionTxIndex = 0;
+  for (let cycle = 0; cycle < 4; cycle += 1) {
+    const place = policy.prepare(adapter().placeOrder({ marketId: MARKET, action: "SELL_YES", priceRaw: 500_000n, quantityRaw: 1_000n, expireTimestampNs: 2_000n }), { txIndex: sessionTxIndex++, cycleTxIndex: 0, createdAt: 1000 });
+    assert.equal(policy.validate({ ...place, openOrderCount: 0, pendingExposureRaw: 1_000n }).allowed, true);
+    const cancel = policy.prepare(adapter().cancelOrder({ marketId: MARKET, orderId: BigInt(cycle + 1) }), { txIndex: sessionTxIndex++, cycleTxIndex: 1, createdAt: 1000 });
+    assert.equal(policy.validate({ ...cancel, openOrderCount: 1, pendingExposureRaw: 1_000n }).allowed, true);
+  }
+});

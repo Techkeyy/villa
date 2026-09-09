@@ -302,7 +302,11 @@ async function main() {
   let leaseHeartbeat = null;
   let leaseFailure = null;
   let session = null;
-  let txIndex = 0;
+  // Session intent indexes stay monotonic for journal/provenance identity.
+  // Cycle and cleanup budgets are independent bounded write scopes.
+  let sessionTxIndex = 0;
+  let cycleTxIndex = 0;
+  let cleanupTxIndex = 0;
   let initialCollateralRaw = null;
   let selected = null;
   let accountState = null;
@@ -552,12 +556,16 @@ async function main() {
     if (!preflight.allowed || !reconciliation.safeToStart) fail("ACCOUNT_PREFLIGHT_BLOCKED", `the fresh account preflight did not pass: ${(preflight.reasons ?? []).join(",") || reconciliation.reasons.join(",")}`);
     const policy = createLpTransactionPolicy({ session, caps: DEFAULT_PHASE_3B1_CAPS });
     setRuntimeStage("STARTING_STRATEGY", "Starting strategy", "STARTING", session);
-    const enqueue = async (plan, { openOrderCount = 0, pendingExposureRaw = 0n } = {}) => {
+    const enqueue = async (plan, { openOrderCount = 0, pendingExposureRaw = 0n, budget = "cycle" } = {}) => {
+      if (!["cycle", "cleanup"].includes(budget)) fail("BUDGET_INVALID", "the execution budget is invalid");
       leaseHeartbeat.renewNow();
-      const prepared = policy.prepare({ ...plan, accountCapitalRaw: initialCollateralRaw, openOrderCount, pendingExposureRaw }, { txIndex, createdAt: Date.now() });
+      const budgetIndex = budget === "cleanup" ? cleanupTxIndex : cycleTxIndex;
+      const prepared = policy.prepare({ ...plan, accountCapitalRaw: initialCollateralRaw, openOrderCount, pendingExposureRaw }, { txIndex: sessionTxIndex, cycleTxIndex: budgetIndex, createdAt: Date.now() });
       const validation = policy.validate(prepared, { nowMs: Date.now() });
       if (!validation.allowed) fail(validation.code ?? "POLICY_DENIED", validation.reason ?? "the bounded policy refused the action");
-      txIndex += 1;
+      sessionTxIndex += 1;
+      if (budget === "cleanup") cleanupTxIndex += 1;
+      else cycleTxIndex += 1;
       return writer.enqueue(prepared);
     };
     const walletClient = (await import("viem")).createWalletClient({ account: signerInfo.signer, chain: somniaShannon, transport: http(env.RPC_URL || VILLA_ACCOUNT_CONFIG.rpcUrl, { timeout: 15_000 }) });
@@ -603,8 +611,19 @@ async function main() {
       return true;
     };
 
+    const handleCycleCap = (error) => {
+      if (error?.code !== "TX_COUNT_CAP") return false;
+      requestStop("TX_COUNT_CAP");
+      recordActivity("SAFETY", "Transaction safety limit reached; blocking new risk", { reasonCode: "TX_COUNT_CAP" });
+      return true;
+    };
+
     if (quoteReady) {
-      quoteReady = await executeQuote(ask);
+      try {
+        quoteReady = await executeQuote(ask);
+      } catch (error) {
+        if (!handleCycleCap(error)) throw error;
+      }
     } else {
       const waiting = waitingQuoteState(quoteReadiness.disposition);
       setRuntimeStage(waiting.stageCode, waiting.label, "RUNNING", session);
@@ -791,13 +810,14 @@ async function main() {
 
 
     const cleanup = async (reason) => {
+      cleanupTxIndex = 0;
       session = transitionLpSession(session, "STOPPING");
       setRuntimeStage("BLOCKING_NEW_RISK", "Blocking new risk", "STOPPING", session);
       accountState = await readAccount(selected.marketId);
       recordActivity("CLEANUP", "Cancelling open orders", { count: accountState.orders.orders.length });
       for (const order of accountState.orders.orders) {
         if (!same(order.owner, config.account) || !same(order.marketId, selected.marketId)) fail("ORDER_SCOPE_MISMATCH", "cleanup encountered an order outside the session scope");
-        const cancelResult = await enqueue(adapter.cancelOrder({ marketId: selected.marketId, orderId: order.orderId }), { openOrderCount: 1, pendingExposureRaw: order.quantityRemainingRaw });
+        const cancelResult = await enqueue(adapter.cancelOrder({ marketId: selected.marketId, orderId: order.orderId }), { openOrderCount: 1, pendingExposureRaw: order.quantityRemainingRaw, budget: "cleanup" });
         rememberWrite("cancelOrder", cancelResult);
         recordActivity("CHAIN_WRITE", "Order cancelled", { txHash: cancelResult?.hash ?? cancelResult?.transactionHash ?? null, orderId: order.orderId });
       }
@@ -807,7 +827,7 @@ async function main() {
       const burnAmountRaw = accountState.inventory.yesRaw < accountState.inventory.noRaw ? accountState.inventory.yesRaw : accountState.inventory.noRaw;
       if (burnAmountRaw > 0n) {
         setRuntimeStage("BURNING_INVENTORY", "Burning paired inventory", "STOPPING", session);
-        const burnResult = await enqueue(adapter.burnCompleteSet({ marketId: selected.marketId, amountRaw: burnAmountRaw }));
+        const burnResult = await enqueue(adapter.burnCompleteSet({ marketId: selected.marketId, amountRaw: burnAmountRaw }), { budget: "cleanup" });
         rememberWrite("burnCompleteSet", burnResult);
         recordActivity("CHAIN_WRITE", "Paired inventory burned", { txHash: burnResult?.hash ?? burnResult?.transactionHash ?? null, amountRaw: burnAmountRaw });
       }
@@ -835,11 +855,16 @@ async function main() {
     };
 
     while (!stopSignal.requested) {
+      cycleTxIndex = 0;
       const chain = await readChainTime(exchange);
       latestChainTime = chain;
       accountState = await readAccount(selected.marketId);
-      if (quoteReady) await reevaluateRunningQuote();
-      else await reevaluateWaitingQuote();
+      try {
+        if (quoteReady) await reevaluateRunningQuote();
+        else await reevaluateWaitingQuote();
+      } catch (error) {
+        if (!handleCycleCap(error)) throw error;
+      }
       const timeRemainingSec = selected.expirySec - chain.chainNowSec;
       if (!runtimeTelemetry.activity.some((item) => item.type === "MONITORING")) recordActivity("MONITORING", "Monitoring live order book and account state", { timeRemainingSec });
       emitSnapshot(stopSignal.paused ? "paused" : "monitoring");
