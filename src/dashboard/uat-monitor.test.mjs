@@ -46,3 +46,12 @@ test("reconnecting telemetry is non-terminal and does not present stale live val
   assert.equal(view.panelLabel, "SESSION STATUS");
   assert.match(view.copy, /Reconnecting/);
 });
+
+test("waiting stages become live waiting states and telemetry stays honest", () => {
+  const waiting = telemetryView({ state: "RUNNING", snapshot: { stage: { code: "WAITING_FOR_QUOTE", label: "Waiting for quote" }, activity: [{ atMs: 20, message: "second" }, { atMs: 10, message: "first" }] } });
+  assert.equal(waiting.state, "WAITING_FOR_QUOTE");
+  assert.equal(waiting.active, true);
+  assert.equal(waiting.orders, "Not available yet — the engine has not produced this observation.");
+  assert.deepEqual(waiting.activity.map((item) => item.message), ["first", "second"]);
+  assert.equal(telemetryView({ state: "RUNNING" }).quote, "Not available yet — the engine has not produced this observation.");
+});

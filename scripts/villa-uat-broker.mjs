@@ -11,6 +11,7 @@ import { persistUatState } from "../src/operator/uat-state.mjs";
 import { createViemLpAccountReader } from "../src/execution/lp-adapter.mjs";
 import { classifyRecoveryRoute, LEGACY_AMBIGUOUS_CLASSIFICATION, SIGNER_FREE_PREMARKET_ROUTE, validateSignerFreePreMarketEvidence } from "../src/execution/lp-session-recovery.mjs";
 import { createFileGlobalExecutionAdmission } from "../src/execution/lp-global-admission.mjs";
+import { evaluateTerminalBindingClear } from "../src/operator/uat-terminal-binding.mjs";
 
 const execFileAsync = promisify(execFile);
 const SOCKET_PATH = process.env.VILLA_UAT_BROKER_SOCKET || "/run/villa-uat-broker/control.sock";
@@ -310,6 +311,65 @@ async function clearPreflightBinding(sessionId, owner, account) {
   await fs.rm(bindingPath(sessionId), { force: false });
 }
 
+function terminalMarketId(status) {
+  const value = status?.session?.currentMarketId ?? status?.snapshot?.marketId ?? status?.result?.marketId ?? null;
+  return /^0x[0-9a-fA-F]{64}$/.test(String(value ?? "")) ? String(value).toLowerCase() : null;
+}
+
+async function readTerminalAccountState(owner, account, status) {
+  const identity = await READONLY_READER.readAccountIdentity({ account });
+  if (identity.owner.toLowerCase() !== owner.toLowerCase() || identity.operator.toLowerCase() !== CANONICAL_OPERATOR.toLowerCase()) return null;
+  const marketId = terminalMarketId(status);
+  if (!marketId) return null;
+  const market = await READONLY_READER.readMarket({ account, marketId, identity });
+  const [capital, inventory, orders] = await Promise.all([
+    READONLY_READER.readCapital({ account, marketId, identity }),
+    READONLY_READER.readOutcomeInventory({ account, marketId, identity, market }),
+    READONLY_READER.readOrders({ account, marketId, identity, market }),
+  ]);
+  return { identity, capital, inventory, orders };
+}
+
+async function clearTerminalBindingIfSafe(sessionId, owner, account) {
+  let status;
+  try { status = await readJson(statusPath(sessionId), "public status"); } catch { return false; }
+  const unitNames = [
+    `villa-engine-uat@${sessionId}.service`,
+    `villa-engine-uat-recover@${sessionId}.service`,
+    `villa-engine-uat-settle@${sessionId}.service`,
+  ];
+  try {
+    for (const unit of unitNames) await assertUnitInactive(unit);
+    await assertNoLease(sessionId, account);
+    const admissionInspection = globalAdmission.inspect();
+    if (admissionInspection.status !== "ABSENT") return false;
+    const accountState = await readTerminalAccountState(owner, account, status);
+    const decision = evaluateTerminalBindingClear({ sessionId, owner, account, status, unitsInactive: true, leaseAbsent: true, admission: null, accountState });
+    if (!decision.eligible) return false;
+    await assertExistingBinding(sessionId, owner, account);
+    await fs.rm(bindingPath(sessionId), { force: false });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function monitorTerminalBinding(sessionId, owner, account) {
+  let checking = false;
+  const timer = setInterval(async () => {
+    if (checking) return;
+    checking = true;
+    try {
+      if (await clearTerminalBindingIfSafe(sessionId, owner, account)) clearInterval(timer);
+    } finally {
+      checking = false;
+    }
+  }, 5_000);
+  timer.unref?.();
+  void clearTerminalBindingIfSafe(sessionId, owner, account).then((cleared) => { if (cleared) clearInterval(timer); }).catch(() => undefined);
+  return timer;
+}
+
 async function handle(socket, raw) {
   let request;
   try { request = JSON.parse(raw); } catch { fail(socket, "BROKER_REQUEST_INVALID", "the broker request is not valid JSON"); return; }
@@ -360,6 +420,7 @@ async function handle(socket, raw) {
         }
         handedOff = true;
         await runSystemd(action, sessionId);
+        if (action === "stop" || action === "settle") monitorTerminalBinding(sessionId, owner, account);
       }
     }
     if (admission) monitorGlobalAdmission(admission);

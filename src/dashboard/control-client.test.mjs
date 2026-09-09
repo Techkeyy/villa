@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { CONTROL_STOP_TERMINAL_STATES, ControlClientError, controlStateAfterPollFailure, createAccountControlClient, reconcileControlPayload, waitForControlStop } from "../../dashboard/control-client.mjs";
+import { CONTROL_ACTIVE_STATES, CONTROL_STOP_TERMINAL_STATES, ControlClientError, controlStateAfterPollFailure, controlTransactionView, createAccountControlClient, reconcileControlPayload, waitForControlStop } from "../../dashboard/control-client.mjs";
 
 const OWNER = "0xEFe0412781d3c1e7888b2DB9dEEcA3037542494d";
 
@@ -257,4 +257,16 @@ test("stop command requests remain single-shot while completion polling stays re
   assert.equal(calls.filter(({ url }) => url.endsWith("/account/session/stop")).length, 1);
   assert.equal(calls.filter(({ url }) => url.endsWith("/account/session/start")).length, 0);
   assert.equal(calls.filter(({ url }) => url.endsWith("/account/state")).length, 0);
+});
+
+test("authoritative control state replaces the local transaction lifecycle", () => {
+  assert.equal(controlTransactionView({ state: "STARTING" }).status, "CONFIRMING");
+  assert.equal(controlTransactionView({ state: "RUNNING" }).status, "RUNNING");
+  assert.equal(controlTransactionView({ state: "RUNNING", snapshot: { stage: { code: "WAITING_FOR_QUOTE" } } }).status, "WAITING");
+  assert.equal(controlTransactionView({ state: "RUNNING", snapshot: { stage: { code: "WAITING_FOR_FRESH_PRICE" } } }).title, "Waiting for fresh market data");
+  assert.equal(controlTransactionView({ state: "STOPPING" }).status, "STOPPING");
+  assert.equal(controlTransactionView({ state: "SETTLING" }).status, "SETTLING");
+  assert.equal(controlTransactionView({ state: "STOPPED_CLEAN", result: { status: "STOPPED_CLEAN" } }).status, "SUCCESS");
+  assert.equal(controlTransactionView({ state: "ERROR", payload: { error: { code: "HALT", message: "risk halted" } } }).copy, "risk halted");
+  assert.ok(CONTROL_ACTIVE_STATES.includes("WAITING_FOR_QUOTE"));
 });

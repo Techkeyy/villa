@@ -1,7 +1,7 @@
 import { formatRawExact } from "./account-client.mjs";
 
 const UNAVAILABLE = "Not available yet — the engine has not produced this observation.";
-const ACTIVE_STATES = new Set(["STARTING", "RUNNING", "REDUCE_ONLY", "STOPPING", "PAUSED", "SETTLEMENT_READY", "SETTLING"]);
+const ACTIVE_STATES = new Set(["STARTING", "RUNNING", "REDUCE_ONLY", "STOPPING", "PAUSED", "SETTLEMENT_READY", "SETTLING", "WAITING_FOR_QUOTE", "WAITING_FOR_FRESH_PRICE"]);
 
 function node(id) {
   return document.getElementById(id);
@@ -58,7 +58,12 @@ function activityItems(snapshot, result) {
   const items = Array.isArray(snapshot?.activity) && snapshot.activity.length
     ? snapshot.activity
     : Array.isArray(result?.activity) ? result.activity : [];
-  return items.filter((item) => item && typeof item === "object" && item.message).slice(-60);
+  return items.filter((item) => item && typeof item === "object" && item.message).slice(-60).sort((left, right) => {
+    const leftAt = Number(left.atMs);
+    const rightAt = Number(right.atMs);
+    if (!Number.isFinite(leftAt) || !Number.isFinite(rightAt)) return 0;
+    return leftAt - rightAt;
+  });
 }
 
 export function formatActivityLabel(item) {
@@ -73,7 +78,9 @@ export function formatActivityTime(item) {
 }
 
 export function telemetryView({ state = "STOPPED", session = null, snapshot = null, result = null } = {}) {
-  const normalized = String(state || session?.state || "STOPPED").toUpperCase();
+  const baseState = String(state || session?.state || "STOPPED").toUpperCase();
+  const stageCode = String(snapshot?.stage?.code ?? session?.stage?.code ?? "").toUpperCase();
+  const normalized = ACTIVE_STATES.has(stageCode) && ["STARTING", "RUNNING", "PAUSED"].includes(baseState) ? stageCode : baseState;
   const market = snapshot?.market ?? {};
   const strategy = snapshot?.strategy ?? {};
   const risk = snapshot?.riskGovernor ?? {};
@@ -84,7 +91,7 @@ export function telemetryView({ state = "STOPPED", session = null, snapshot = nu
   const book = strategy.bestBidRaw !== undefined || strategy.bestAskRaw !== undefined
     ? rawText(strategy.bestBidRaw, "") + " / " + rawText(strategy.bestAskRaw, "")
     : UNAVAILABLE;
-  const quote = strategy.priceRaw !== undefined || strategy.sizeRaw !== undefined
+  const quote = strategy.priceRaw !== undefined || strategy.sizeRaw !== undefined || strategy.side !== undefined
     ? display(strategy.side, "") + " · " + rawText(strategy.priceRaw, "") + " · " + rawText(strategy.sizeRaw, "")
     : UNAVAILABLE;
   const activity = activityItems(snapshot, result);
@@ -107,7 +114,7 @@ export function telemetryView({ state = "STOPPED", session = null, snapshot = nu
     quoteSide: display(strategy.side),
     quoteSize: rawText(strategy.sizeRaw),
     quotePostOnly: strategy.postOnly === undefined ? UNAVAILABLE : strategy.postOnly ? "Yes" : "No",
-    orders: Array.isArray(snapshot?.openOrders) ? String(snapshot.openOrders.length) : "0",
+    orders: Array.isArray(snapshot?.openOrders) ? String(snapshot.openOrders.length) : UNAVAILABLE,
     orderAction: display(snapshot?.lastAction ?? result?.reason, "No action recorded yet."),
     fills: Array.isArray(snapshot?.fills) ? String(snapshot.fills.length) : display(result?.fills, UNAVAILABLE),
     freeYes: rawText(inventory.freeYesRaw ?? snapshot?.yesRaw),
@@ -115,8 +122,8 @@ export function telemetryView({ state = "STOPPED", session = null, snapshot = nu
     freeNo: rawText(inventory.freeNoRaw ?? snapshot?.noRaw),
     escrowedNo: rawText(inventory.escrowedNoRaw, ""),
     governor: display(risk.state ?? snapshot?.risk, "Not available yet"),
-    exposure: rawText(risk.currentAggregateExposureRaw, "") + " / " + rawText(risk.maxAggregateExposureRaw, ""),
-    mintExposure: rawText(risk.currentMintExposureRaw, "") + " / " + rawText(risk.maxMintExposureRaw, ""),
+    exposure: risk.currentAggregateExposureRaw === undefined && risk.maxAggregateExposureRaw === undefined ? UNAVAILABLE : rawText(risk.currentAggregateExposureRaw, "") + " / " + rawText(risk.maxAggregateExposureRaw, ""),
+    mintExposure: risk.currentMintExposureRaw === undefined && risk.maxMintExposureRaw === undefined ? UNAVAILABLE : rawText(risk.currentMintExposureRaw, "") + " / " + rawText(risk.maxMintExposureRaw, ""),
     freeCapital: rawText(capital.freeRaw ?? snapshot?.collateralRaw),
     deployedCapital: rawText(capital.deployedRaw ?? snapshot?.deployedRaw),
     claimable: rawText(capital.claimableRaw),

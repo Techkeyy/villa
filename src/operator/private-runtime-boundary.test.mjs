@@ -198,3 +198,14 @@ test("autonomous V2 prepare path initializes policy before its first enqueue", (
   assert.ok(enqueueIndex > policyIndex, "enqueue must close over an initialized policy in the same scope");
   assert.ok(firstEnqueueCallIndex > enqueueIndex, "autonomous prepare/mint/order path must enqueue only after policy initialization");
 });
+
+test("terminal binding cleanup is exact, authoritative, and excludes active settlement", () => {
+  const cleanup = fs.readFileSync(path.join(ROOT, "src/operator/uat-terminal-binding.mjs"), "utf8");
+  assert.match(cleanup, /TERMINAL_BINDING_CLEAR_STATES/);
+  assert.match(cleanup, /BINDING_SCOPE_MISMATCH/);
+  assert.match(cleanup, /SETTLEMENT_PENDING/);
+  const broker = fs.readFileSync(path.join(ROOT, "scripts/villa-uat-broker.mjs"), "utf8");
+  assert.match(broker, /monitorTerminalBinding/);
+  assert.match(broker, /globalAdmission.inspect()/);
+  assert.match(broker, /readTerminalAccountState/);
+});

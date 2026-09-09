@@ -27,7 +27,7 @@ import { deriveWalletStatus, renderAccountJourney } from "./account-journey.mjs"
 import { createAddLiquidityHandler, runAddLiquidity } from "./liquidity-flow.mjs";
 import { evaluateVerifiedOwnerAccountReadiness, isStrategyCapitalReady, isVerifiedOwnerAccountReady } from "./account-readiness.mjs";
 import { createAuthorizationHandler, runAuthorization } from "./authorization-flow.mjs";
-import { CONTROL_ACTIVE_STATES, CONTROL_STOP_TERMINAL_STATES, ControlClientError, controlStateAfterPollFailure, controlStateOf, createAccountControlClient, reconcileControlPayload, waitForControlStop } from "./control-client.mjs";
+import { CONTROL_ACTIVE_STATES, CONTROL_STOP_TERMINAL_STATES, ControlClientError, controlStateAfterPollFailure, controlStateOf, controlTransactionView, createAccountControlClient, reconcileControlPayload, waitForControlStop } from "./control-client.mjs";
 import { ensureUatMonitor, renderUatMonitor } from "./uat-monitor.mjs";
 
 const page = document.body.dataset.route || window.location.pathname.replace(/\/+$/, "") || "/";
@@ -431,6 +431,11 @@ function showControlTerminalError(payload) {
   setMessage("control-message", humanError(controlError));
 }
 
+function renderAuthoritativeControlTransaction({ state, payload = null, session = null, snapshot = null, result = null } = {}) {
+  const view = controlTransactionView({ state, payload, session, snapshot, result });
+  if (view) showTransaction(view.status, view.title, view.copy, view.detail);
+}
+
 async function refreshControlState() {
   if (!provider || !appState.owner || !appState.currentAccountAddress || !controlClient) return;
   const owner = appState.owner;
@@ -448,6 +453,7 @@ async function refreshControlState() {
     if (CONTROL_ACTIVE_STATES.includes(state)) scheduleControlPoll(); else clearControlPoll();
     if (state === "STOPPED" && !payload?.error) setMessage("control-message", "");
     if (state === "ERROR") showControlTerminalError(payload);
+    else renderAuthoritativeControlTransaction({ state, payload, session, snapshot, result });
   } catch (error) {
     if (CONTROL_ACTIVE_STATES.includes(String(appState.controlState || "").toUpperCase()) || appState.controlState === "RECONNECTING") {
       if (controlAuthNeedsAttention(error)) {
@@ -481,6 +487,7 @@ function setControlView(state, copy = "", result = null) {
   renderUatMonitor({ state: appState.controlState, session: appState.controlSession, snapshot: appState.controlSnapshot, result: appState.controlResult });
   scheduleControlPoll();
   renderLiveCapital(appState.controlSnapshot);
+  renderAuthoritativeControlTransaction({ state: appState.controlState, session: appState.controlSession, snapshot: appState.controlSnapshot, result: appState.controlResult });
   if (copy) setMessage("control-message", copy, state === "ERROR" ? "warning" : "safe");
   else if (CONTROL_STOP_TERMINAL_STATES.includes(String(state || "").toUpperCase())) setMessage("control-message", "");
 }
@@ -502,7 +509,6 @@ async function handleStartStrategy() {
     const nextState = String(result.state || "RUNNING").toUpperCase();
     setControlView(nextState, nextState === "STARTING" ? "Strategy is starting. The live engine stages will appear below." : "Strategy control accepted.", result);
     if (nextState === "ERROR") showControlTerminalError(result);
-    else showTransaction(nextState === "STARTING" ? "CONFIRMING" : "SUCCESS", nextState === "STARTING" ? "Starting strategy" : "Strategy control accepted", nextState === "STARTING" ? "The account-bound engine is progressing through live preflight stages." : "The account-bound control plane returned a safe session state.");
   } catch (error) {
     setControlView("STOPPED");
     showActionError("control-message", error instanceof ControlClientError ? error : new ControlClientError("CONTROL_REQUEST_FAILED", error?.message || "The strategy control request failed."));

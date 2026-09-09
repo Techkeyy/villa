@@ -26,7 +26,30 @@ export const CONTROL_ACTIVE_STATES = Object.freeze([
   "STOPPING",
   "SETTLEMENT_READY",
   "SETTLING",
+  "WAITING_FOR_QUOTE",
+  "WAITING_FOR_FRESH_PRICE",
 ]);
+
+const WAITING_CONTROL_STAGES = new Set(["WAITING_FOR_QUOTE", "WAITING_FOR_FRESH_PRICE"]);
+
+export function controlTransactionView({ state = "STOPPED", payload = null, session = null, snapshot = null, result = null } = {}) {
+  const rawState = String(state || payload?.state || session?.state || "STOPPED").toUpperCase();
+  const normalized = normalizeControlState(rawState);
+  const stageCode = String(payload?.stage?.code ?? snapshot?.stage?.code ?? session?.stage?.code ?? "").toUpperCase();
+  const effective = WAITING_CONTROL_STAGES.has(stageCode) && ["STARTING", "RUNNING", "PAUSED"].includes(normalized) ? stageCode : normalized;
+  const error = payload?.error ?? result?.error ?? (result?.status === "ERROR" ? result : null);
+  if (effective === "STARTING") return { status: "CONFIRMING", title: "Starting strategy", copy: "The account-bound engine is progressing through live preflight stages.", detail: "No transaction hash yet." };
+  if (effective === "RUNNING") return { status: "RUNNING", title: "Strategy active", copy: "The account-bound engine is evaluating market, risk, inventory, and quotes.", detail: "No transaction hash is required for the control state." };
+  if (effective === "WAITING_FOR_QUOTE") return { status: "WAITING", title: "Waiting for a safe quote", copy: "No new risk is being added while the planner waits for a safe quote.", detail: "The engine will reevaluate on its normal cycle." };
+  if (effective === "WAITING_FOR_FRESH_PRICE") return { status: "WAITING", title: "Waiting for fresh market data", copy: "No new risk is being added while price freshness is unavailable.", detail: "The engine will reevaluate when fresh data returns." };
+  if (effective === "STOPPING") return { status: "STOPPING", title: "Stopping strategy", copy: "New risk is stopped while the account-bound cleanup completes.", detail: "Cleanup remains account-scoped." };
+  if (effective === "SETTLING") return { status: "SETTLING", title: "Settling strategy", copy: "The account-bound settlement path is reconciling the exact market.", detail: "No browser transaction is being requested." };
+  if (effective === "STOPPED_SETTLEMENT_PENDING" || effective === "SETTLEMENT_READY") return { status: effective, title: "Settlement pending", copy: "The session is waiting for the market settlement lifecycle to complete.", detail: "No withdrawal was attempted." };
+  if (effective === "STOPPED_CLEAN" || (effective === "STOPPED" && (result || session?.stoppedAt))) return { status: "SUCCESS", title: "Strategy stopped cleanly", copy: "The account-bound session completed its cleanup path.", detail: "No transaction hash is required for the terminal control state." };
+  if (effective === "SETTLED" || effective === "WITHDRAWABLE") return { status: "SUCCESS", title: effective === "SETTLED" ? "Settlement complete" : "Strategy withdrawable", copy: "The account-bound value lifecycle is complete.", detail: "Withdrawal remains a separate owner action." };
+  if (effective === "ERROR") return { status: "FAILED", title: "Strategy failed", copy: String(error?.message ?? result?.reason ?? "The private UAT session failed."), detail: String(error?.code ?? result?.code ?? "UAT_SESSION_FAILED") };
+  return null;
+}
 
 export function normalizeControlState(value) {
   const state = String(value || "STOPPED").toUpperCase();
