@@ -17,7 +17,7 @@ function fixtures() {
     { sessionId: SESSION, account: ACCOUNT, marketId: MARKET, action: "MINT_COMPLETE_SET", state: "CONFIRMED", amountRaw: "1000" },
     { sessionId: SESSION, account: ACCOUNT, marketId: MARKET, action: "PLACE_ORDER", state: "CONFIRMED", amountRaw: "1000", priceRaw: "568000", side: "SELL_YES" },
   ] };
-  const accountState = { capital: { directCollateralRaw: 1_000_000n, vaultRaw: 0n }, inventory: { yesRaw: 0n, noRaw: 1000n }, orders: { status: "VERIFIED", orders: [{ orderId: 7n, owner: ACCOUNT, marketId: MARKET, quantityRemainingRaw: 1000n, priceRaw: 568000n }] } };
+  const accountState = { capital: { directCollateralRaw: 1_000_000n, vaultRaw: 0n }, inventory: { yesRaw: 0n, noRaw: 1000n }, orders: { status: "VERIFIED", orders: [{ orderId: 7n, owner: ACCOUNT, marketId: MARKET, quantityRemainingRaw: 1000n, priceRaw: 568000n, isBid: false }] } };
   return { session, stored, expiredLease, journal, accountState };
 }
 

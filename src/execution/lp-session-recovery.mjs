@@ -216,7 +216,8 @@ export function validateExpiredSessionRecovery({ session, stored, provenance = n
     const known = knownOrders.get(orderId(order.orderId));
     if (!known || !same(order.owner, session.account) || !same(order.marketId, session.currentMarketId)
       || raw(order.quantityRemainingRaw, "remaining quantity") > raw(known.quantityRemainingRaw, "stored remaining quantity")
-      || raw(order.priceRaw, "order price") !== raw(known.priceRaw, "stored order price")) {
+      || raw(order.priceRaw, "order price") !== raw(known.priceRaw, "stored order price")
+      || (places[0]?.side === "SELL_YES" && order.isBid !== false)) {
       fail("RECOVERY_ORDER_SCOPE_MISMATCH", "a live order is not proven to belong to this exact failed session");
     }
   }
@@ -258,6 +259,38 @@ export function classifyFactBasedRecovery({ provenance, journal, facts = {} } = 
   if (!clean) return Object.freeze({ classification: "DIRTY", safeToRetry: false, reason: reasons.join("+") || "ACCOUNT_STATE_PRESENT", requiredActions: Object.freeze([...new Set(requiredActions)]) });
   if (journal.records.length === 0 && journal.writeAuthorityReached === true) return Object.freeze({ classification: "DIRTY", safeToRetry: false, reason: "WRITE_EVIDENCE_PRESENT" });
   return Object.freeze({ classification: "CLEAN", safeToRetry: true, reason: journal.records.length === 0 && journal.writeAuthorityReached !== true ? "PRE_WRITE" : "NO_REMAINING_VALUE" });
+}
+
+/**
+ * The only recovery exception to an unknown settlement fact is a verified,
+ * strictly risk-reducing cancellation. The order proof is re-derived through
+ * validateExpiredSessionRecovery, so callers cannot authorize a guessed order.
+ */
+export function classifyScopedOpenOrderCancellation({ session, stored, expiredLease, journal, accountState, settlementFacts, facts, globalAdmissionState = "UNKNOWN" } = {}) {
+  if (settlementFacts?.state !== "SETTLEMENT_BLOCKED" || settlementFacts?.reason !== "OPEN_ORDER_STATE_UNKNOWN" || facts?.pendingSettlement !== "UNKNOWN") {
+    return Object.freeze({ allowed: false, reason: "SETTLEMENT_UNKNOWN_FOR_OTHER_REASON" });
+  }
+  const requiredExceptSettlement = ["activeUnit", "activeLease", "activeSignerWorker", "openOrders", "outcomeInventory", "aggregateExposure", "mintExposure", "vault", "claimableValue", "redeemableValue", "unknownTransactions"];
+  if (requiredExceptSettlement.some((key) => facts[key] === undefined || facts[key] === null || facts[key] === "UNKNOWN")) {
+    return Object.freeze({ allowed: false, reason: "AUTHORITATIVE_FACT_MISSING" });
+  }
+  if (facts?.activeUnit !== false) return Object.freeze({ allowed: false, reason: "ACTIVE_UNIT" });
+  if (facts?.activeLease !== false) return Object.freeze({ allowed: false, reason: "ACTIVE_LEASE" });
+  if (facts?.activeSignerWorker !== false) return Object.freeze({ allowed: false, reason: "ACTIVE_SIGNER_WORKER" });
+  if (!["FREE", "HELD_BY_SCOPED_RECOVERY"].includes(globalAdmissionState)) return Object.freeze({ allowed: false, reason: "GLOBAL_ADMISSION_NOT_SCOPED" });
+  if (accountState?.orders?.status !== "VERIFIED" || !Array.isArray(accountState.orders.orders) || accountState.orders.orders.length === 0) {
+    return Object.freeze({ allowed: false, reason: "ORDER_STATE_UNVERIFIED" });
+  }
+  try {
+    const provenance = validateExpiredSessionRecovery({ session, stored, expiredLease, journal, accountState });
+    const actions = recoveryActions({ session, provenance, accountState });
+    if (actions.cancelOrderIds.length !== accountState.orders.orders.length || actions.cancelOrderIds.length !== 1) {
+      return Object.freeze({ allowed: false, reason: "ORDER_SCOPE_AMBIGUOUS" });
+    }
+    return Object.freeze({ allowed: true, reason: "SETTLEMENT_BLOCKED_BY_OPEN_ORDER", provenance, actions });
+  } catch (error) {
+    return Object.freeze({ allowed: false, reason: error?.code ?? "ORDER_SCOPE_INVALID" });
+  }
 }
 
 export function recoveryActions({ session, provenance, accountState } = {}) {

@@ -13,7 +13,7 @@ import { createLpExecutionAdapter, createViemLpAccountReader, VILLA_ACCOUNT_READ
 import { createAccountBoundPrivateWriter } from "../src/execution/lp-private-writer.mjs";
 import { createFileAccountLeaseStore, createLpExecutionSession, transitionLpSession, attachLease } from "../src/execution/lp-session.mjs";
 import { createLeaseHeartbeat, LP_LEASE_DURATION_MS, LP_LEASE_HEARTBEAT_INTERVAL_MS } from "../src/execution/lp-lease-heartbeat.mjs";
-import { classifyFactBasedRecovery, isPreMarketFailureCode, validateExpiredSessionRecovery, validatePreflightFailureRecovery, validateSignerFreePreMarketEvidence, recoveryActions } from "../src/execution/lp-session-recovery.mjs";
+import { classifyFactBasedRecovery, classifyScopedOpenOrderCancellation, isPreMarketFailureCode, validateExpiredSessionRecovery, validatePreflightFailureRecovery, validateSignerFreePreMarketEvidence, recoveryActions } from "../src/execution/lp-session-recovery.mjs";
 import { reconcileDurableJournal } from "../src/execution/lp-recovery.mjs";
 import { DEFAULT_PHASE_3B1_CAPS, createLpTransactionPolicy } from "../src/execution/lp-transaction-policy.mjs";
 import { loadPrivateSigner } from "../src/execution/lp-private-runtime.mjs";
@@ -85,6 +85,32 @@ async function originalWorkerInactive(sessionId) {
     if (Number(error?.code) === 3) return true;
     return null;
   }
+}
+
+function recoveryFacts({ accountState, settlementFacts, unitInactive, expiredLease, journal }) {
+  const vaultRaw = accountState.capital?.vaultRaw;
+  const redeemableValueRaw = (settlementFacts.plan?.legs ?? [])
+    .filter((leg) => leg.action === "REDEEM")
+    .reduce((total, leg) => total + raw(leg.amountRaw, "redeemable amount"), 0n);
+  const inventoryRaw = accountState.inventory
+    ? raw(accountState.inventory.yesRaw, "YES inventory") + raw(accountState.inventory.noRaw, "NO inventory")
+    : "UNKNOWN";
+  return {
+    activeUnit: unitInactive === null ? "UNKNOWN" : !unitInactive,
+    activeLease: expiredLease ? Number(expiredLease.expiresAt) > Date.now() : false,
+    activeSignerWorker: unitInactive === null ? "UNKNOWN" : !unitInactive,
+    openOrders: accountState.orders?.status === "VERIFIED" ? accountState.orders.orders.length : "UNKNOWN",
+    outcomeInventory: inventoryRaw,
+    aggregateExposure: accountState.identity?.aggregateExposure ?? "UNKNOWN",
+    mintExposure: accountState.identity?.mintExposure ?? "UNKNOWN",
+    vault: vaultRaw === null || vaultRaw === undefined ? "UNKNOWN" : raw(vaultRaw, "vault credit"),
+    claimableValue: vaultRaw === null || vaultRaw === undefined ? "UNKNOWN" : raw(vaultRaw, "vault credit") + redeemableValueRaw,
+    pendingSettlement: settlementFacts.state === "SETTLEMENT_BLOCKED"
+      ? "UNKNOWN"
+      : settlementFacts.state === "STOPPED_SETTLEMENT_PENDING",
+    redeemableValue: redeemableValueRaw,
+    unknownTransactions: journal.unknown,
+  };
 }
 
 async function main() {
@@ -175,34 +201,24 @@ async function main() {
       outcomeIds: { yes: accountMarket.yesId, no: accountMarket.noId },
     });
     const unitInactive = await originalWorkerInactive(config.sessionId);
-    const vaultRaw = accountState.capital?.vaultRaw;
-    const redeemableValueRaw = (settlementFacts.plan?.legs ?? [])
-      .filter((leg) => leg.action === "REDEEM")
-      .reduce((total, leg) => total + raw(leg.amountRaw, "redeemable amount"), 0n);
-    const inventoryRaw = accountState.inventory
-      ? raw(accountState.inventory.yesRaw, "YES inventory") + raw(accountState.inventory.noRaw, "NO inventory")
-      : "UNKNOWN";
-    const facts = {
-      activeUnit: unitInactive === null ? "UNKNOWN" : !unitInactive,
-      activeLease: expiredLease ? Number(expiredLease.expiresAt) > Date.now() : false,
-      activeSignerWorker: unitInactive === null ? "UNKNOWN" : !unitInactive,
-      openOrders: accountState.orders?.status === "VERIFIED" ? accountState.orders.orders.length : "UNKNOWN",
-      outcomeInventory: inventoryRaw,
-      aggregateExposure: accountState.identity?.aggregateExposure ?? "UNKNOWN",
-      mintExposure: accountState.identity?.mintExposure ?? "UNKNOWN",
-      vault: vaultRaw === null || vaultRaw === undefined ? "UNKNOWN" : raw(vaultRaw, "vault credit"),
-      claimableValue: vaultRaw === null || vaultRaw === undefined ? "UNKNOWN" : raw(vaultRaw, "vault credit") + redeemableValueRaw,
-      pendingSettlement: settlementFacts.state === "SETTLEMENT_BLOCKED"
-        ? "UNKNOWN"
-        : settlementFacts.state === "STOPPED_SETTLEMENT_PENDING",
-      redeemableValue: redeemableValueRaw,
-      unknownTransactions: journal.unknown,
-    };
+    const facts = recoveryFacts({ accountState, settlementFacts, unitInactive, expiredLease, journal });
     const factRecovery = storedProvenance
       ? classifyFactBasedRecovery({ provenance: storedProvenance, journal, facts })
       : { classification: "LEGACY_AMBIGUOUS", safeToRetry: false, reason: "NO_PROVENANCE" };
+    const admissionStore = createFileGlobalExecutionAdmission({ filePath: config.globalAdmissionFile });
+    const admissionInspection = admissionStore.inspect();
+    const globalAdmissionState = admissionInspection.status === "ABSENT"
+      ? "FREE"
+      : admissionInspection.record?.admissionId === config.globalAdmissionId
+        && admissionInspection.record?.session?.sessionId === config.sessionId
+        ? "HELD_BY_SCOPED_RECOVERY"
+        : "OTHER";
+    const recoverySession = { ...stored.session, sessionId: config.sessionId, account: config.account, owner: config.owner, operator: config.operator, currentMarketId: marketId };
+    const scopedCancellation = factRecovery.classification === "UNKNOWN"
+      ? classifyScopedOpenOrderCancellation({ session: recoverySession, stored, expiredLease, journal, accountState, settlementFacts, facts, globalAdmissionState })
+      : { allowed: false, reason: "FACTS_NOT_UNKNOWN" };
     if (factRecovery.classification === "LEGACY_AMBIGUOUS" && !legacyMarketPreflight) fail("LEGACY_AMBIGUOUS", "the recovery record lacks immutable provenance");
-    if (factRecovery.classification === "UNKNOWN" && !legacyMarketPreflight) fail("RECOVERY_FACTS_UNKNOWN", factRecovery.reason || "authoritative recovery facts are unavailable");
+    if (factRecovery.classification === "UNKNOWN" && !scopedCancellation.allowed && !legacyMarketPreflight) fail("RECOVERY_FACTS_UNKNOWN", factRecovery.reason || "authoritative recovery facts are unavailable");
     if (factRecovery.classification === "CLEAN") {
       if (!factRecovery.safeToRetry || unitInactive !== true) fail("RECOVERY_FACTS_UNKNOWN", "clean recovery requires authoritative inactive-worker evidence");
       if (expiredLease && Number(expiredLease.expiresAt) > Date.now()) fail("RECOVERY_ACTIVE_LEASE", "the exact account lease is still active");
@@ -305,6 +321,13 @@ async function main() {
     }
     accountState = await adapter.readAccountState({ marketId });
     if (accountState.orders.status !== "VERIFIED" || accountState.orders.orders.length !== 0) fail("RECOVERY_CANCEL_INCOMPLETE", "account orders did not reconcile empty after scoped cancellation");
+    journal = await reconcileDurableJournal({ journalPath, publicClient, config: { ...config, marketId } });
+    if (journal.pending > 0 || journal.unknown > 0) fail("RECOVERY_TRANSACTION_UNKNOWN", "post-cancel transaction facts are not authoritative");
+    const postCancelSettlementOnchain = await readSettlement(publicClient, accountMarket.market);
+    const postCancelSettlementFacts = assessSessionSettlement({ session, account: config.account, owner: config.owner, marketId, onchain: postCancelSettlementOnchain, held: provenance.trackedInventory, owned: accountState.inventory, orders: accountState.orders, capital: accountState.capital, pendingTransactions: journal.pending, unknownTransactions: journal.unknown, payoutNumerators: postCancelSettlementOnchain.payoutNumerators, outcomeIds: { yes: accountMarket.yesId, no: accountMarket.noId } });
+    const postCancelFacts = recoveryFacts({ accountState, settlementFacts: postCancelSettlementFacts, unitInactive: true, expiredLease: { expiresAt: 0 }, journal });
+    const postCancelRecovery = classifyFactBasedRecovery({ provenance: storedProvenance, journal, facts: postCancelFacts });
+    if (postCancelRecovery.classification === "UNKNOWN" || postCancelFacts.pendingSettlement === "UNKNOWN") fail("RECOVERY_FACTS_UNKNOWN", "post-cancel recovery facts are unavailable");
     actions = recoveryActions({ session, provenance, accountState });
     if (actions.burnAmountRaw > 0n) await enqueue(adapter.burnCompleteSet({ marketId, amountRaw: actions.burnAmountRaw }));
     accountState = await adapter.readAccountState({ marketId });
