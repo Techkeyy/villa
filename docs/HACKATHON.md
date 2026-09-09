@@ -1,8 +1,8 @@
 # Hackathon — build requirements
 
-Source of truth: [DoraHacks Event Contracts Hackathon](https://dorahacks.io/hackathon/event-contracts/detail), browser-verified 2026-08-27.
+Source record: [DoraHacks Event Contracts Hackathon](https://dorahacks.io/hackathon/event-contracts/detail), browser-verified 2026-08-27.
 
-This file is the judging-facing constraint list. Implementation is planned backwards from it.
+This file is a historical judging brief captured before the displayed deadline. As of 2026-09-09, this repository does not assert that the event is open or accepting submissions; re-check the official page and authenticated submission flow before relying on dates or rules.
 
 ## Facts
 
@@ -11,7 +11,7 @@ This file is the judging-facing constraint list. Implementation is planned backw
 | Name | Somnia × DreamDEX Event Contracts Hackathon | Confirmed |
 | Organizers | Somnia, DreamDEX; platform DoraHacks | Confirmed |
 | Format | Virtual | Confirmed |
-| Current page status | Upcoming; page says 12 days left for submission | Browser-verified 2026-08-27 |
+| Page status in the historical capture | Upcoming; page said 12 days left for submission | Captured 2026-08-27; not current |
 | Pre-registration | 2026-08-18 01:00 in the browser display | Browser local Africa/Lagos; timezone not stated |
 | Submission opens | 2026-08-25 01:00 in the browser display | Browser local Africa/Lagos; timezone not stated |
 | Deadline display | 2026-09-08 19:00 in the browser display | Time confirmed; **TIMEZONE_NOT_EXPLICIT**. The page gives no timezone label. Browser local timezone was Africa/Lagos. UTC is therefore **Unknown**. |
@@ -71,11 +71,11 @@ Empty books are the venue's bottleneck. A maker that actually rests liquidity is
 - Bot Builder: https://dreambot-builder.vercel.app/ — **crowded Telegram-bot shape. Not VILLA.**
 - SDK package actually installed here: `@somnia-chain/markets-sdk@0.28.1`
 
-## Deadline risk
+## Historical deadline note
 
-The current DoraHacks browser page displays **2026-09-08 19:00** while the machine is in Africa/Lagos, but it does not state a timezone. Record this as **TIMEZONE_NOT_EXPLICIT**, not as a UTC conversion. UTC remains unknown until Dora confirms the timezone. Finish and submit at least 24 hours early where possible, and confirm the timezone in the official builder community before the last day. Do not use Eventbrite's event-end time as the submission deadline.
+The 2026-09-08 19:00 display was captured on 2026-08-27 and had no explicit timezone. It is retained as historical evidence only, not as a current deadline. The Eventbrite end time was a separate event listing and was not substituted for the DoraHacks submission deadline. Re-verify the official event page before any new submission.
 
-## Current browser-verified submission checklist
+## Historical submission checklist
 
 The official page currently lists:
 

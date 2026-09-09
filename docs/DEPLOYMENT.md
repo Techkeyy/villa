@@ -3,46 +3,50 @@
 ## Chosen shape
 
 Vercel is the primary public frontend for the VILLA cockpit. It serves the
-dashboard assets and the small operator configuration response. The private
-operator API is a separate owner-controlled service; it is never hosted with
-the execution signer on Vercel.
+signer-free dashboard and public control API. The private operator API and
+account engine are separate owner-controlled services; the operator signer is
+never hosted on Vercel.
 
-The existing native Node dashboard server remains the local and legacy replay
-path. `render.yaml` describes that replay-only fallback for
-https://villa-yhzx.onrender.com. Render is not the primary VILLA UI.
+The native Node dashboard server remains a local replay and evidence fallback.
+Render describes that fallback. It is not the hosted execution boundary.
 
 The public repository is published at https://github.com/Techkeyy/villa.
 
 ## Hosted security model
 
-The hosted service must contain no `OPERATOR_PRIVATE_KEY`, `TAKER_PRIVATE_KEY`,
-wallet seed, signer, or write-capable environment variable. The only hosted
-configuration prepared here is `HOST=0.0.0.0`; replay needs no secrets. Public
-browser capabilities are observation only:
+The Vercel dashboard and public API contain no OPERATOR_PRIVATE_KEY,
+TAKER_PRIVATE_KEY, wallet seed, signer, or write-capable credential. The
+browser remains signer-free: it can authenticate an owner, select a verified
+VillaAccount, and request account control, but it cannot sign or submit an
+arbitrary transaction.
 
-- replay scenes and recorded evidence;
-- public market reads when a read-only Shannon configuration is supplied;
-- fair-value, risk, and quote-plan projections from read-only inputs.
+The private owner-controlled runtime is the only place that loads the operator
+credential and performs bounded account-authorized execution. It may place,
+cancel, mint, burn, redeem, or settle only after the existing owner, account,
+session, market, lease, provenance, journal, admission, and policy checks pass.
+The legacy unrestricted execution gate remains disabled.
 
-The hosted service must not place, cancel, mint, burn, redeem, or start the
-bounded wallet writer. Wet commands remain local and are not part of the
-deployment command.
+The public proof route is read-only. Public API health and control state do not
+expose signer material or another user account state.
 
 ## Runtime details
 
-- `npm start` starts the local replay mode and respects the platform `PORT` value;
-- `HOST` defaults to `127.0.0.1` locally and is set to `0.0.0.0` in the hosted
-  configuration;
-- the legacy replay service exposes `/`, `/api/scenes`, `/api/snapshot?scene=quote`,
-  `/api/snapshot?scene=rollover`, `/api/snapshot?scene=settlement`, and the
-  optional `mode=live` read-only route;
-- replay is the availability baseline and never silently substitutes for live;
-- `scripts/dashboard-build.mjs` copies the favicon and checks its presence.
+- npm start starts the local replay mode and respects the platform PORT value.
+- HOST defaults to 127.0.0.1 locally and is set to 0.0.0.0 in hosted configuration.
+- The local replay service exposes the explainer, scene data, snapshot routes,
+  and an optional live read-only route.
+- The hosted dashboard uses the public control API for authenticated account
+  state; replay is a credential-free local fallback and never silently
+  substitutes for live.
+- The private runtime and broker load signer-capable code only behind their
+  existing service boundary and durable admission checks.
+- scripts/dashboard-build.mjs copies the favicon and checks its presence.
 
 ## Publication checklist
 
 Before calling public deployment complete, record the Vercel project, public
 HTTPS URL, deployed commit, build result, and environment variable names only.
-Then test the primary Vercel URL in a browser at 1440x900, 1366x768, and
-390x844. The legacy Render service may be checked as replay evidence, but it is
-not the primary operator product.
+Test the primary Vercel URL in a browser at desktop and mobile widths. Check
+that the public API and account-control endpoint do not expose signer material
+or another user state. The legacy replay service may be checked as evidence,
+but it is not the primary operator product.

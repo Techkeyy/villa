@@ -1,13 +1,12 @@
 # VILLA final release audit
 
-Audit date: 2026-09-03
+Audit date: 2026-09-09
 Repository: public VILLA repository
 Branch: master
-Audit status: FINAL RELEASE PASS for the local repair; public production re-verification is pending deployment of this commit.
+Audit status: FINAL RELEASE PASS for deployed commit 557f84bec02eea422aa659289048c9075bb51ce1. Current production behavior is authoritative for the account-bound path.
 
-This is the final release audit for the account-bound product surface. It
-does not authorize another wet cycle, a transaction, signer changes, or
-persistent execution.
+This is an evidence record for the account-bound product surface. It is not
+authorization to start a strategy, access signer material, or move funds.
 
 ## 1. Release claim
 
@@ -33,8 +32,8 @@ VILLA operator:
 The proof record shows one minimum mint, one post-only SELL_YES order at price
 0.356 for 1000 raw, cancellation, paired burn, final collateral of 1002000
 raw, zero YES, zero NO, zero open orders, released lease, stopped session,
-disabled execution, and no owner withdrawal. The exact transaction evidence
-is recorded in docs/ACCOUNT_BOUND_WET_PROOF.md and the read-only /proof route.
+no owner withdrawal. The exact transaction evidence is recorded in
+docs/ACCOUNT_BOUND_WET_PROOF.md and the read-only /proof route.
 
 Historical f920 evidence is supporting settlement/redemption evidence only.
 It is not used as the canonical order proof.
@@ -89,9 +88,9 @@ the same account identity and preflight gates.
 
 The browser bundle, Vercel configuration, API responses, README, proof, and
 submission files contain no signer material. The private runtime is the only
-component that loads the operator credential. Persistent unrestricted
-execution remains disabled. No signer value is printed, logged, tracked, or
-returned.
+component that loads the operator credential. Persistent unrestricted execution remains disabled. Bounded account execution
+is enabled only through the private, authenticated owner/account path. No
+signer value is printed, logged, tracked, or returned.
 
 ## 7. Deployment audit
 
@@ -101,9 +100,11 @@ operator configuration, and authenticated account-scoped controls without a
 signer. VILLA_ENGINE_API_URL is the only engine configuration intended for
 Vercel. The private signer remains on the VPS.
 
-This code-only repair was not deployed. Consequently, public /, /app, /proof,
-engine health, CORS, and production API behavior require post-deployment
-verification and are not reasserted as newly verified by this audit.
+The deployed production candidate is commit 557f84bec02eea422aa659289048c9075bb51ce1.
+Vercel serves the matching dashboard assets, while the private runtime serves
+the matching account-session and transient-RPC modules. The signer-free public
+API and broker were health-checked after deployment; no wet session was started
+as part of this documentation audit.
 
 The public repository contains only legitimate release files. The
 untracked BreakFix and phase2b_patch directories, environment files, keys,
@@ -141,7 +142,16 @@ The release tests cover:
 
 ## 10. Verified gates
 
-Final values are recorded from the completed release gates:
+The dated release gates below are historical evidence from the earlier rescue
+pass, not current test totals. Re-run the repository commands for a fresh count:
+
+npm test
+npm run dashboard:build
+
+The repository also retains focused worker, control, recovery, and settlement
+tests for targeted verification.
+
+Historical final values were recorded from the completed release gates:
 - full regression: 665/665 passed;
 - dashboard and browser runtime tests: 98/98 passed;
 - operator tests: 48/48 passed;
@@ -156,16 +166,15 @@ Final values are recorded from the completed release gates:
 
 ## 11. Findings
 
-No release-blocking security finding remains in the local repair scope.
-The public frontend is signer-free, and account execution is not an always-on
-unrestricted production daemon.
-Market data changes and realized PnL are not claimed. Public production
-re-verification remains pending deployment of this commit. Video recording and
-DoraHacks submission remain human actions outside this task.
+No release-blocking security finding remains in the documented product scope.
+The public frontend and API are signer-free, account execution is bounded and
+owner/account-scoped, and the shared testnet operator serializes simultaneous
+signer-backed execution. Market data changes, fills, and realized PnL are not
+claimed. Video recording and any external submission remain human actions.
 
 ## 12. Verdict
 
-Product, proof, control boundary, private-runtime safety, and local public-route
-build are release-ready pending production redeployment verification. Do not
-enable execution, send transactions, record the final video, or submit
-DoraHacks as part of this release task.
+Product, proof, control boundary, private-runtime safety, and deployed public
+routes are release-ready for a bounded fresh-user acceptance test. This does
+not claim profitability, mainnet readiness, or unrestricted autonomy. Do not
+start a wet session from an audit task or expose signer material.

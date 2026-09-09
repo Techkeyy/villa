@@ -2,7 +2,7 @@
 
 The account-bound control model is the only strategy control path exposed by
 the final VILLA product. It is authenticated, account-scoped, policy-bound, and
-safe-mode by default.
+safe-mode by default in local configuration; the current private deployment separately enables authenticated account execution.
 
 ## Session identity
 

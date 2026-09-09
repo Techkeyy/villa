@@ -1,8 +1,9 @@
 # VILLA final release status
 
-Status: final release preparation after the verified account-bound wet proof.
-No new wet cycle, transaction, video recording, or DoraHacks submission is
-performed by this task.
+Status: historical release-preparation note after the verified account-bound
+wet proof. Current deployed behavior is documented in README.md and
+FINAL_AUDIT.md. No new wet cycle, transaction, video recording, or DoraHacks
+submission is performed by this documentation pass.
 
 ## Canonical proof
 
@@ -23,15 +24,17 @@ The exact hashes and identity split are recorded in
   Stopping, Stopped, Settlement, and Withdraw as one owner journey.
 - `/proof` is a read-only canonical replay with labeled transaction evidence.
 - Start and Stop call the constrained account-control client only. Start
-  requires owner authentication and readiness; safe mode returns without a
-  writer. Stop never withdraws capital.
+  requires owner authentication and readiness; the private account path may
+  execute only after its existing owner/account, preflight, lease, provenance,
+  journal, admission, and policy gates. Stop never withdraws capital.
 
 ## Security track
 
 The public dashboard is signer-free. Public control requests accept no
 transaction destination, selector, calldata, or withdrawal instruction. The
-private signer remains outside the repository and outside Vercel. Persistent
-execution remains disabled by policy.
+private signer remains outside the repository and outside Vercel. The legacy
+unrestricted path remains disabled; bounded account execution is separately
+gated inside the private runtime.
 
 ## Quality track
 

@@ -1,18 +1,18 @@
 # VILLA product surfaces and verified replay
 
-**UI STATUS: PHASE 0 LP PRODUCT PIVOT**
+**UI STATUS: HISTORICAL PHASE 0 DESIGN RECORD**
 
-The Phase 0 pivot keeps the verified engine and replay evidence, then presents
-them through three clean product surfaces. Capital actions remain development
-gated while the per-user account boundary is designed and proven.
+This document preserves the earlier Phase 0 product-surface design. The current
+deployed account-bound flow is documented in README.md and FINAL_AUDIT.md; do
+not use the historical gate language below as the current production contract.
 
 ## Current routes
 
-The routes are `/` for the public explainer, `/app` for My Liquidity and My
-VILLA, and `/proof` for read-only verified Shannon replay. The `/app` surface
-starts with wallet onboarding and does not ask for a private key. Add Liquidity,
-Start VILLA, and Withdraw are disabled until owner-scoped capital ownership,
-permissions, settlement, and revocation are proven.
+The historical routes were the public explainer, owner workspace, and read-only
+proof replay. The current deployed app is the authenticated owner workspace
+for independent VillaAccounts, account-bound Start and Stop, telemetry, safe
+waiting states, settlement, and owner withdrawal. The browser remains
+signer-free.
 
 ## Historical Phase 6B evidence surface
 

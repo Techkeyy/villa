@@ -1,7 +1,8 @@
 # VILLA DoraHacks submission copy
 
-Status: READY FOR OPERATOR REVIEW. This copy is prepared but not submitted.
-The demo video field remains for the operator to complete after recording.
+Status: READY FOR OPERATOR REVIEW. This copy reflects the deployed account-bound
+product behavior and is prepared but not submitted. The demo video field
+remains for the operator to complete after recording.
 
 ## Project fields
 
@@ -43,7 +44,7 @@ withdraw LP funds or submit an arbitrary destination or calldata request.
 4. Read the exact DreamDEX market, book, account, and risk state.
 5. Form fair value and a bounded post-only quote plan.
 6. Monitor fills, inventory, rollover, and settlement.
-7. Stop, reconcile, and leave owner withdrawal as a separate wallet action.
+7. While running, reevaluate market, fair value, risk, inventory, live orders, and the planner. Stale price, empty book, or transient RPC conditions wait without new-risk writes; Stop reconciles only tracked account state and leaves owner withdrawal as a separate wallet action.
 
 The product is for liquidity providers and operators, not retail bettors. Its
 economic objective is potential spread capture. It makes no promise of profit,
@@ -87,7 +88,7 @@ The canonical proof used BTC 24-hour market `0x000000000000000000000000000000000
 - Cancel and paired burn completed.
 - Final collateral was `1,002,000` raw tUSDC, with zero YES, zero NO, and zero open orders.
 
-The exact transaction hashes are in [`docs/ACCOUNT_BOUND_WET_PROOF.md`](ACCOUNT_BOUND_WET_PROOF.md) and the public `/proof` route. The public frontend is signer-free, account execution is privately deployment-gated, and the proof surface is read-only.
+The exact transaction hashes are in [`docs/ACCOUNT_BOUND_WET_PROOF.md`](ACCOUNT_BOUND_WET_PROOF.md) and the public `/proof` route. The browser and public API are signer-free; authenticated account execution is privately deployment-gated, and the proof surface is read-only.
 
 ## Security and non-custodial architecture
 
@@ -96,8 +97,7 @@ with a short-lived message signature and sends only the selected VillaAccount
 identity. The server independently verifies the account owner, audited runtime,
 contract wiring, canonical operator authorization, and fresh preflight. Public
 control requests reject arbitrary transaction fields. The private engine keeps
-its signer outside the repository and outside Vercel. Persistent execution
-remains disabled in this release.
+its signer outside the repository and outside Vercel. Bounded account execution is enabled only in the private runtime after owner/account verification; the legacy unrestricted execution path remains disabled.
 
 Stop blocks new expansion, cleans only tracked account-owned orders, reconciles
 state, and never withdraws capital. Owner withdrawal is direct, owner-scoped,
@@ -108,7 +108,7 @@ and destination-free.
 - Node.js and native ESM.
 - `viem` for Ethereum-compatible chain reads and typed account operations.
 - `@somnia-chain/markets-sdk` for DreamDEX market data and protocol access.
-- Static dashboard and replay API for the public frontend.
+- Vercel static dashboard and signer-free public control API for the frontend.
 - Account adapter, fair-value model, Risk Governor, quote planner, inventory
   lifecycle, settlement, lease, reconciliation, and typed private writer.
 - Vercel for the public dashboard and a separate private engine boundary.
@@ -116,9 +116,11 @@ and destination-free.
 ## Limitations
 
 This is a bounded Shannon testnet MVP for one canonical operator configuration
-with isolated per-user VillaAccount sessions. Market data changes, full
-realized PnL is not claimed, and the public release does not run persistent
-autonomous execution. Broader venue coverage remains future work.
+with isolated per-user VillaAccount sessions. Market data, venue availability,
+and fills can change. Realized PnL is not claimed when it cannot be independently
+verified. Shared-operator serialization limits simultaneous signer-backed
+execution; the product is multi-user, but it is not an always-on daemon or a
+mainnet custody claim. Broader venue coverage remains future work.
 
 ## Submission checklist
 

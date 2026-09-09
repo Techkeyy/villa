@@ -47,6 +47,13 @@ CONNECT WALLET
 
 Capital actions are approved by the connected owner wallet. Strategy control is a separate authenticated path. The browser does not hold the execution credential and sends only the selected, verified account identity to the control plane. It does not provide a generic transaction relay.
 
+VILLA remains a multi-user product: each LP has an independent VillaAccount,
+balance, authorization, session history, dashboard state, and owner-only
+withdrawal path. The shared Shannon testnet operator serializes simultaneous
+signer-backed execution, so a second live strategy may receive a truthful busy
+response. This is an execution-lane limitation, not shared custody or a
+single-user account model.
+
 ## How it works
 
 1. The LP connects a wallet to Somnia Shannon and creates a personal `VillaAccount`.
@@ -57,6 +64,13 @@ Capital actions are approved by the connected owner wallet. Strategy control is 
 6. If every policy gate passes, VILLA plans post-only maker quotes through the LP account.
 7. Fills, cancellations, rollover, settlement, redemption, and final accounting are recorded against the same account and market identity.
 8. Stop prevents new expansion, cleans up only tracked account-owned orders, reconciles state, and never withdraws funds.
+
+During normal operation, the session continuously reevaluates market data,
+fair value, risk, inventory, live orders, and the quote planner. A stale price
+or upstream source, an empty/transient book, or a transient RPC transport
+failure becomes a bounded waiting state (`WAITING_FOR_FRESH_PRICE`,
+`WAITING_FOR_QUOTE`, or `WAITING_FOR_RPC`) with no new-risk write. Fresh data
+automatically resumes evaluation. Genuine safety HALTs remain fail-closed.
 
 ## Why the account boundary matters
 
@@ -112,7 +126,7 @@ The final account-bound proof is the BTC 24-hour market ending in `10a14` on Sha
 - BURN TX: `0xb645b3b0b9ffbc7cd72c1b40aaca0f2f344afe64fb2c6c1145fa56fe81f0b87e`;
 - cancellation, paired burn, and final reconciliation.
 
-The final account state was `1,002,000` raw tUSDC, zero YES, zero NO, and zero open orders. The owner withdrawal path was not called. The session stopped, the lease was released, and execution remained disabled.
+The final account state was `1,002,000` raw tUSDC, zero YES, zero NO, and zero open orders. The owner withdrawal path was not called. The session stopped, the lease was released, and no further writes were attempted after cleanup.
 
 The proof page shows the four exact transaction hashes with labels for mint, order, cancel, and burn, plus the plain-language journey and ownership split. See [`docs/ACCOUNT_BOUND_WET_PROOF.md`](docs/ACCOUNT_BOUND_WET_PROOF.md) for the evidence record.
 
@@ -130,7 +144,12 @@ The app uses a white and light-blue visual system, readable type, sparse panels,
 
 Start is not a browser transaction button. It authenticates the connected owner wallet with a short-lived message signature, then sends only the selected VillaAccount identity to the account-bound control route. The server independently verifies account ownership, audited bytecode, contract wiring, canonical operator authorization, and fresh preflight facts. The browser cannot provide a target or calldata.
 
-The legacy/global VILLA_EXECUTION_ENABLED gate remains false. The product-facing account path has its own VILLA_ACCOUNT_EXECUTION_ENABLED deployment gate; when deliberately true, only an authenticated, verified owner/account session can Start. A deployment with that account gate false returns ACCOUNT_EXECUTION_DISABLED without spawning a writer or sending a chain transaction. Stop is reserved for an authenticated account session and never withdraws capital.
+The legacy/global `VILLA_EXECUTION_ENABLED` gate remains false. The
+product-facing account path is separately deployment-gated and is enabled only
+on the private runtime for authenticated, verified owner/account sessions. A
+deployment with that account gate false returns `ACCOUNT_EXECUTION_DISABLED`
+without spawning a writer or sending a chain transaction. Stop is reserved for
+an authenticated account session and never withdraws capital.
 
 The private engine is separate from the public app. Its signer stays outside the repository and outside Vercel. The public deployment exposes no signer, wallet credential, or private engine logs.
 
@@ -152,7 +171,7 @@ Public visitor
        account-bound session and preflight
               |
               v
-       private one-shot engine
+       private bounded account engine
               |
               v
        VillaAccount -> DreamDEX Event Contracts
@@ -175,26 +194,40 @@ npm run dashboard:replay
 
 Open `http://127.0.0.1:4173/` for the explainer, `/app` for the owner workspace, and `/proof` for the read-only proof. The replay server does not require credentials or send transactions.
 
+The hosted `/app` path is the live authenticated account-control surface. The
+local replay server is a credential-free development and evidence fallback; it
+is not the hosted execution boundary.
+
 For a read-only live snapshot, use a separately configured local environment and the project’s existing live adapter. Never put signer material in browser files, Vercel variables, the README, or a public issue.
 
 ## Verification
 
-The final local repair gate recorded:
+Run the current checks from the repository rather than relying on a historical
+count embedded in this document:
 
-| Gate | Result |
+```bash
+npm test
+npm run dashboard:build
+```
+
+The focused worker and cross-module commands are recorded in the dated
+technical verification notes. Historical gate totals remain there as dated
+evidence, not as a claim about every future checkout.
+
+## How I tried to break it
+
+| Failure or abuse case | Safety result |
 | --- | --- |
-| Full regression | 665/665 repair run passing |
-| Dashboard | 98/98 repair run passing |
-| Operator | 48/48 repair run passing |
-| Execution | 210/210 baseline passing |
-| Recovery | 13/13 focused passing |
-| Writer, session, reconciliation, policy | 72/72 focused passing |
-| Dashboard build | Passing |
-| Solidity account artifact compile | Passing |
-| Secret scan | Clean |
-| Production dependency audit | 0 vulnerabilities |
+| Wrong owner, account, session, or market identity | Rejected by owner/account/session scope checks |
+| Arbitrary transaction payload or destination | Rejected before the private writer |
+| Stale price, stale upstream data, empty book, or transient RPC failure | Wait state; no new-risk write; reevaluate when safe |
+| Genuine Risk Governor HALT | Fail-closed; no unsafe expansion |
+| Unknown order, transaction, lease, or incomplete recovery facts | Recovery blocks rather than guessing |
+| Account switch or concurrent shared-operator execution | Old UI response is discarded; simultaneous execution is serialized |
 
-Counts are kept here as release evidence, while the test files remain the source of truth for future runs.
+The account boundary, provenance/journal, durable admission, and scoped
+recovery paths are the controls behind these outcomes. They do not make market
+liquidity, fills, or profitability guaranteed.
 
 ## Security model
 
@@ -212,7 +245,14 @@ The complete release audit is recorded in [`docs/FINAL_AUDIT.md`](docs/FINAL_AUD
 
 ## Limitations and future work
 
-This is a Shannon testnet MVP with one canonical operator configuration and isolated per-user VillaAccount sessions. Market data and venue availability can change. PnL is not presented when it cannot be independently verified. The public frontend is signer-free; account execution is a deliberate private deployment setting and does not claim guaranteed profit or unrestricted production autonomy. Broader venue coverage and production custody operations remain future work.
+This is a Shannon testnet MVP with one canonical operator configuration and
+isolated per-user VillaAccount sessions. Market data, venue availability, and
+fills can change. PnL is not presented when it cannot be independently
+verified. The public frontend and public API are signer-free; authenticated
+account execution runs only inside the private runtime. Shared-operator
+serialization limits simultaneous testnet execution, and the product does not
+claim guaranteed profit, always-on autonomy, or mainnet readiness. Broader
+venue coverage and production custody operations remain future work.
 
 ## Hackathon context
 

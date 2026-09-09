@@ -1,6 +1,6 @@
 # VILLA private operator engine
 
-VILLA has a separate private one-shot engine for the owner-controlled VPS.
+VILLA has a separate private bounded account engine for the owner-controlled VPS. This document is a historical Phase 3 checkpoint; current continuous reevaluation and account lifecycle behavior are documented in README.md and FINAL_AUDIT.md.
 This is a custody and execution boundary, not a public API deployment. The
 current Phase 3B2A checkpoint installs the real typed writer while keeping
 the legacy/global execution path explicitly disabled.

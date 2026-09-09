@@ -1,6 +1,6 @@
 # Project understanding — VILLA
 
-Skill: `Desktop/skill/project-understanding`. Product locked by the directing agent. Current status is Phase 0 LP product pivot; the backend and proven VILLA engine remain feature frozen while the public, LP, and proof surfaces are rebuilt. Phase 2A selected `villa-fv-v1`: a zero-drift log-return digital baseline with a separate data-quality score. Later implementation evidence is recorded in `docs/TECHNICAL_VERIFICATION.md` and the phase-specific lifecycle docs. Open multi-LP capital automation is gated by `PER_USER_VILLA_ACCOUNT_REQUIRED`.
+Skill: `Desktop/skill/project-understanding`. Product locked by the directing agent. This is a historical design record. Current deployed behavior includes authenticated account-bound execution, waiting/retry states, durable provenance and recovery, settlement, owner withdrawal, and multi-user accounts with shared testnet execution serialization. The earlier Phase 2A model selected `villa-fv-v1`: a zero-drift log-return digital baseline with a separate data-quality score. Later implementation evidence is recorded in `docs/TECHNICAL_VERIFICATION.md` and the phase-specific lifecycle docs. Open multi-LP capital automation is gated by `PER_USER_VILLA_ACCOUNT_REQUIRED`.
 
 ## One sentence
 

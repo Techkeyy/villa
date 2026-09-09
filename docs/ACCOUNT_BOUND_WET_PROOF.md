@@ -62,7 +62,7 @@ The earlier f920 record is supporting lifecycle evidence for settlement and rede
 
 ## Safety conclusion
 
-The proof demonstrates account ownership and constrained operator scope. The account contract does not expose arbitrary destination or calldata input through the public app. The browser does not receive the private execution credential. The public release keeps persistent execution disabled, and safe-mode Start returns without spawning a writer or sending a transaction.
+The proof demonstrates account ownership and constrained operator scope. The account contract does not expose arbitrary destination or calldata input through the public app. The browser does not receive the private execution credential. That historical proof did not start the persistent daemon, and its safe-mode Start check returned without spawning a writer or sending a transaction. Current account-bound execution is separately documented in README.md.
 
 ## Release verification
 

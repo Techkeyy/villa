@@ -1,6 +1,8 @@
 # Technical verification
 
-Statuses used below: **VERIFIED** | **VERIFIED WITH CONDITIONS** | **NOT YET VERIFIED** | **UNSUPPORTED** | **NEEDS LIVE TESTING**. The capability table is current as of the Phase 7A audit; dated sections below preserve earlier milestone evidence and its original scope.
+Statuses used below: **VERIFIED** | **VERIFIED WITH CONDITIONS** | **NOT YET VERIFIED** | **UNSUPPORTED** | **NEEDS LIVE TESTING**. The capability table and dated sections are historical verification records from the named phases. Current deployed product behavior is documented in README.md and FINAL_AUDIT.md; historical balances, counts, deadlines, and deployment statements below must not be read as current unless explicitly marked so.
+
+Current deployment reference: commit 557f84bec02eea422aa659289048c9075bb51ce1. The public browser/API boundary is signer-free; authenticated account execution is private, bounded, and multi-user with shared testnet serialization.
 
 Evidence is from this repo's installed SDK (`node_modules/@somnia-chain/markets-sdk@0.28.1` source), official docs fetched 2026-08-24, the cloned bot kit at `.scratch/dreamdex-bot-kit` (gitignored), RPC, and `npm run doctor` / `node scripts/discover.mjs`.
 

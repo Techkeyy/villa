@@ -57,7 +57,7 @@ product-facing account Start path.
 - Plain-language product explanation.
 - Wallet and owner-scoped LP onboarding.
 - Exact account capital actions, authorization, revocation, and owner withdrawal.
-- Readiness, safe Start/Stop controls, and clear safe-mode errors.
+- Readiness, safe Start/Stop controls, truthful waiting states, and clear recovery errors.
 - Fair-value, risk, quote, inventory, settlement, and rollover references.
 - Judge-friendly proof and public release documentation.
 
