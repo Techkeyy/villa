@@ -6,6 +6,7 @@ import {
   LP_ALLOWED_ACCOUNT_OPERATIONS,
   LP_TRANSACTION_POLICY_VERSION,
   createLpTransactionPolicy,
+  createLpRecoveryTransactionPolicy,
   createTransactionIntent,
   validateTransactionPlan,
 } from "./lp-transaction-policy.mjs";
@@ -195,4 +196,23 @@ test("repeated place/cancel reevaluations get a fresh cycle budget", () => {
     const cancel = policy.prepare(adapter().cancelOrder({ marketId: MARKET, orderId: BigInt(cycle + 1) }), { txIndex: sessionTxIndex++, cycleTxIndex: 1, createdAt: 1000 });
     assert.equal(policy.validate({ ...cancel, openOrderCount: 1, pendingExposureRaw: 1_000n }).allowed, true);
   }
+});
+
+
+test("recovery uses an independent bounded counter while preserving historical intent identity", () => {
+  const policy = createLpRecoveryTransactionPolicy({ session: session(), maxTxCount: 2, now: () => 1000 });
+  const cancel = policy.prepare(adapter().cancelOrder({ marketId: MARKET, orderId: 7n }), { txIndex: 12, cycleTxIndex: 0, createdAt: 1000 });
+  assert.equal(cancel.intent.txIndex, 12);
+  assert.equal(cancel.intent.cycleTxIndex, 0);
+  assert.equal(policy.validate(cancel).allowed, true);
+  const burn = policy.prepare(adapter().burnCompleteSet({ marketId: MARKET, amountRaw: 1000n }), { txIndex: 13, cycleTxIndex: 1, createdAt: 1000 });
+  assert.equal(policy.validate(burn).allowed, true);
+  const exhausted = policy.prepare(adapter().claimVault({ marketId: MARKET, amountRaw: 1n }), { txIndex: 14, cycleTxIndex: 2, createdAt: 1000 });
+  assert.equal(policy.validate(exhausted).code, "TX_COUNT_CAP");
+});
+
+test("recovery policy rejects new-risk placement and mint actions", () => {
+  const policy = createLpRecoveryTransactionPolicy({ session: session(), maxTxCount: 2, now: () => 1000 });
+  assert.throws(() => policy.prepare(adapter().placeOrder({ marketId: MARKET, action: "SELL_YES", priceRaw: 500_000n, quantityRaw: 1_000n, expireTimestampNs: 2_000n }), { txIndex: 12, cycleTxIndex: 0, createdAt: 1000 }), { code: "RECOVERY_ACTION_DENIED" });
+  assert.throws(() => policy.prepare(adapter().mintCompleteSet({ marketId: MARKET, amountRaw: 1_000n }), { txIndex: 12, cycleTxIndex: 0, createdAt: 1000 }), { code: "RECOVERY_ACTION_DENIED" });
 });

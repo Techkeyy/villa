@@ -23,6 +23,12 @@ export const LP_ALLOWED_ACCOUNT_OPERATIONS = Object.freeze([
   "operatorRedeem",
   "operatorClaimVault",
 ]);
+export const LP_RECOVERY_ALLOWED_FUNCTIONS = Object.freeze([
+  "operatorCancelOrder",
+  "operatorBurnSet",
+  "operatorRedeem",
+  "operatorClaimVault",
+]);
 export const LP_DENIED_OPERATIONS = Object.freeze([
   "withdraw",
   "transferOwnership",
@@ -307,6 +313,30 @@ export function createLpTransactionPolicy({ session, caps = DEFAULT_PHASE_3B1_CA
     return validateTransactionPlan(plan, { session, caps: effectiveCaps, nowMs, maxIntentAgeMs });
   }
   return Object.freeze({ version: LP_TRANSACTION_POLICY_VERSION, caps: effectiveCaps, prepare, validate });
+}
+
+/** Create a separate, risk-reducing cleanup policy for one scoped recovery. */
+export function createLpRecoveryTransactionPolicy({ session, maxTxCount, now = () => Date.now(), maxIntentAgeMs = 30_000 } = {}) {
+  const recoveryMax = Number(maxTxCount);
+  if (!Number.isSafeInteger(recoveryMax) || recoveryMax < 1 || recoveryMax > DEFAULT_PHASE_3B1_CAPS.MAX_TX_COUNT) {
+    throw new LpTransactionPolicyError("RECOVERY_CAP_INVALID", "the scoped recovery cleanup budget is invalid");
+  }
+  const allowed = new Set(LP_RECOVERY_ALLOWED_FUNCTIONS);
+  const base = createLpTransactionPolicy({ session, caps: { ...DEFAULT_PHASE_3B1_CAPS, MAX_TX_COUNT: recoveryMax }, now, maxIntentAgeMs });
+  function assertAllowed(plan) {
+    if (!allowed.has(plan?.functionName)) throw new LpTransactionPolicyError("RECOVERY_ACTION_DENIED", "scoped recovery permits only verified risk-reducing cleanup actions");
+    if (plan?.intent?.cycleTxIndex === undefined) throw new LpTransactionPolicyError("RECOVERY_BUDGET_REQUIRED", "scoped recovery requires an independent cleanup counter");
+  }
+  function prepare(plan, options = {}) {
+    if (!allowed.has(plan?.functionName)) throw new LpTransactionPolicyError("RECOVERY_ACTION_DENIED", "scoped recovery permits only verified risk-reducing cleanup actions");
+    if (options.cycleTxIndex === undefined) throw new LpTransactionPolicyError("RECOVERY_BUDGET_REQUIRED", "scoped recovery requires an independent cleanup counter");
+    return base.prepare(plan, options);
+  }
+  function validate(plan, { nowMs = now() } = {}) {
+    try { assertAllowed(plan); } catch (error) { return reject(error.code, error.message); }
+    return base.validate(plan, { nowMs });
+  }
+  return Object.freeze({ version: base.version, caps: base.caps, prepare, validate });
 }
 
 export function policySelector(functionName, args) {

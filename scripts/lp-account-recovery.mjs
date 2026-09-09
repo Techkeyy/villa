@@ -13,9 +13,9 @@ import { createLpExecutionAdapter, createViemLpAccountReader, VILLA_ACCOUNT_READ
 import { createAccountBoundPrivateWriter } from "../src/execution/lp-private-writer.mjs";
 import { createFileAccountLeaseStore, createLpExecutionSession, transitionLpSession, attachLease } from "../src/execution/lp-session.mjs";
 import { createLeaseHeartbeat, LP_LEASE_DURATION_MS, LP_LEASE_HEARTBEAT_INTERVAL_MS } from "../src/execution/lp-lease-heartbeat.mjs";
-import { classifyFactBasedRecovery, classifyScopedOpenOrderCancellation, isPreMarketFailureCode, validateExpiredSessionRecovery, validatePreflightFailureRecovery, validateSignerFreePreMarketEvidence, recoveryActions } from "../src/execution/lp-session-recovery.mjs";
+import { classifyFactBasedRecovery, classifyScopedOpenOrderCancellation, deriveRecoveryWriteBudget, isPreMarketFailureCode, validateExpiredSessionRecovery, validatePreflightFailureRecovery, validateSignerFreePreMarketEvidence, recoveryActions } from "../src/execution/lp-session-recovery.mjs";
 import { reconcileDurableJournal } from "../src/execution/lp-recovery.mjs";
-import { DEFAULT_PHASE_3B1_CAPS, createLpTransactionPolicy } from "../src/execution/lp-transaction-policy.mjs";
+import { DEFAULT_PHASE_3B1_CAPS, createLpRecoveryTransactionPolicy } from "../src/execution/lp-transaction-policy.mjs";
 import { loadPrivateSigner } from "../src/execution/lp-private-runtime.mjs";
 import { prepareSignerExecution } from "../src/execution/lp-signer-execution-guard.mjs";
 import { createFileGlobalExecutionAdmission } from "../src/execution/lp-global-admission.mjs";
@@ -296,17 +296,23 @@ async function main() {
       catch (error) { fail(error?.code || "GLOBAL_ADMISSION_LOST", "the recovery execution admission was lost"); }
     }, 10_000);
     admissionHeartbeat.unref?.();
-    const policy = createLpTransactionPolicy({ session, caps: DEFAULT_PHASE_3B1_CAPS });
+    let actions = recoveryActions({ session, provenance, accountState });
+    const recoveryMaxTxCount = deriveRecoveryWriteBudget({ actions, accountState });
+    const policy = createLpRecoveryTransactionPolicy({ session, maxTxCount: recoveryMaxTxCount });
     const walletClient = createWalletClient({ account: loadPrivateSigner({ credentialsDirectory: env.CREDENTIALS_DIRECTORY, expectedOperator: config.operator }).signer, chain: somniaShannon, transport: http(env.RPC_URL || VILLA_ACCOUNT_CONFIG.rpcUrl, { timeout: 15_000 }) });
     const signer = walletClient.account;
     session = transitionLpSession(session, "RUNNING");
     writer = createAccountBoundPrivateWriter({ session, lease: heartbeat.authority, policy, signer, publicClient, walletClient, executionEnabled: true, readLatestNonce: () => publicClient.getTransactionCount({ address: signer.address, blockTag: "latest" }), readPendingNonce: () => publicClient.getTransactionCount({ address: signer.address, blockTag: "pending" }), readReceipt: (hash) => publicClient.getTransactionReceipt({ hash }), journalPath, provenancePath: config.provenancePath, requireProvenance: true, executionAdmission: { store: signerGuard.admissionStore, admissionId: signerGuard.admission.admissionId, session: signerGuard.exactSession }, requireGlobalAdmission: true });
-    let txIndex = provenance.nextTxIndex;
+    let txIndex = Number.isSafeInteger(Number(provenance.nextTxIndex))
+      ? Number(provenance.nextTxIndex)
+      : journal.records.filter((record) => record?.state === "CONFIRMED").length;
+    let recoveryTxIndex = 0;
     const writes = [];
     const enqueue = async (plan, context = {}) => {
       heartbeat.renewNow();
-      const prepared = policy.prepare({ ...plan, accountCapitalRaw: accountState.capital.directCollateralRaw, ...context }, { txIndex, createdAt: Date.now() });
+      const prepared = policy.prepare({ ...plan, accountCapitalRaw: accountState.capital.directCollateralRaw, ...context }, { txIndex, cycleTxIndex: recoveryTxIndex, createdAt: Date.now() });
       txIndex += 1;
+      recoveryTxIndex += 1;
       const result = await writer.enqueue(prepared);
       if (result.state !== "CONFIRMED") fail("RECOVERY_WRITE_UNCONFIRMED", "recovery write was not authoritatively confirmed");
       writes.push({ action: prepared.intent.action, hash: result.hash, receiptBlock: result.receiptBlock });
@@ -316,7 +322,6 @@ async function main() {
     send(env, { type: "state", state: "STOPPING", session });
     send(env, { type: "snapshot", snapshot: { ...stored.snapshot, lastAction: "expired_session_recovery" } });
 
-    let actions = recoveryActions({ session, provenance, accountState });
     for (const orderId of actions.cancelOrderIds) {
       const order = accountState.orders.orders.find((item) => raw(item.orderId, "order id") === orderId);
       await enqueue(adapter.cancelOrder({ marketId, orderId }), { openOrderCount: accountState.orders.orders.length, pendingExposureRaw: order?.quantityRemainingRaw ?? 0n });

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import test from "node:test";
-import { classifyScopedOpenOrderCancellation, recoveryActions, validateOrderLifecycleProof } from "./lp-session-recovery.mjs";
+import { classifyScopedOpenOrderCancellation, deriveRecoveryWriteBudget, recoveryActions, validateOrderLifecycleProof } from "./lp-session-recovery.mjs";
 
 const ACCOUNT = "0x1111111111111111111111111111111111111111";
 const OWNER = "0x2222222222222222222222222222222222222222";
@@ -217,4 +217,13 @@ test("lease rotation authorizes only cleanup of the uniquely verified live order
   value.expiredLease = { ...value.expiredLease, leaseId: "lease-new", recoveredExpiredLease: true, recoveredLeaseId: "lease-old" };
   const result = classifyScopedOpenOrderCancellation(value);
   assert.deepEqual(result.actions, { cancelOrderIds: [7n], burnAmountRaw: 0n, claimVaultRaw: 0n });
+});
+
+
+test("recovery budget derives the exact cancel plus possible post-cancel burn", () => {
+  const value = fixture();
+  const lifecycle = proof(value);
+  const actions = recoveryActions({ session: value.session, provenance: lifecycle.provenance, accountState: value.accountState });
+  assert.deepEqual(actions.cancelOrderIds, [7n]);
+  assert.equal(deriveRecoveryWriteBudget({ actions, accountState: value.accountState }), 2);
 });

@@ -422,6 +422,24 @@ export function classifyScopedOpenOrderCancellation({ session, stored, expiredLe
   }
 }
 
+export function deriveRecoveryWriteBudget({ actions, accountState } = {}) {
+  if (!actions || !accountState) fail("RECOVERY_STATE_REQUIRED", "recovery action state is required");
+  const cancelOrderIds = new Set((actions.cancelOrderIds ?? []).map((value) => orderId(value)));
+  let count = cancelOrderIds.size;
+  if (raw(actions.burnAmountRaw ?? 0n, "recovery burn amount") > 0n) count += 1;
+  if (raw(actions.claimVaultRaw ?? 0n, "recovery claim amount") > 0n) count += 1;
+  if (cancelOrderIds.size > 0) {
+    const releasedAskRaw = (accountState.orders?.orders ?? [])
+      .filter((order) => cancelOrderIds.has(orderId(order.orderId)))
+      .reduce((total, order) => total + raw(order.quantityRemainingRaw, "remaining order quantity"), 0n);
+    const yesAfterCancel = raw(accountState.inventory?.yesRaw, "YES inventory") + releasedAskRaw;
+    const noAfterCancel = raw(accountState.inventory?.noRaw, "NO inventory");
+    if (yesAfterCancel > 0n && noAfterCancel > 0n) count += 1;
+    if (raw(accountState.capital?.vaultRaw ?? 0n, "vault credit") > 0n) count += 1;
+  }
+  return Math.max(1, count);
+}
+
 export function recoveryActions({ session, provenance, accountState } = {}) {
   if (!session || !provenance || !accountState) fail("RECOVERY_STATE_REQUIRED", "recovery action state is required");
   const known = new Set(provenance.knownOrderIds ?? []);
