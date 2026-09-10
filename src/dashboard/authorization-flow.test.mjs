@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import test from "node:test";
 import { AccountClientError, accountCall } from "../../dashboard/account-client.mjs";
-import { VILLA_ACCOUNT_CONFIG, VILLA_CHAIN, ZERO_ADDRESS } from "../../dashboard/account-config.mjs";
+import { VILLA_ACCOUNT_CONFIG, VILLA_CHAIN, VILLA_SELECTORS, ZERO_ADDRESS } from "../../dashboard/account-config.mjs";
 import { accountReadinessSnapshot, evaluateVerifiedOwnerAccountReadiness, isStrategyCapitalReady, isVerifiedOwnerAccountReady } from "../../dashboard/account-readiness.mjs";
 import { createAuthorizationHandler, runAuthorization } from "../../dashboard/authorization-flow.mjs";
 
@@ -21,6 +21,7 @@ function harness({
   provider = { request: async () => null },
   operator = OPERATOR,
   accountOperator = ZERO_ADDRESS,
+  accountAutonomousTradingEnabled = false,
   chainId = VILLA_CHAIN.id,
   discoveryStatus = "DISCOVERED",
   verification = "VERIFIED",
@@ -28,6 +29,7 @@ function harness({
   sendFailure = null,
 } = {}) {
   let currentOperator = accountOperator;
+  let currentAutonomousTradingEnabled = accountAutonomousTradingEnabled;
   const calls = [];
   const stages = [];
   const updates = [];
@@ -36,6 +38,7 @@ function harness({
     address: ACCOUNT,
     owner: OWNER,
     operator: currentOperator,
+    autonomousTradingEnabled: currentAutonomousTradingEnabled,
     balance: 0n,
     verification,
   });
@@ -63,7 +66,8 @@ function harness({
         if (sendFailure) throw new AccountClientError(sendFailure, "The wallet request was cancelled.");
         update("SUBMITTED", "0xauth");
         update("SUCCESS", "0xauth");
-        currentOperator = OPERATOR;
+        if (transaction.data.startsWith(VILLA_SELECTORS.setAutonomousTrading)) currentAutonomousTradingEnabled = true;
+        else currentOperator = OPERATOR;
         return { hash: "0xauth", receipt: { status: "0x1" } };
       },
     },
@@ -75,6 +79,7 @@ function harness({
     updates,
     debug,
     get currentOperator() { return currentOperator; },
+    get currentAutonomousTradingEnabled() { return currentAutonomousTradingEnabled; },
   };
 }
 
@@ -132,7 +137,7 @@ test("canonical readiness accepts the exact rediscovered owner account before au
   ]) assert.equal(isVerifiedOwnerAccountReady({ ...fixture.context, ...patch }), false);
 });
 
-test("verified owner authorization prepares the exact setOperator transaction without broadcasting", async () => {
+test("verified owner authorization sets the operator and explicitly enables autonomous trading", async () => {
   const fixture = harness();
   const result = await runAuthorization(fixture.context);
   assert.equal(result.alreadyAuthorized, false);
@@ -140,12 +145,37 @@ test("verified owner authorization prepares the exact setOperator transaction wi
     from: OWNER,
     to: ACCOUNT,
     data: accountCall.setOperator(OPERATOR),
+  }, {
+    from: OWNER,
+    to: ACCOUNT,
+    data: accountCall.setAutonomousTrading(true),
   }]);
-  assert.deepEqual(fixture.stages.map(([stage]) => stage), ["READY", "CONFIRMING"]);
-  assert.deepEqual(fixture.updates.map(([state]) => state), ["WAITING_FOR_WALLET", "SUBMITTED", "SUCCESS"]);
+  assert.deepEqual(fixture.stages.map(([stage]) => stage), ["READY", "CONFIRMING", "READY", "CONFIRMING"]);
+  assert.deepEqual(fixture.updates.map(([state]) => state), ["WAITING_FOR_WALLET", "SUBMITTED", "SUCCESS", "WAITING_FOR_WALLET", "SUBMITTED", "SUCCESS"]);
   assert.equal(fixture.currentOperator, OPERATOR);
+  assert.equal(fixture.currentAutonomousTradingEnabled, true);
+  assert.equal(result.accountAfter.operator, OPERATOR);
+  assert.equal(result.accountAfter.autonomousTradingEnabled, true);
   assert.ok(fixture.debug.some(({ event }) => event === "authorize_prepare"));
 });
+
+test("already complete authorization performs no duplicate owner transaction", async () => {
+  const fixture = harness({ accountOperator: OPERATOR, accountAutonomousTradingEnabled: true });
+  const result = await runAuthorization(fixture.context);
+  assert.equal(result.alreadyAuthorized, true);
+  assert.equal(fixture.calls.length, 0);
+  assert.equal(result.accountAfter.operator, OPERATOR);
+  assert.equal(result.accountAfter.autonomousTradingEnabled, true);
+});
+test("reauthorization with the canonical operator still enables autonomous trading", async () => {
+  const fixture = harness({ accountOperator: OPERATOR });
+  const result = await runAuthorization(fixture.context);
+  assert.equal(result.alreadyAuthorized, false);
+  assert.deepEqual(fixture.calls.map(({ data }) => data), [accountCall.setAutonomousTrading(true)]);
+  assert.equal(result.accountAfter.operator, OPERATOR);
+  assert.equal(result.accountAfter.autonomousTradingEnabled, true);
+});
+
 
 test("Authorize VILLA click fires and reaches preparation for the exact verified state", async () => {
   const fixture = harness();
@@ -156,7 +186,7 @@ test("Authorize VILLA click fires and reaches preparation for the exact verified
   })();
   assert.equal(result.alreadyAuthorized, false);
   assert.equal(errors.length, 0);
-  assert.equal(fixture.calls.length, 1);
+  assert.equal(fixture.calls.length, 2);
   assert.ok(fixture.debug.some(({ event }) => event === "authorize_click"));
   assert.ok(fixture.debug.some(({ event }) => event === "authorize_prepare"));
 });
@@ -241,4 +271,14 @@ test("ACCOUNT READY and owner-action eligibility consume one readiness truth", (
   assert.match(app, /isReady: \(context\) => isVerifiedOwnerAccountReady\(context\)/);
   assert.match(app, /const canManageCapital = accountReady && !appState\.busy/);
   assert.doesNotMatch(fs.readFileSync(new URL("../../dashboard/account-readiness.mjs", import.meta.url), "utf8"), /operator/);
+});
+test("revocation disables autonomy and incomplete authorization cannot render READY or pass Start", () => {
+  const contract = fs.readFileSync(new URL("../../contracts/VillaAccount.sol", import.meta.url), "utf8");
+  const app = fs.readFileSync(new URL("../../dashboard/app.mjs", import.meta.url), "utf8");
+  assert.match(contract, /function revokeOperator\(\).*?autonomousTradingEnabled = false/s);
+  assert.match(app, /const autonomousTradingEnabled = isV2 && account\.autonomousTradingEnabled === true/);
+  assert.match(app, /const authorizationIncomplete = isV2 && operatorAuthorized && !autonomousTradingEnabled/);
+  assert.match(app, /&& appState\.account\.autonomousTradingEnabled === true/);
+  assert.match(app, /AUTHORIZATION INCOMPLETE/);
+  assert.match(app, /autonomous trading is disabled/);
 });

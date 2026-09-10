@@ -136,6 +136,10 @@ export function encodeUint(value) {
   return word(numeric.toString(16));
 }
 
+export function encodeBool(value) {
+  return word(value ? "1" : "0");
+}
+
 export function encodeCall(selector, args = []) {
   return `${selector}${args.join("")}`;
 }
@@ -655,6 +659,7 @@ export const accountCall = {
   deposit: (amount) => encodeCall(VILLA_SELECTORS.deposit, [encodeUint(amount)]),
   withdraw: (amount) => encodeCall(VILLA_SELECTORS.withdraw, [encodeUint(amount)]),
   setOperator: (operator) => encodeCall(VILLA_SELECTORS.setOperator, [encodeAddress(operator)]),
+  setAutonomousTrading: (enabled) => encodeCall(VILLA_SELECTORS.setAutonomousTrading, [encodeBool(enabled)]),
   revokeOperator: () => VILLA_SELECTORS.revokeOperator,
 };
 

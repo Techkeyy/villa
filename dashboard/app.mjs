@@ -351,6 +351,7 @@ function accountReadyForControl() {
     && isVerifiedOwnerAccountReady(appState)
     && isStrategyCapitalReady(appState)
     && appState.account.operator === normalizeAddress(VILLA_ACCOUNT_CONFIG.operator)
+    && appState.account.autonomousTradingEnabled === true
     && appState.account.balance > 0n;
 }
 
@@ -677,8 +678,11 @@ function updateWorkspace(account, walletBalance) {
   const accountVersion = accountVersionOf(account);
   const isV2 = accountVersion === 2;
   const strategyCapitalReady = isStrategyCapitalReady({ account });
-  const authorized = account.operator === normalizeAddress(VILLA_ACCOUNT_CONFIG.operator);
-  const unexpectedOperator = account.operator !== ZERO_ADDRESS && !authorized;
+  const operatorAuthorized = account.operator === normalizeAddress(VILLA_ACCOUNT_CONFIG.operator);
+  const autonomousTradingEnabled = isV2 && account.autonomousTradingEnabled === true;
+  const authorized = operatorAuthorized && autonomousTradingEnabled;
+  const authorizationIncomplete = isV2 && operatorAuthorized && !autonomousTradingEnabled;
+  const unexpectedOperator = account.operator !== ZERO_ADDRESS && !operatorAuthorized;
   text("account-address", shorten(account.address));
   text("account-owner", shorten(account.owner));
   text("account-version", `VillaAccount V${accountVersion || "?"}`);
@@ -702,17 +706,19 @@ function updateWorkspace(account, walletBalance) {
   const authStatus = element("authorization-status");
   if (authStatus) {
     authStatus.className = `status-pill ${authorized ? "status-safe" : "status-preview"}`;
-    authStatus.textContent = authorized ? "AUTHORIZED" : unexpectedOperator ? "UNRECOGNIZED" : "NOT AUTHORIZED";
+    authStatus.textContent = authorized ? "AUTHORIZED" : authorizationIncomplete ? "AUTHORIZATION INCOMPLETE" : unexpectedOperator ? "UNRECOGNIZED" : "NOT AUTHORIZED";
   }
   text("authorization-copy", !isV2
     ? "This is a V1 VillaAccount. V1 cannot run bounded autonomous trading, but it remains owner-controlled and withdrawable. Create and verify an empty V2 before moving any funds."
     : authorized
       ? "Your wallet is verified. VILLA uses a private account-bound operator for approved DreamDEX liquidity actions. Only your wallet can withdraw."
-      : unexpectedOperator
-        ? "This account has a different automation address. VILLA actions are paused until you review it."
-        : "VILLA is not authorized to use this account.");
+      : authorizationIncomplete
+        ? "The VILLA operator is set, but autonomous trading is disabled. Authorize VILLA again to enable it before Start."
+        : unexpectedOperator
+          ? "This account has a different automation address. VILLA actions are paused until you review it."
+          : "VILLA is not authorized to use this account.");
   toggle("authorize-villa", isV2 && accountReady && !authorized && !unexpectedOperator);
-  toggle("revoke-villa", accountReady && authorized);
+  toggle("revoke-villa", accountReady && operatorAuthorized);
 
   const ready = isV2 && accountReady && authorized && strategyCapitalReady;
   const readinessStatus = element("readiness-status");
@@ -720,12 +726,13 @@ function updateWorkspace(account, walletBalance) {
     readinessStatus.className = `status-pill ${ready ? "status-safe" : "status-preview"}`;
     readinessStatus.textContent = ready ? "READY" : "SETUP REQUIRED";
   }
-  text("readiness-title", !isV2 ? "V1 remains recoverable." : ready ? "Liquidity setup complete." : !strategyCapitalReady ? "Add strategy capital first." : "Complete account setup first.");
+  text("readiness-title", !isV2 ? "V1 remains recoverable." : ready ? "Liquidity setup complete." : !strategyCapitalReady ? "Add strategy capital first." : authorizationIncomplete ? "Enable autonomous trading first." : "Complete account setup first.");
   text("strategy-requirement-copy", "VILLA needs " + formatRawExact(MIN_STRATEGY_CAPITAL_RAW) + " tUSDC for this test configuration: 1.000 reserve + 0.001 minimum market inventory.");
   text("readiness-copy", !isV2
     ? "V1 remains funded and recoverable. Create and verify an empty V2 before deciding whether to migrate funds."
     : ready ? "Your account is ready. Start asks the constrained control plane to run a fresh account-bound preflight."
       : !strategyCapitalReady ? "VILLA needs " + formatRawExact(MIN_STRATEGY_CAPITAL_RAW) + " tUSDC for this test configuration: 1.000 reserve + 0.001 minimum market inventory."
+        : authorizationIncomplete ? "The VILLA operator is set, but autonomous trading is disabled. Authorize VILLA again before Start."
         : "Add liquidity and authorize VILLA before the workspace can be marked ready.");
   const capitalStatus = element("capital-status");
   if (capitalStatus) {
@@ -1045,9 +1052,10 @@ const handleAuthorize = createAuthorizationHandler({
     discoveryStatus: appState.discoveryStatus,
     transactionStatus: appState.transactionStatus,
     busy: appState.busy,
-    onStage: (stage, hash = "") => {
-      if (stage === "READY") showTransaction("READY", "Authorize VILLA", "VILLA may use this account for approved DreamDEX liquidity actions. VILLA cannot withdraw your funds.");
-      if (stage === "CONFIRMING") showTransaction("CONFIRMING", "Verifying VILLA authorization", "Checking the operator address on-chain.", hash);
+    onStage: (stage, hash = "", action = "") => {
+      const enabling = action === "ENABLE_AUTONOMOUS_TRADING";
+      if (stage === "READY") showTransaction("READY", enabling ? "Enable autonomous trading" : "Authorize VILLA", enabling ? "Approve the owner transaction to enable VILLA autonomous trading for this account." : "VILLA may use this account for approved DreamDEX liquidity actions. VILLA cannot withdraw your funds.");
+      if (stage === "CONFIRMING") showTransaction("CONFIRMING", enabling ? "Verifying autonomous trading" : "Verifying VILLA authorization", enabling ? "Checking that autonomousTradingEnabled is true on-chain." : "Checking the operator address on-chain.", hash);
     },
     onTransactionUpdate: actionUpdate,
   }),
@@ -1066,7 +1074,7 @@ const handleAuthorize = createAuthorizationHandler({
       setMessage("authorization-message", "VILLA is already authorized.", "safe");
       return;
     }
-    showTransaction("SUCCESS", "VILLA authorized", "VILLA can perform approved DreamDEX liquidity actions. Only your wallet can withdraw.", hash);
+    showTransaction("SUCCESS", "VILLA authorized", "VILLA can perform approved DreamDEX liquidity actions with autonomous trading enabled. Only your wallet can withdraw.", hash);
     setMessage("authorization-message", "VILLA authorization confirmed.", "safe");
   },
 });
@@ -1082,7 +1090,7 @@ async function handleRevoke() {
     const result = await sendTransaction(provider, actionTransaction(appState.owner, appState.account.address, accountCall.revokeOperator()), actionUpdate);
     showTransaction("CONFIRMING", "Verifying revocation", "Checking that the account operator is now zero.", result.hash);
     const after = await readAccount(provider, appState.account.address, accountArtifacts ?? accountArtifact, appState.owner);
-    if (after.operator !== ZERO_ADDRESS) throw new AccountClientError("REVOCATION_MISMATCH", "The account operator was not revoked.", result.hash);
+    if (after.operator !== ZERO_ADDRESS || after.autonomousTradingEnabled !== false) throw new AccountClientError("REVOCATION_MISMATCH", "The account operator and autonomous trading state were not revoked.", result.hash);
     const walletBalance = await readTokenBalance(provider, appState.owner);
     setAppState({ account: after, accounts: mergeAccount(after), walletBalance, currentAccountAddress: after.address, discoveryStatus: "DISCOVERED", error: null });
     updateWorkspace(after, walletBalance);

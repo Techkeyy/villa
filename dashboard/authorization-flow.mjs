@@ -46,23 +46,54 @@ export async function runAuthorization({
   const chainId = await readChainIdFor(provider);
   if (chainId !== VILLA_CHAIN.id) throw new AccountClientError("WRONG_NETWORK", "Switch to Somnia Shannon.");
   const verified = await readAccountFor(provider, account.address, accountArtifact, owner);
-  if (verified.operator === operatorAddress) return { alreadyAuthorized: true, accountAfter: verified, hash: "" };
-  if (verified.operator !== ZERO_ADDRESS) throw new AccountClientError("UNEXPECTED_OPERATOR", "This account has a different operator. VILLA will not overwrite it.");
+  const operatorMatches = verified.operator === operatorAddress;
+  const autonomyMatches = verified.autonomousTradingEnabled === true;
+  if (operatorMatches && autonomyMatches) return { alreadyAuthorized: true, accountAfter: verified, hash: "" };
+  if (verified.operator !== ZERO_ADDRESS && !operatorMatches) throw new AccountClientError("UNEXPECTED_OPERATOR", "This account has a different operator. VILLA will not overwrite it.");
 
-  const transaction = actionTransaction(owner, verified.address, accountCall.setOperator(operatorAddress));
-  emitDebug(onDebug, "authorize_prepare", {
-    owner,
-    account: verified.address,
-    operator: operatorAddress,
-    chainId,
-    to: transaction.to,
-  });
-  onStage("READY");
-  const result = await send(provider, transaction, (state, hash = "") => onTransactionUpdate(state, hash));
-  onStage("CONFIRMING", result.hash);
-  const after = await readAccountFor(provider, verified.address, accountArtifact, owner);
-  if (after.operator !== operatorAddress) throw new AccountClientError("AUTHORIZATION_MISMATCH", "Authorization was not set to the trusted VILLA operator.", result.hash);
-  return { alreadyAuthorized: false, accountAfter: after, hash: result.hash };
+  let after = verified;
+  let lastHash = "";
+  if (!operatorMatches) {
+    const transaction = actionTransaction(owner, verified.address, accountCall.setOperator(operatorAddress));
+    emitDebug(onDebug, "authorize_prepare", {
+      owner,
+      account: verified.address,
+      operator: operatorAddress,
+      autonomousTradingEnabled: false,
+      action: "SET_OPERATOR",
+      chainId,
+      to: transaction.to,
+    });
+    onStage("READY", "", "SET_OPERATOR");
+    const result = await send(provider, transaction, (state, hash = "") => onTransactionUpdate(state, hash));
+    lastHash = result.hash || "";
+    onStage("CONFIRMING", lastHash, "SET_OPERATOR");
+    after = await readAccountFor(provider, verified.address, accountArtifact, owner);
+    if (after.operator !== operatorAddress) throw new AccountClientError("AUTHORIZATION_MISMATCH", "Authorization was not set to the trusted VILLA operator.", lastHash);
+  }
+
+  if (after.autonomousTradingEnabled !== true) {
+    const transaction = actionTransaction(owner, after.address, accountCall.setAutonomousTrading(true));
+    emitDebug(onDebug, "authorize_prepare", {
+      owner,
+      account: after.address,
+      operator: operatorAddress,
+      autonomousTradingEnabled: true,
+      action: "ENABLE_AUTONOMOUS_TRADING",
+      chainId,
+      to: transaction.to,
+    });
+    onStage("READY", "", "ENABLE_AUTONOMOUS_TRADING");
+    const result = await send(provider, transaction, (state, hash = "") => onTransactionUpdate(state, hash));
+    lastHash = result.hash || "";
+    onStage("CONFIRMING", lastHash, "ENABLE_AUTONOMOUS_TRADING");
+  }
+
+  after = await readAccountFor(provider, verified.address, accountArtifact, owner);
+  if (after.operator !== operatorAddress || after.autonomousTradingEnabled !== true) {
+    throw new AccountClientError("AUTHORIZATION_INCOMPLETE", "Authorization is incomplete: the trusted operator and autonomous trading must both be enabled.", lastHash);
+  }
+  return { alreadyAuthorized: false, accountAfter: after, hash: lastHash };
 }
 
 export function createAuthorizationHandler({
